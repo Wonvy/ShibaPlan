@@ -120,6 +120,26 @@
       "PingFang SC", "Microsoft YaHei", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"],
+  [contenteditable=""],
+  .select-text {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  input::selection,
+  textarea::selection,
+  [contenteditable="true"]::selection,
+  [contenteditable=""]::selection,
+  .select-text::selection {
+    background-color: hsl(var(--primary) / 0.28);
+    color: inherit;
   }
 }
 
