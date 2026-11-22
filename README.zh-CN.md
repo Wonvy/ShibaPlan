@@ -1,105 +1,126 @@
 <div align="center">
+  <img src="./docs/logo.svg" alt="ShibaPlan Logo" width="84" height="84" />
+  <h1>ShibaPlan</h1>
+  <p><strong>克制、本地优先的个人工作台，面向设计、开发与评测工作流。</strong></p>
+  <p>
+    基于 Tauri 2.0、React、TypeScript、Tailwind CSS 与 shadcn/ui 构建。<br />
+    无边框原生体验 · 数据完全本地掌控 · Everything 级过往项目索引与检索。
+  </p>
 
-<img src="./app-icon.svg" alt="ShibaPlan" width="72" height="72" />
+  <p>
+    <a href="./README.md">English</a> &nbsp;|&nbsp; <strong>简体中文</strong>
+  </p>
 
-# ShibaPlan
-
-**面向设计、开发与评测工作者的跨平台极简节奏工作台**  
-自定义看板 · 自由画布 · 灵感流 · 时间月历 · AI 联动工作流
-
-[English](./README.md) · [简体中文](./README.zh-CN.md)
-
-![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24C8DB?style=flat-square&logo=tauri&logoColor=white)
-![React 18](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![shadcn/ui](https://img.shields.io/badge/Design-shadcn%2Fui-18181B?style=flat-square)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-52525B?style=flat-square)
-
+  <p>
+    <img src="https://img.shields.io/badge/Tauri-2.0-141417?style=flat-square" alt="Tauri 2.0" />
+    <img src="https://img.shields.io/badge/React-18-141417?style=flat-square" alt="React 18" />
+    <img src="https://img.shields.io/badge/TypeScript-5-141417?style=flat-square" alt="TypeScript" />
+    <img src="https://img.shields.io/badge/平台-Windows%20%7C%20macOS-141417?style=flat-square" alt="Platform" />
+    <img src="https://img.shields.io/badge/协议-MIT-141417?style=flat-square" alt="License" />
+  </p>
 </div>
 
 ---
 
-## 简介
+## 界面预览
 
-**ShibaPlan** 专为同时兼顾设计、开发与评测的个人创作者打造。摒弃臃肿的传统项目管理界面，将**自定义看板**、**自由画布**、**月历时间视图**与底部缓缓流动的**灵感流**融为一体——帮你理清优先级与时间节奏，同时让随时冒出的灵感与截图能一键转化为 AI 可直接执行的开发规格。
+### 看板与灵感流（深色主题）
+<img src="./docs/screenshots/kanban-dark.png" alt="ShibaPlan 看板与灵感流界面" width="100%" />
+
+### 过往项目归档、文件统计、纸感日历与选项卡设置
+<table>
+  <tr>
+    <td width="50%">
+      <img src="./docs/screenshots/projects-archive.png" alt="三栏项目归档与内嵌资源管理器" width="100%" />
+      <p align="center"><sub><strong>项目三栏归档</strong> — 多目录本地缓存、原比例不裁剪缩略图、右侧资源管理器与 Seer 空格预览</sub></p>
+    </td>
+    <td width="50%">
+      <img src="./docs/screenshots/projects-stats.png" alt="项目文件类型统计与趋势图" width="100%" />
+      <p align="center"><sub><strong>文件统计与产出趋势</strong> — PSD / PPT / PDF / AI 格式排行、大类占比与历年/月度柱状图</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="./docs/screenshots/calendar-paper.png" alt="温暖纸张主题日历视图" width="100%" />
+      <p align="center"><sub><strong>时间日历（纸张主题）</strong> — 细微纸张纤维颗粒质感、滚轮切月与拖拽排期</sub></p>
+    </td>
+    <td width="50%">
+      <img src="./docs/screenshots/settings-tabs.png" alt="选项卡式设置界面与自定义主题色" width="100%" />
+      <p align="center"><sub><strong>选项卡式设置</strong> — 自定义 HEX 主题色、AI 模型自动获取、项目目录管理与错误日志</sub></p>
+    </td>
+  </tr>
+</table>
+
+---
 
 ## 核心特性
 
-### 看板与自由画布
-- **完全自定义看板列**：自由创建、重命名、选色、拖拽排序，支持单独拖拽调节每列宽度及列与列之间的间距；右键列标题可按列开关卡片显示字段（耗时、日期、备注、图片）。
-- **文件夹式折叠**：双击任意看板列标题即可折成紧凑文件夹卡片，大号数字直观呈现待办、完成与预估耗时，折叠后同样支持拖拽调高与拖入卡片。
-- **自由画布模式**：自由摆放所有看板列与文件夹，拖动时自动显示对齐参考线并磁吸吸附（按住 `Alt` 临时取消吸附）；支持画布空白处滚轮缩放、空格拖拽平移、一键整齐排列与适配全屏。
-- **本地文件与文件夹快捷方式**：直接从系统拖入文件夹或文件生成快捷卡片，支持卡片内折叠展开查看文件列表，点击即可调用系统默认程序打开。
-- **悬停即粘贴与双击新建**：鼠标悬停在任意看板列、灵感流或日历日期上直接按 `Ctrl + V`，自动插入剪贴板文字、截图或路径并进入编辑状态；空白处双击即可快速新建卡片。
+### 1. 三栏过往项目归档与 Everything 快捷搜索
+- **多目录自动索引与本地缓存**：在“设置 → 项目目录”中通过系统原生文件夹选择器添加多个归档目录，目录结构、解析日期与缩略图路径自动缓存至 `project_archive_cache.json`，冷启动与切换标签零延迟。
+- **多种日期兼容与真实完成日期推断**：兼容 `2025-10-10_名称`、`25-02-19`、`20210913`、`0103`、`#2025/10月` 等格式；支持 **项目内交付文件加权月份聚类算法**，自动过滤旧模板与偶发误改，精准还原项目真实完成日期。
+- **Everything 级秒搜**：支持空格（与）、`|`（或）、`!`（排除）、`ext:psd;pptx;pdf`、`folder:`、`file:`、`year:2025` 与 `*`/`?` 通配符搜索及关键词高亮。
+- **四种视图 + 缩放**：支持 **网格**（统一等高、限制最大宽度、`Ctrl + 滚轮` 缩放）、**时间轴**、**列表** 与 **统计图表**（点击任意格式条可直接下钻检索对应文件）。
+- **可调宽三栏 + 右侧资源管理器 + Seer 空格预览**：左右三栏均可拖拽调宽并记忆；右侧资源管理器支持列表/图标切换，选中文件按 **空格键** 通过 Seer 官方 Win32 `WM_COPYDATA (5000)` 协议原生预览（未安装 Seer 时自动启用内置快速预览）。
 
-### 灵感流与 AI 工作流
-- **多行流动灵感河**：圆角矩形胶囊根据字数呈现自然长短变化，支持悬停阅读完整内容、鼠标滚轮左右滑动、拖拽调节高度、折叠底栏，以及支持滚轮快翻的自动分页列表视图。
-- **双向拖放与回收站**：灵感卡片可直接拖入上方看板列或时间月历（用后自动归档至灵感回收站，随时可恢复）；看板卡片也可拖回灵感流（按住 `Alt` 为复制）。
-- **全局快捷闪念**：系统托盘常驻，在任何软件中按 `Alt + Space`（冲突时自动切为 `Ctrl + Shift + Space`）秒速呼出悬浮窗记文字与贴图。
-- **轻量 AI 直连**：支持一键生成结构化 Markdown Prompt 并导出 `.md`；可选配置 OpenAI 兼容 / DeepSeek / 本地 Ollama 接口，实现**灵感一键拆解为看板卡片**与**AI 今日排期建议**。
+### 2. 自定义看板与自由画布
+- **灵活列管理**：自由新建列、拖拽排序并带精准插入线、单列拖拽调宽与列间距调节、双击列标题折叠为文件夹统计卡片。
+- **自由画布模式**：支持点阵画布、滚轮缩放、`Space + 拖拽` 平移、智能对齐辅助线、一键整理与适配屏幕。
+- **系统文件/文件夹快捷方式**：直接从资源管理器拖入文件或文件夹生成可展开卡片；悬停按 `Ctrl + V` 直接粘贴文本或截图。
 
-### 时间视图、极速检索与视觉质感
-- **时间月历视图**：悬停日期浮现当天任务详情，支持任务跨天拖拽改期与灵感直接拖入排期。
-- **全局命令面板与撤销栈**：`Ctrl + K` 全局模糊搜索任务、文件夹、灵感与回收站；`Ctrl + Z` / `Ctrl + Shift + Z` 支持 30 步历史撤销与重做。
-- **shadcn/ui 主题与纸张质感**：内置**深色 / 浅色 / 纸张质感**三套语义主题，并提供独立的**细微纸张颗粒质感**开关，三套主题均可叠加柔和纤维质感。
-- **多语言导入导出与本地同步**：内置中英文并支持导出/导入自定义语言 JSON；本地 JSON + Markdown 存储，搭配 OneDrive / iCloud / Git 即可实现 Win 与 macOS 无缝同步，支持整库备份与恢复。
+### 3. 灵感流与全局闪念记录
+- **多轨漂流灵感坞**：支持滚轮横向滚动、拖拽调整高度、分页列表模式、回收站，以及双击“灵感流”标题快速折叠/展开。
+- **全局快捷键闪念**：任意界面按 `Alt + Space`（冲突时自动回退 `Ctrl + Shift + Space`）快速记录灵感与截图。
+- **双向拖拽与 AI 规范导出**：支持灵感与看板/日历双向拖拽（按住 `Alt` 复制），一键导出结构化 Markdown 提示词。
+
+### 4. 时间日历视图
+- 支持鼠标滚轮平滑切换月份、单日悬浮预览、从灵感流拖入排期与跨天改期。
+
+### 5. 多平台 AI 与局域网手机扫码同步
+- **多平台 AI 预设与模型自动获取**：内置智谱 GLM、DeepSeek、通义千问、Kimi、Gemini、OpenAI、OpenRouter 与本地 Ollama 预设，支持一键拉取服务端可用模型列表与连通性测试。
+- **局域网手机扫码访问**：桌面端内置轻量 Rust HTTP 服务（默认端口 `18420`），离线生成二维码，同一 Wi-Fi 下手机扫码即可直接打开并与电脑实时同步。
+
+### 6. 桌面端原生细节打磨
+- **无边框自定义标题栏**：保留 Windows 原生阴影与缩放，支持标题栏拖动、双击最大化/还原、关闭隐藏至托盘与单实例唤醒保护。
+- **主题、自定义主题色与可读性**：内置深色、浅色、纸张 3 套主题与可开关细微纸张颗粒，支持自由取色自定义主题强调色，全界面最小字号 `12px` 并具备清晰层级。
+- **持久化错误日志与在线更新**：集成 Rust 原生崩溃钩子、React 错误边界与自动轮转日志文件（`logs/shibaplan.log`），支持在设置中一键查看/复制日志，并支持 GitHub Releases 在线检测更新。
 
 ---
 
 ## 常用快捷键
 
-| 快捷键 | 功能说明 |
+| 快捷键 | 功能 |
 | :--- | :--- |
-| `Alt + Space` / `Ctrl + Shift + Space` | 全局呼出 / 隐藏闪念悬浮窗（Win / macOS） |
-| `Ctrl + K` / `Cmd + K` | 打开全局搜索与命令面板 |
-| `Ctrl + Z` / `Ctrl + Shift + Z` | 撤销 / 重做操作历史 |
-| `Ctrl + V`（悬停列 / 灵感流 / 日期） | 自动插入剪贴板文字、截图或文件夹路径 |
-| `滚轮` / `Ctrl + 滚轮`（自由画布） | 以鼠标为中心平滑缩放画布 |
-| `空格 + 拖动` / `中键拖动`（自由画布） | 平移自由画布 |
-| `Ctrl + 0` / `Ctrl + +` / `Ctrl + -` | 重置画布视角 / 放大 / 缩小 |
+| `Ctrl + K` | 全局搜索与命令面板 |
+| `Alt + Space` / `Ctrl + Shift + Space` | 全局快速记录灵感 |
+| `Ctrl + Z` / `Ctrl + Shift + Z` | 撤销 / 重做（30 步历史） |
+| `/` 或 `Ctrl + F`（项目页） | 聚焦 Everything 快捷搜索框 |
+| `Space`（右侧资源管理器） | 唤起 Seer / 内置快速预览 |
+| `Ctrl + 滚轮`（项目网格） | 缩放项目卡片尺寸 |
+| `Esc` | 关闭大图灯箱、预览窗或弹窗 |
 
 ---
 
-## 快速开始
+## 开发与构建
 
 ### 环境要求
-- [Node.js](https://nodejs.org/) >= 18
-- [Rust](https://www.rust-lang.org/tools/install)（用于 Tauri 2.0 桌面端编译）
+- Node.js 20+
+- Rust 1.80+（Windows 需 MSVC Build Tools，macOS 需 Xcode CLT）
 
-### 本地开发
+### 本地启动
 ```bash
-# 安装依赖
 npm install
-
-# 启动桌面端（Windows / macOS）
 npm run tauri dev
-
-# 或仅启动前端浏览器预览
-npm run dev
 ```
 
-### 打包正式安装包
+### 打包桌面客户端
 ```bash
-# 生成独立安装包（Windows: .msi / .exe，macOS: .dmg）
 npm run tauri build
 ```
 
----
-
-## 自定义语言包
-
-1. 打开右上角 **设置** → **界面语言** → 点击 **导出语言文件**。
-2. 翻译导出的 `shibaplan-lang-*.json` 中的词条，并修改 `code` 与 `name`。
-3. 点击 **导入语言文件** 即可立即生效并自动保存。
+生成产物位于 `src-tauri/target/release/`（免安装绿色版）与 `src-tauri/target/release/bundle/`（NSIS `.exe` / `.msi` / `.dmg`）。推送 `v*` 标签后 GitHub Actions 将自动构建并发布多平台安装包。
 
 ---
-
-## 技术栈
-
-- **桌面端内核**：Tauri 2.0 (Rust) + `tauri-plugin-global-shortcut`
-- **前端框架**：React 18、TypeScript、Vite 6
-- **设计系统**：shadcn/ui、Radix UI、Tailwind CSS、Lucide Icons
 
 ## 开源协议
 
-MIT
+MIT License。

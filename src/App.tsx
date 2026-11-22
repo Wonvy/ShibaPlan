@@ -10,7 +10,6 @@ import {
   FolderArchive,
   Kanban,
   Languages,
-  Layers,
   Loader2,
   Minus,
   Moon,
@@ -555,8 +554,28 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
         className="flex h-11 shrink-0 items-center justify-between border-b border-border/60 bg-background/85 pl-3 sm:pl-4 pr-2 backdrop-blur-md"
       >
         <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary pointer-events-none">
-            <Layers className="h-3.5 w-3.5" />
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background pointer-events-none">
+            <svg
+              viewBox="0 0 512 512"
+              className="h-4 w-4"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M144 128 L206 184 H306 L368 128 C374 122 384 126 384 135 V268 C384 338 326 388 256 388 C186 388 128 338 128 268 V135 C128 126 138 122 144 128 Z"
+                fill="currentColor"
+              />
+              <circle cx="212" cy="258" r="16" fill="hsl(var(--foreground))" />
+              <circle cx="300" cy="258" r="16" fill="hsl(var(--foreground))" />
+              <rect
+                x="232"
+                y="306"
+                width="48"
+                height="18"
+                rx="9"
+                fill="hsl(var(--foreground))"
+              />
+            </svg>
           </div>
           <span className="text-[15px] font-semibold tracking-tight text-foreground pointer-events-none">
             ShibaPlan

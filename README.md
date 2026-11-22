@@ -1,48 +1,88 @@
 <div align="center">
+  <img src="./docs/logo.svg" alt="ShibaPlan Logo" width="84" height="84" />
+  <h1>ShibaPlan</h1>
+  <p><strong>A calm, local-first desktop workspace for Design, Development &amp; Evaluation.</strong></p>
+  <p>
+    Built with Tauri 2.0, React, TypeScript, Tailwind CSS &amp; shadcn/ui.<br />
+    Frameless native performance · Zero cloud lock-in · Instant Everything-style archive search.
+  </p>
 
-<img src="./app-icon.svg" alt="ShibaPlan" width="72" height="72" />
+  <p>
+    <strong>English</strong> &nbsp;|&nbsp; <a href="./README.zh-CN.md">简体中文</a>
+  </p>
 
-# ShibaPlan
-
-**A minimalist, cross-platform workspace for designers, developers, and evaluators.**  
-Custom Kanban · Freeform Canvas · Idea River · Timeline · AI-Ready Workflow
-
-[English](./README.md) · [简体中文](./README.zh-CN.md)
-
-![Tauri 2](https://img.shields.io/badge/Tauri-2.0-24C8DB?style=flat-square&logo=tauri&logoColor=white)
-![React 18](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![shadcn/ui](https://img.shields.io/badge/Design-shadcn%2Fui-18181B?style=flat-square)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-52525B?style=flat-square)
-
+  <p>
+    <img src="https://img.shields.io/badge/Tauri-2.0-141417?style=flat-square" alt="Tauri 2.0" />
+    <img src="https://img.shields.io/badge/React-18-141417?style=flat-square" alt="React 18" />
+    <img src="https://img.shields.io/badge/TypeScript-5-141417?style=flat-square" alt="TypeScript" />
+    <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-141417?style=flat-square" alt="Platform" />
+    <img src="https://img.shields.io/badge/License-MIT-141417?style=flat-square" alt="License" />
+  </p>
 </div>
 
 ---
 
-## Overview
+## Interface Showcase
 
-**ShibaPlan** is built for multi-role makers juggling design, development, and evaluation. Instead of bloated project suites, it combines a customizable Kanban board, a freeform spatial canvas, a monthly schedule view, and a gently drifting **Idea River** at the bottom — keeping your tasks structured and your raw inspirations ready to feed directly into AI tools.
+### Kanban Board &amp; Idea River (Dark Theme)
+<img src="./docs/screenshots/kanban-dark.png" alt="ShibaPlan Kanban Board and Idea River" width="100%" />
+
+### Projects Archive, Statistics, Calendar &amp; Tabbed Settings
+<table>
+  <tr>
+    <td width="50%">
+      <img src="./docs/screenshots/projects-archive.png" alt="3-Column Projects Archive with Thumbnails" width="100%" />
+      <p align="center"><sub><strong>Projects 3-Column Archive</strong> — Multi-folder cache, uncropped thumbnails, embedded explorer &amp; Seer Spacebar preview</sub></p>
+    </td>
+    <td width="50%">
+      <img src="./docs/screenshots/projects-stats.png" alt="Project File Statistics and Trends" width="100%" />
+      <p align="center"><sub><strong>File Statistics &amp; Output Trends</strong> — PSD / PPT / PDF / AI breakdown and yearly/monthly charts</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="./docs/screenshots/calendar-paper.png" alt="Calendar View in Warm Paper Theme" width="100%" />
+      <p align="center"><sub><strong>Calendar &amp; Timeline (Paper Theme)</strong> — Fine tactile paper grain, mouse wheel month switch &amp; drag scheduling</sub></p>
+    </td>
+    <td width="50%">
+      <img src="./docs/screenshots/settings-tabs.png" alt="Tabbed Settings with Custom Accent Color" width="100%" />
+      <p align="center"><sub><strong>Tabbed Settings</strong> — Custom HEX accent color, AI model auto-fetch, project directories &amp; diagnostic logs</sub></p>
+    </td>
+  </tr>
+</table>
+
+---
 
 ## Key Features
 
-### Board & Freeform Canvas
-- **Custom Columns**: Create, rename, color-code, drag-reorder, and drag-resize column widths and column gaps.
-- **Folder-Style Folding**: Double-click any column header to fold it into a compact folder summary card showing pending/done counts, estimated hours, and progress.
-- **Freeform Canvas Mode**: Drag columns freely with smart alignment guides and magnetic snapping (`Alt` to bypass). Supports direct wheel zoom on empty canvas, `Ctrl + Wheel` zoom, `Space + Drag` pan, one-click tidy grid, and fit-to-screen.
-- **Local File & Folder Shortcuts**: Drag local folders or files directly into any column to create expandable directory browsers and one-click OS openers.
-- **Hover-to-Paste & Double-Click**: Hover over any column and press `Ctrl + V` to insert clipboard text or screenshots immediately into edit mode, or double-click empty space to add a card.
+### 1. Three-Column Projects Archive &amp; Everything-Style Search
+- **Multi-Folder Auto-Indexing &amp; Disk Cache**: Add multiple local archive folders (such as `W:\#CompletedProjects`) via the native OS folder picker. Directory structures, dates, and thumbnail paths are persisted in `project_archive_cache.json` for instant cold startup and zero-lag tab switching.
+- **Smart Real-Date Inference**: Parses diverse date naming conventions (`2025-10-10_Name`, `25-02-19`, `20210913`, `0103`, `#2025/10月`, etc.) and supports **weighted month-cluster consensus** across inner deliverable files (`.psd`, `.ai`, `.pptx`, `.pdf`, `.stl`, `.dwg`, etc.) to recover true project completion dates even after folder migration.
+- **Everything-Style Instant Search**: Supports space-separated `AND`, `|` (`OR`), `!` (`NOT`), `ext:psd;pptx;pdf`, `folder:`, `file:`, `year:2025`, and `*` / `?` wildcards with live keyword highlighting.
+- **Four Views + Zoom**: Switch between **Grid** (uniform card height, max-width capped, `Ctrl + Wheel` zoom), **Timeline**, **List**, and **Statistics** (file category stacked bar, clickable Top-15 extension rankings, and yearly/monthly output charts).
+- **Embedded Right Explorer &amp; Seer Spacebar Preview**: Resizable 3-column layout with List/Icon toggle inside the right file explorer. Press `Space` on any file to invoke **Seer** via its official Win32 `WM_COPYDATA` (`SEER_INVOKE_W32 = 5000`) protocol, with an automatic built-in QuickLook fallback.
 
-### Idea River & AI Workflow
-- **Drifting Idea River**: Multi-row horizontal stream of rounded idea pills with hover-to-read previews, mouse-wheel scrolling, resizable height, collapsible dock, and a paginated List view.
-- **Bidirectional Drag**: Drag ideas up into any Kanban column or Calendar date (auto-archived to Recycle Bin), or drag Kanban cards down into the river (`Alt` to copy).
-- **Global Quick Capture**: Press `Alt + Space` (auto-fallback `Ctrl + Shift + Space`) from any app to jot down thoughts or paste screenshots.
-- **AI Integration**: One-click structured Markdown Prompt export, plus optional OpenAI-compatible / DeepSeek / local Ollama API integration for breaking an idea into 3–5 Kanban cards and generating a daily priority plan.
+### 2. Custom Kanban Board &amp; Freeform Canvas
+- **Flexible Workflow**: Create custom columns, drag-reorder columns &amp; cards with precision insertion guides, drag-resize column widths and gaps, or double-click headers to collapse columns into folder-style summary tiles.
+- **Freeform Canvas Mode**: Dot-grid canvas with direct wheel zoom, `Space + Drag` pan, magnetic alignment guides, one-click tidy grid, and fit-to-screen.
+- **Native File &amp; Folder Shortcuts**: Drag files or folders directly from OS Explorer onto any column to create expandable folder cards; hover and press `Ctrl + V` to paste text or screenshots directly.
 
-### Timeline, Search & Aesthetics
-- **Calendar View**: Monthly grid with hover day previews, drag-and-drop rescheduling, and idea-to-date dropping.
-- **Command Palette & Undo Stack**: `Ctrl + K` global search across tasks, folders, ideas, and trash; `Ctrl + Z` / `Ctrl + Shift + Z` 30-step undo/redo history.
-- **Themes & Paper Grain**: Built on **shadcn/ui** semantic tokens with **Dark**, **Light**, and **Paper** themes, plus an independent fine paper grain texture toggle.
-- **Extensible i18n & Local Sync**: Built-in English and Simplified Chinese with JSON language pack import/export. Store data locally as JSON + Markdown and sync across Windows and macOS via OneDrive, iCloud, or Git.
+### 3. Idea River &amp; Global Quick Capture
+- **Drifting Idea Dock**: Multi-row non-looping idea stream with wheel horizontal scroll, resizable height, paginated List view, Recycle Bin, and double-click title bar to collapse/expand.
+- **Global Shortcut Capture**: Press `Alt + Space` (auto-fallback `Ctrl + Shift + Space`) from anywhere on your desktop to capture ideas or screenshots without breaking flow.
+- **Bidirectional Drag**: Drag ideas onto Kanban columns or Calendar dates (`Alt` to copy), or export structured Markdown specs for AI coding assistants.
+
+### 4. Calendar &amp; Timeline
+- Monthly grid with mouse wheel month switching, hover day previews, drag-and-drop scheduling from Idea River, and cross-day rescheduling.
+
+### 5. Multi-Provider AI &amp; LAN Mobile Sync
+- **Multi-Provider AI Presets**: Built-in presets for Zhipu GLM, DeepSeek, Qwen, Kimi, Gemini, OpenAI, OpenRouter, and local Ollama, with **one-click automatic model list fetching** and connection testing.
+- **LAN Access &amp; Mobile QR Code**: Built-in zero-dependency Rust HTTP server (`:18420`) with offline QR code generation. Scan with your phone on the same Wi-Fi to view and live-sync your workspace.
+
+### 6. Native Desktop Polish
+- **Frameless Custom Titlebar**: Native Windows drop shadow, drag-to-move, double-click maximize/restore, minimize to system tray, and single-instance wake protection.
+- **Themes, Custom Accent &amp; Typography**: Dark, Light, and Warm Paper themes with toggleable fine paper grain, custom HEX accent color picker, and a clean 12px+ typographic hierarchy.
+- **Persistent Diagnostics &amp; Online Updates**: Automatic Rust panic hook + React ErrorBoundary + rotating `logs/shibaplan.log` viewer inside Settings, plus GitHub Releases update checker.
 
 ---
 
@@ -50,56 +90,37 @@ Custom Kanban · Freeform Canvas · Idea River · Timeline · AI-Ready Workflow
 
 | Shortcut | Action |
 | :--- | :--- |
-| `Alt + Space` / `Ctrl + Shift + Space` | Toggle global Quick Capture window (Win / macOS) |
-| `Ctrl + K` / `Cmd + K` | Open global Command Palette & Search |
-| `Ctrl + Z` / `Ctrl + Shift + Z` | Undo / Redo workspace changes |
-| `Ctrl + V` (while hovering column/river/date) | Auto-insert clipboard text, screenshot, or folder path |
-| `Wheel` / `Ctrl + Wheel` (Canvas) | Zoom canvas around cursor |
-| `Space + Drag` / `Middle Drag` (Canvas) | Pan freeform canvas |
-| `Ctrl + 0` / `Ctrl + +` / `Ctrl + -` (Canvas) | Reset zoom / Zoom in / Zoom out |
+| `Ctrl + K` | Open Global Command Palette &amp; Search |
+| `Alt + Space` / `Ctrl + Shift + Space` | Global Quick Capture window |
+| `Ctrl + Z` / `Ctrl + Shift + Z` | Undo / Redo (30-step history) |
+| `/` or `Ctrl + F` (Projects) | Focus Everything-style archive search |
+| `Space` (Projects Explorer) | Trigger Seer / QuickLook preview |
+| `Ctrl + Wheel` (Projects Grid) | Zoom project card size |
+| `Esc` | Close lightbox, QuickLook, or dialogs |
 
 ---
 
-## Quick Start
+## Development &amp; Build
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) >= 18
-- [Rust](https://www.rust-lang.org/tools/install) (for Tauri 2.0 desktop build)
+- Node.js 20+
+- Rust 1.80+ (with MSVC Build Tools on Windows or Xcode CLT on macOS)
 
-### Development
+### Run Locally
 ```bash
-# Install dependencies
 npm install
-
-# Run desktop app (Windows / macOS)
 npm run tauri dev
-
-# Or run web preview only
-npm run dev
 ```
 
-### Production Build
+### Build Desktop Installers
 ```bash
-# Build native installer (.msi / .exe on Windows, .dmg on macOS)
 npm run tauri build
 ```
 
----
-
-## Custom Languages
-
-1. Open **Settings** -> **Interface Language** -> click **Export Language JSON**.
-2. Translate the strings in the exported `shibaplan-lang-*.json` file and update `code` and `name`.
-3. Click **Import Language JSON** to activate your custom language immediately.
+Artifacts are generated in `src-tauri/target/release/` (portable executable) and `src-tauri/target/release/bundle/` (NSIS `.exe` / `.msi` / `.dmg`). Pushing a `v*` git tag automatically triggers multi-platform GitHub Actions release builds.
 
 ---
-
-## Tech Stack
-
-- **Desktop Runtime**: Tauri 2.0 (Rust) + `tauri-plugin-global-shortcut`
-- **Frontend**: React 18, TypeScript, Vite 6
-- **Design System**: shadcn/ui, Radix UI, Tailwind CSS, Lucide Icons
 
 ## License
 
-MIT
+MIT License.
