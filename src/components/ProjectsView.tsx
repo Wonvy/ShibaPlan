@@ -3,6 +3,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronRight,
+  Clock,
   ExternalLink,
   File,
   FileText,
@@ -12,6 +13,8 @@ import {
   FolderSearch,
   HardDrive,
   Image as ImageIcon,
+  LayoutGrid,
+  List,
   Loader2,
   Plus,
   RefreshCw,
@@ -43,6 +46,9 @@ interface ProjectsViewProps {
 }
 
 type SearchScope = "projects" | "all" | "files";
+type ProjectViewMode = "grid" | "timeline" | "list";
+
+const VIEW_MODE_STORAGE_KEY = "shibaplan_projects_view_mode_v1";
 
 function formatFileSize(bytes: number): string {
   if (bytes <= 0) return "";
@@ -86,8 +92,9 @@ function renderHighlightedText(text: string, terms: string[]): React.ReactNode {
 const ProjectThumbnail: React.FC<{
   thumbPath: string | null;
   alt: string;
-  compact?: boolean;
-}> = ({ thumbPath, alt, compact = false }) => {
+  variant?: "card" | "timeline" | "compact";
+  onPreview?: (src: string, title: string) => void;
+}> = ({ thumbPath, alt, variant = "card", onPreview }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
@@ -126,11 +133,21 @@ const ProjectThumbnail: React.FC<{
 
   if (!thumbPath || failed) return null;
 
-  if (compact) {
+  const handleClick = (e: React.MouseEvent) => {
+    if (!src || !onPreview) return;
+    e.stopPropagation();
+    onPreview(src, alt);
+  };
+
+  if (variant === "compact") {
     return (
       <div
         ref={containerRef}
-        className="h-8 w-8 shrink-0 overflow-hidden rounded-md bg-muted/60"
+        onClick={handleClick}
+        className={`flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/50 p-0.5 ${
+          src && onPreview ? "cursor-zoom-in" : ""
+        }`}
+        title={src && onPreview ? "点击查看大图" : undefined}
       >
         {src ? (
           <img
@@ -138,11 +155,36 @@ const ProjectThumbnail: React.FC<{
             alt={alt}
             loading="lazy"
             onError={() => setFailed(true)}
-            className="h-full w-full object-cover"
+            className="max-h-full max-w-full object-contain"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-muted-foreground/50">
-            <ImageIcon className="h-3.5 w-3.5" />
+          <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/50" />
+        )}
+      </div>
+    );
+  }
+
+  if (variant === "timeline") {
+    return (
+      <div
+        ref={containerRef}
+        onClick={handleClick}
+        className={`flex w-36 sm:w-48 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5 ${
+          src && onPreview ? "cursor-zoom-in" : ""
+        }`}
+        title={src && onPreview ? "点击查看大图" : undefined}
+      >
+        {src ? (
+          <img
+            src={src}
+            alt={alt}
+            loading="lazy"
+            onError={() => setFailed(true)}
+            className="max-h-36 w-full h-auto object-contain rounded transition-transform duration-300 group-hover:scale-[1.02]"
+          />
+        ) : (
+          <div className="flex h-24 w-full items-center justify-center text-muted-foreground/35">
+            <ImageIcon className="h-5 w-5" />
           </div>
         )}
       </div>
@@ -152,7 +194,11 @@ const ProjectThumbnail: React.FC<{
   return (
     <div
       ref={containerRef}
-      className="relative mb-2.5 aspect-[16/9] w-full overflow-hidden rounded-lg bg-muted/50"
+      onClick={handleClick}
+      className={`mb-2.5 flex w-full items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5 ${
+        src && onPreview ? "cursor-zoom-in" : ""
+      }`}
+      title={src && onPreview ? "点击查看大图" : undefined}
     >
       {src ? (
         <img
@@ -160,10 +206,10 @@ const ProjectThumbnail: React.FC<{
           alt={alt}
           loading="lazy"
           onError={() => setFailed(true)}
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          className="max-h-52 w-full h-auto object-contain rounded transition-transform duration-300 group-hover:scale-[1.02]"
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center text-muted-foreground/35">
+        <div className="flex h-28 w-full items-center justify-center text-muted-foreground/35">
           <ImageIcon className="h-5 w-5" />
         </div>
       )}
@@ -207,7 +253,31 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   // Search & Filter states
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SearchScope>("projects");
+  const [viewMode, setViewMode] = useState<ProjectViewMode>(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+      if (saved === "grid" || saved === "timeline" || saved === "list") {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return "grid";
+  });
+  const [lightbox, setLightbox] = useState<{
+    src: string;
+    title: string;
+  } | null>(null);
   const [selectedRoot, setSelectedRoot] = useState<string>("all");
+
+  const changeViewMode = (mode: ProjectViewMode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+    } catch {
+      // ignore
+    }
+  };
   const [selectedYear, setSelectedYear] = useState<number | "all" | "unknown">(
     "all"
   );
@@ -574,6 +644,47 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           ))}
         </div>
 
+        {/* View Mode Switcher: Grid / Timeline / List */}
+        <div
+          className="flex items-center rounded-lg bg-muted/70 p-0.5"
+          title="切换项目视图"
+        >
+          {(
+            [
+              {
+                id: "grid",
+                label: "网格",
+                icon: <LayoutGrid className="h-3.5 w-3.5" />,
+              },
+              {
+                id: "timeline",
+                label: "时间轴",
+                icon: <Clock className="h-3.5 w-3.5" />,
+              },
+              {
+                id: "list",
+                label: "列表",
+                icon: <List className="h-3.5 w-3.5" />,
+              },
+            ] as const
+          ).map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => changeViewMode(m.id)}
+              title={`${m.label}视图`}
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+                viewMode === m.id
+                  ? "bg-card text-foreground font-medium shadow-card-rest"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {m.icon}
+              <span className="hidden lg:inline">{m.label}</span>
+            </button>
+          ))}
+        </div>
+
         {/* Re-index & Directory Settings */}
         <div className="flex items-center gap-1.5">
           <Button
@@ -880,9 +991,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   </Button>
                 )}
               </div>
-            ) : isSearching || effectiveScope !== "projects" ? (
-              /* EVERYTHING-STYLE INSTANT DENSE LIST */
-              <div className="space-y-1">
+            ) : isSearching ||
+              effectiveScope !== "projects" ||
+              viewMode === "list" ? (
+              /* EVERYTHING-STYLE INSTANT DENSE LIST VIEW */
+              <div className="space-y-1.5">
                 {visibleItems.map((item) => (
                   <div
                     key={item.path}
@@ -893,7 +1006,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       <ProjectThumbnail
                         thumbPath={item.thumbnail_path}
                         alt={item.name}
-                        compact
+                        variant="compact"
+                        onPreview={(src, title) => setLightbox({ src, title })}
                       />
                     ) : item.is_dir ? (
                       <Folder className="h-4 w-4 shrink-0 text-primary" />
@@ -904,7 +1018,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="truncate font-medium text-foreground">
-                          {renderHighlightedText(item.name, highlightTerms)}
+                          {renderHighlightedText(
+                            isSearching ? item.name : item.displayTitle,
+                            highlightTerms
+                          )}
                         </span>
                         {item.ext && (
                           <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
@@ -956,8 +1073,168 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   </div>
                 )}
               </div>
+            ) : viewMode === "timeline" ? (
+              /* VISUAL VERTICAL TIMELINE VIEW */
+              <div className="space-y-6 pb-4">
+                {groupedBrowse.map(([groupLabel, groupItems]) => (
+                  <section key={groupLabel} className="relative pl-5 sm:pl-6">
+                    {/* Vertical timeline spine */}
+                    <div className="absolute left-2 top-3 bottom-0 w-px bg-border/70" />
+
+                    {/* Group milestone dot + header */}
+                    <div className="relative mb-3 flex items-center gap-2">
+                      <span className="absolute -left-[21px] sm:-left-[25px] flex h-3 w-3 items-center justify-center rounded-full bg-primary/20">
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                      </span>
+                      <span className="text-xs font-semibold text-foreground">
+                        {groupLabel}
+                      </span>
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                        {groupItems.length}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {groupItems.map((item) => {
+                        const isExpanded = expandedProjectPath === item.path;
+                        const rootTag = rootLabelMap.get(item.root_path);
+                        return (
+                          <div
+                            key={item.path}
+                            onDoubleClick={() => openArchivePath(item.path)}
+                            className="group relative rounded-xl bg-card p-3 transition-all shadow-card-rest hover:shadow-card-hover"
+                          >
+                            {/* Connector dot on spine */}
+                            <span className="absolute -left-[18px] sm:-left-[22px] top-5 h-1.5 w-1.5 rounded-full bg-border group-hover:bg-primary transition-colors" />
+
+                            <div className="flex flex-col sm:flex-row items-start gap-3">
+                              <ProjectThumbnail
+                                thumbPath={item.thumbnail_path}
+                                alt={item.displayTitle}
+                                variant="timeline"
+                                onPreview={(src, title) =>
+                                  setLightbox({ src, title })
+                                }
+                              />
+
+                              <div className="min-w-0 flex-1 space-y-1.5 w-full">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      {item.dateLabel && (
+                                        <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary">
+                                          {item.dateLabel}
+                                        </span>
+                                      )}
+                                      {archiveDirs.length > 1 && rootTag && (
+                                        <span className="truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                          {rootTag}
+                                        </span>
+                                      )}
+                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                        {item.is_dir
+                                          ? `${item.child_count} 个子项`
+                                          : item.ext.toUpperCase() || "文件"}
+                                      </span>
+                                    </div>
+
+                                    <div
+                                      className="text-xs font-medium text-foreground"
+                                      title={item.name}
+                                    >
+                                      {item.displayTitle}
+                                    </div>
+
+                                    <div className="truncate font-mono text-[10px] text-muted-foreground/80">
+                                      {item.relative_path}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex shrink-0 items-center gap-1">
+                                    {item.is_dir && item.child_count > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedProjectPath(
+                                            isExpanded ? null : item.path
+                                          )
+                                        }
+                                        className="inline-flex items-center gap-0.5 rounded-lg px-2 py-1 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                                      >
+                                        {isExpanded ? (
+                                          <ChevronDown className="h-3 w-3" />
+                                        ) : (
+                                          <ChevronRight className="h-3 w-3" />
+                                        )}
+                                        <span>{isExpanded ? "收起" : "预览"}</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => openArchivePath(item.path)}
+                                      className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                                      title="打开项目文件夹"
+                                    >
+                                      <FolderOpen className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {isExpanded && (
+                                  <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
+                                    {expandedChildren.length === 0 ? (
+                                      <div className="text-[10px] text-muted-foreground">
+                                        暂无可预览子文件
+                                      </div>
+                                    ) : (
+                                      expandedChildren
+                                        .slice(0, 10)
+                                        .map((child) => (
+                                          <button
+                                            key={child.path}
+                                            type="button"
+                                            onClick={() =>
+                                              openArchivePath(child.path)
+                                            }
+                                            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                                          >
+                                            {child.is_dir ? (
+                                              <Folder className="h-3 w-3 shrink-0 text-primary/80" />
+                                            ) : (
+                                              <File className="h-3 w-3 shrink-0" />
+                                            )}
+                                            <span className="truncate">
+                                              {child.name}
+                                            </span>
+                                          </button>
+                                        ))
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+
+                {matchedItems.length > renderLimit && (
+                  <div className="flex justify-center pt-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setRenderLimit((n) => n + 160)}
+                    >
+                      加载更多（剩余 {matchedItems.length - renderLimit} 个项目）
+                    </Button>
+                  </div>
+                )}
+              </div>
             ) : (
-              /* GROUPED DATE TIMELINE PROJECT CARDS */
+              /* GROUPED ADAPTIVE GRID CARDS VIEW */
               <div className="space-y-5">
                 {groupedBrowse.map(([groupLabel, groupItems]) => (
                   <section key={groupLabel} className="space-y-2.5">
@@ -970,7 +1247,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 items-start">
                       {groupItems.map((item) => {
                         const isExpanded = expandedProjectPath === item.path;
                         const rootTag = rootLabelMap.get(item.root_path);
@@ -983,6 +1260,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             <ProjectThumbnail
                               thumbPath={item.thumbnail_path}
                               alt={item.displayTitle}
+                              variant="card"
+                              onPreview={(src, title) =>
+                                setLightbox({ src, title })
+                              }
                             />
 
                             <div className="flex items-start justify-between gap-2">
@@ -1091,6 +1372,38 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Full-Size Adaptive Image Lightbox */}
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/75 p-6 backdrop-blur-sm"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex max-h-[88vh] max-w-[90vw] flex-col items-center gap-3"
+          >
+            <img
+              src={lightbox.src}
+              alt={lightbox.title}
+              className="max-h-[80vh] max-w-[88vw] rounded-xl object-contain shadow-2xl"
+            />
+            <div className="flex items-center gap-3 rounded-full bg-popover/90 px-4 py-1.5 text-xs text-popover-foreground shadow-popover-soft">
+              <span className="max-w-[60vw] truncate font-medium">
+                {lightbox.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => setLightbox(null)}
+                className="rounded-full p-0.5 text-muted-foreground hover:text-foreground"
+                title="关闭预览"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       )}
