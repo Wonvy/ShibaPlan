@@ -10,38 +10,31 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
-  FolderSearch,
   HardDrive,
   Image as ImageIcon,
   LayoutGrid,
   List,
   Loader2,
-  Plus,
   RefreshCw,
   Search,
-  Trash2,
+  Settings,
   X,
 } from "lucide-react";
 import { ProjectArchiveDir, WorkspaceData } from "../types";
-import { isTauriRuntime, uid } from "../lib/storage";
 import {
   getMemoryArchiveCache,
   IndexedArchiveItem,
   loadArchiveThumbnail,
   loadCachedProjectArchive,
   openArchivePath,
-  pickArchiveFolder,
   scanProjectArchiveRoots,
   searchArchiveItems,
 } from "../lib/archive";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Separator } from "./ui/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 
 interface ProjectsViewProps {
   workspace: WorkspaceData;
-  onUpdate: (next: WorkspaceData) => void;
+  onOpenProjectSettings: () => void;
   onNotify: (msg: string) => void;
 }
 
@@ -219,7 +212,7 @@ const ProjectThumbnail: React.FC<{
 
 export const ProjectsView: React.FC<ProjectsViewProps> = ({
   workspace,
-  onUpdate,
+  onOpenProjectSettings,
   onNotify,
 }) => {
   const archiveDirs = useMemo(
@@ -287,12 +280,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     null
   );
 
-  // Folder manager dialog state
-  const [dirsDialogOpen, setDirsDialogOpen] = useState(false);
-  const [newDirPath, setNewDirPath] = useState("");
-  const [newDirLabel, setNewDirLabel] = useState("");
-
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const autoOpenedSettingsRef = useRef(false);
+
+  // First-time open with no archive folders -> jump straight into Settings -> Project Directories tab
+  useEffect(() => {
+    if (archiveDirs.length === 0 && !autoOpenedSettingsRef.current) {
+      autoOpenedSettingsRef.current = true;
+      onOpenProjectSettings();
+    }
+  }, [archiveDirs.length, onOpenProjectSettings]);
 
   const formatTimeLabel = (ms: number) => {
     const d = new Date(ms);
@@ -403,76 +400,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   useEffect(() => {
     setRenderLimit(160);
   }, [query, scope, selectedRoot, selectedYear, selectedMonth]);
-
-  const addArchivePathDirect = (rawPath: string, alias?: string) => {
-    const cleanPath = rawPath.trim().replace(/^"|"$/g, "");
-    if (!cleanPath) return;
-
-    if (
-      archiveDirs.some(
-        (d) => d.path.trim().toLowerCase() === cleanPath.toLowerCase()
-      )
-    ) {
-      onNotify("该文件夹已在项目索引列表中");
-      return;
-    }
-
-    const nextDir: ProjectArchiveDir = {
-      id: uid("arch"),
-      path: cleanPath,
-      label: alias?.trim() || undefined,
-      enabled: true,
-    };
-
-    onUpdate({
-      ...workspace,
-      settings: {
-        ...workspace.settings,
-        projectArchiveDirs: [...archiveDirs, nextDir],
-      },
-    });
-    setNewDirPath("");
-    setNewDirLabel("");
-    onNotify("已添加项目目录，正在自动索引...");
-  };
-
-  const handleAddArchiveDir = (e: React.FormEvent) => {
-    e.preventDefault();
-    addArchivePathDirect(newDirPath, newDirLabel);
-  };
-
-  const handlePickFolder = async () => {
-    try {
-      const picked = await pickArchiveFolder();
-      if (picked) {
-        addArchivePathDirect(picked, newDirLabel);
-      }
-    } catch (err) {
-      onNotify(err instanceof Error ? err.message : "选择文件夹失败");
-    }
-  };
-
-  const handleToggleDir = (id: string) => {
-    onUpdate({
-      ...workspace,
-      settings: {
-        ...workspace.settings,
-        projectArchiveDirs: archiveDirs.map((d) =>
-          d.id === id ? { ...d, enabled: d.enabled === false } : d
-        ),
-      },
-    });
-  };
-
-  const handleRemoveDir = (id: string) => {
-    onUpdate({
-      ...workspace,
-      settings: {
-        ...workspace.settings,
-        projectArchiveDirs: archiveDirs.filter((d) => d.id !== id),
-      },
-    });
-  };
 
   // Root map for display labels
   const rootLabelMap = useMemo(() => {
@@ -718,7 +645,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => setDirsDialogOpen(true)}
+            onClick={onOpenProjectSettings}
             className="h-8 px-2.5 text-xs"
           >
             <FolderPlus className="h-3.5 w-3.5 text-primary" />
@@ -741,49 +668,23 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 <HardDrive className="h-4 w-4" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-foreground">
-                  添加过往项目归档目录
+                <h3 className="text-[15px] font-semibold text-foreground">
+                  尚未配置项目归档目录
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  支持多目录自动索引、多种日期格式识别与 Everything 级秒搜
+                  在“设置 → 项目目录”中添加一个或多个文件夹，即可自动索引与秒搜
                 </p>
               </div>
             </div>
 
-            <form onSubmit={handleAddArchiveDir} className="space-y-2.5">
-              <div className="flex items-center gap-2">
-                <Input
-                  type="text"
-                  value={newDirPath}
-                  onChange={(e) => setNewDirPath(e.target.value)}
-                  placeholder="例如 W:\#完成项目 或 D:\设计归档"
-                  className="flex-1 font-mono text-xs"
-                />
-                {isTauriRuntime() && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={handlePickFolder}
-                    className="h-9 shrink-0 px-3"
-                  >
-                    <FolderSearch className="h-3.5 w-3.5" />
-                    选择文件夹
-                  </Button>
-                )}
-              </div>
-              <Input
-                type="text"
-                value={newDirLabel}
-                onChange={(e) => setNewDirLabel(e.target.value)}
-                placeholder="显示别名（可选，如：完成项目）"
-                className="text-xs"
-              />
-              <Button type="submit" className="w-full" size="sm">
-                <Plus className="h-3.5 w-3.5" />
-                添加文件夹并自动索引
-              </Button>
-            </form>
+            <Button
+              type="button"
+              onClick={onOpenProjectSettings}
+              className="w-full"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              前往设置添加项目文件夹
+            </Button>
 
             <div className="rounded-xl bg-muted/50 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
               自动兼容 <span className="font-mono text-foreground">#2025/10月</span>、
@@ -1408,127 +1309,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         </div>
       )}
 
-      {/* Multi-Folder Archive Management Dialog */}
-      <Dialog open={dirsDialogOpen} onOpenChange={setDirsDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FolderPlus className="h-4 w-4 text-primary" />
-              项目归档文件夹设置
-            </DialogTitle>
-          </DialogHeader>
-
-          <Separator className="my-3" />
-
-          <div className="space-y-4">
-            <form onSubmit={handleAddArchiveDir} className="space-y-2.5">
-              <div className="text-xs font-medium text-foreground">
-                添加新文件夹（支持添加多个目录自动索引）
-              </div>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="text"
-                  value={newDirPath}
-                  onChange={(e) => setNewDirPath(e.target.value)}
-                  placeholder="文件夹绝对路径，如 W:\#完成项目"
-                  className="flex-1 font-mono text-xs"
-                />
-                {isTauriRuntime() && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={handlePickFolder}
-                    className="h-9 shrink-0 px-3"
-                  >
-                    <FolderSearch className="h-3.5 w-3.5" />
-                    浏览选择
-                  </Button>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="text"
-                  value={newDirLabel}
-                  onChange={(e) => setNewDirLabel(e.target.value)}
-                  placeholder="显示别名（可选）"
-                  className="flex-1 text-xs"
-                />
-                <Button type="submit" size="sm" className="h-9 shrink-0">
-                  <Plus className="h-3.5 w-3.5" />
-                  添加
-                </Button>
-              </div>
-            </form>
-
-            <Separator />
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-foreground">
-                  已配置目录 ({archiveDirs.length})
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  已索引 {allItems.length} 条记录
-                </span>
-              </div>
-
-              {archiveDirs.length === 0 ? (
-                <div className="rounded-xl bg-muted/50 py-6 text-center text-xs text-muted-foreground">
-                  暂未添加任何项目目录
-                </div>
-              ) : (
-                <div className="max-h-56 space-y-1.5 overflow-y-auto">
-                  {archiveDirs.map((dir) => {
-                    const enabled = dir.enabled !== false;
-                    return (
-                      <div
-                        key={dir.id}
-                        className="flex items-center justify-between gap-2 rounded-xl bg-muted/50 px-3 py-2"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium text-foreground">
-                            {getFolderLabel(dir)}
-                          </div>
-                          <div className="truncate font-mono text-xs text-muted-foreground">
-                            {dir.path}
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={enabled}
-                          onClick={() => handleToggleDir(dir.id)}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-                            enabled ? "bg-primary" : "bg-input"
-                          }`}
-                          title={enabled ? "点击停用此目录" : "点击启用此目录"}
-                        >
-                          <span
-                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow transition-transform ${
-                              enabled ? "translate-x-4" : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveDir(dir.id)}
-                          className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-destructive/12 hover:text-destructive"
-                          title="移除目录"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Multi-Folder Archive Management moved to Settings -> Project Directories tab */}
     </div>
   );
 };

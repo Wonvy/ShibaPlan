@@ -691,7 +691,10 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
             {view === "projects" ? (
               <ProjectsView
                 workspace={workspace}
-                onUpdate={onUpdate}
+                onOpenProjectSettings={() => {
+                  setSettingsTab("projects");
+                  setSettingsOpen(true);
+                }}
                 onNotify={onNotify}
               />
             ) : view === "kanban" ? (

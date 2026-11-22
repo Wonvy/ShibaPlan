@@ -9,12 +9,15 @@ import {
   Download,
   Eye,
   EyeOff,
+  FolderArchive,
   FolderOpen,
+  FolderSearch,
   Info,
   Languages,
   Loader2,
   Moon,
   Palette,
+  Plus,
   RefreshCw,
   RotateCcw,
   ScrollText,
@@ -24,19 +27,20 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { ThemeMode, WorkspaceData } from "../types";
+import { ProjectArchiveDir, ThemeMode, WorkspaceData } from "../types";
 import {
   AI_PROVIDER_PRESETS,
   fetchAvailableModels,
   testAIConnection,
 } from "../lib/ai";
+import { pickArchiveFolder } from "../lib/archive";
 import { ACCENT_COLOR_PRESETS, normalizeHex } from "../lib/theme";
 import {
   clearAppLogs,
   getLogFilePath,
   readAppLogs,
 } from "../lib/logger";
-import { openPathInOs } from "../lib/storage";
+import { isTauriRuntime, openPathInOs, uid } from "../lib/storage";
 import { UpdateCheckResult } from "../lib/updater";
 import { useI18n } from "../lib/i18n";
 import { Button } from "./ui/button";
@@ -44,7 +48,13 @@ import { Input } from "./ui/input";
 import { Separator } from "./ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 
-export type SettingsTabId = "appearance" | "ai" | "data" | "logs" | "about";
+export type SettingsTabId =
+  | "appearance"
+  | "projects"
+  | "ai"
+  | "data"
+  | "logs"
+  | "about";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -128,6 +138,80 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
+
+  // Project Archive Folders state
+  const archiveDirs = workspace.settings.projectArchiveDirs ?? [];
+  const [newProjectDir, setNewProjectDir] = useState("");
+  const [newProjectLabel, setNewProjectLabel] = useState("");
+
+  const getArchiveFolderLabel = (dir: ProjectArchiveDir) => {
+    if (dir.label?.trim()) return dir.label.trim();
+    const clean = dir.path.replace(/[\\/]+$/, "");
+    const parts = clean.split(/[\\/]/);
+    return parts[parts.length - 1] || clean;
+  };
+
+  const addProjectArchiveDir = (rawPath: string, alias?: string) => {
+    const cleanPath = rawPath.trim().replace(/^"|"$/g, "");
+    if (!cleanPath) return;
+    if (
+      archiveDirs.some(
+        (d) => d.path.trim().toLowerCase() === cleanPath.toLowerCase()
+      )
+    ) {
+      onNotify("该文件夹已在项目索引列表中");
+      return;
+    }
+    const nextDir: ProjectArchiveDir = {
+      id: uid("arch"),
+      path: cleanPath,
+      label: alias?.trim() || undefined,
+      enabled: true,
+    };
+    onUpdate({
+      ...workspace,
+      settings: {
+        ...workspace.settings,
+        projectArchiveDirs: [...archiveDirs, nextDir],
+      },
+    });
+    setNewProjectDir("");
+    setNewProjectLabel("");
+    onNotify("已添加项目目录，将自动建立索引并缓存");
+  };
+
+  const handlePickProjectFolder = async () => {
+    try {
+      const picked = await pickArchiveFolder();
+      if (picked) {
+        addProjectArchiveDir(picked, newProjectLabel);
+      }
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : "选择文件夹失败");
+    }
+  };
+
+  const handleToggleProjectDir = (id: string) => {
+    onUpdate({
+      ...workspace,
+      settings: {
+        ...workspace.settings,
+        projectArchiveDirs: archiveDirs.map((d) =>
+          d.id === id ? { ...d, enabled: d.enabled === false } : d
+        ),
+      },
+    });
+  };
+
+  const handleRemoveProjectDir = (id: string) => {
+    onUpdate({
+      ...workspace,
+      settings: {
+        ...workspace.settings,
+        projectArchiveDirs: archiveDirs.filter((d) => d.id !== id),
+      },
+    });
+  };
 
   // Logs tab state
   const [logText, setLogText] = useState("");
@@ -298,6 +382,11 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
       id: "appearance",
       label: "外观与主题",
       icon: <Palette className="h-3.5 w-3.5" />,
+    },
+    {
+      id: "projects",
+      label: "项目目录",
+      icon: <FolderArchive className="h-3.5 w-3.5" />,
     },
     {
       id: "ai",
@@ -574,7 +663,134 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
               </div>
             )}
 
-            {/* TAB 2: AI & AUTO-FETCH MODELS */}
+            {/* TAB 2: PROJECT ARCHIVE FOLDERS */}
+            {activeTab === "projects" && (
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-[15px] font-semibold text-foreground">
+                    项目归档目录
+                  </h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    支持添加多个过往项目文件夹，自动识别多种日期格式、提取缩略图并本地持久化缓存
+                  </p>
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    addProjectArchiveDir(newProjectDir, newProjectLabel);
+                  }}
+                  className="space-y-2.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="text"
+                      value={newProjectDir}
+                      onChange={(e) => setNewProjectDir(e.target.value)}
+                      placeholder="文件夹绝对路径，如 W:\#完成项目"
+                      className="flex-1 font-mono"
+                    />
+                    {isTauriRuntime() && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={handlePickProjectFolder}
+                        className="h-9 shrink-0 px-3"
+                      >
+                        <FolderSearch className="h-3.5 w-3.5" />
+                        选择文件夹
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="text"
+                      value={newProjectLabel}
+                      onChange={(e) => setNewProjectLabel(e.target.value)}
+                      placeholder="显示别名（可选，如：完成项目库）"
+                      className="flex-1"
+                    />
+                    <Button type="submit" size="sm" className="h-9 shrink-0 px-3.5">
+                      <Plus className="h-3.5 w-3.5" />
+                      添加目录
+                    </Button>
+                  </div>
+                </form>
+
+                <Separator />
+
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground">
+                      已添加的文件夹 ({archiveDirs.length})
+                    </span>
+                    <span className="text-muted-foreground">
+                      支持单独启用或停用
+                    </span>
+                  </div>
+
+                  {archiveDirs.length === 0 ? (
+                    <div className="rounded-xl bg-muted/50 px-4 py-8 text-center text-xs text-muted-foreground space-y-2">
+                      <div>暂未添加任何项目归档文件夹</div>
+                      <div>
+                        点击上方“选择文件夹”或粘贴本地路径，即可自动建立 Everything 级索引
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-h-60 space-y-2 overflow-y-auto pr-0.5">
+                      {archiveDirs.map((dir) => {
+                        const enabled = dir.enabled !== false;
+                        return (
+                          <div
+                            key={dir.id}
+                            className="flex items-center justify-between gap-2.5 rounded-xl bg-muted/50 px-3 py-2.5"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-[13px] font-medium text-foreground">
+                                {getArchiveFolderLabel(dir)}
+                              </div>
+                              <div className="truncate font-mono text-xs text-muted-foreground">
+                                {dir.path}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={enabled}
+                              onClick={() => handleToggleProjectDir(dir.id)}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                                enabled ? "bg-primary" : "bg-input"
+                              }`}
+                              title={enabled ? "点击停用此目录" : "点击启用此目录"}
+                            >
+                              <span
+                                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow transition-transform ${
+                                  enabled ? "translate-x-4" : "translate-x-1"
+                                }`}
+                              />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveProjectDir(dir.id)}
+                              className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-destructive/12 hover:text-destructive"
+                              title="移除目录"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: AI & AUTO-FETCH MODELS */}
             {activeTab === "ai" && (
               <form onSubmit={handleSaveAI} className="space-y-5">
                 <div>
