@@ -1,5 +1,72 @@
 import { AIConfig, BoardColumn, EffortSize, IdeaItem, TaskItem } from "../types";
 
+export interface AIProviderPreset {
+  id: string;
+  label: string;
+  baseUrl: string;
+  defaultModel: string;
+  needsKey: boolean;
+}
+
+export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
+  {
+    id: "zhipu",
+    label: "智谱 GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    defaultModel: "glm-4-flash",
+    needsKey: true,
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    defaultModel: "deepseek-chat",
+    needsKey: true,
+  },
+  {
+    id: "qwen",
+    label: "通义千问",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    defaultModel: "qwen-plus",
+    needsKey: true,
+  },
+  {
+    id: "kimi",
+    label: "Kimi",
+    baseUrl: "https://api.moonshot.cn/v1",
+    defaultModel: "moonshot-v1-8k",
+    needsKey: true,
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-2.0-flash",
+    needsKey: true,
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-4o-mini",
+    needsKey: true,
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    defaultModel: "anthropic/claude-3.5-sonnet",
+    needsKey: true,
+  },
+  {
+    id: "ollama",
+    label: "Ollama 本地",
+    baseUrl: "http://localhost:11434/v1",
+    defaultModel: "qwen2.5:7b",
+    needsKey: false,
+  },
+];
+
 export interface AIBreakdownTask {
   title: string;
   notes?: string;
@@ -115,4 +182,13 @@ export async function suggestTodayPlanWithAI(
 
   const userPrompt = `今天日期: ${today}\n待办任务列表:\n${taskLines.join("\n")}`;
   return await callChatCompletion(config, systemPrompt, userPrompt);
+}
+
+export async function testAIConnection(config: AIConfig): Promise<string> {
+  const reply = await callChatCompletion(
+    config,
+    "Reply with OK only.",
+    "ping"
+  );
+  return reply.slice(0, 40);
 }

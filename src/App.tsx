@@ -34,7 +34,11 @@ import {
   openCaptureWindow,
   saveWorkspace,
 } from "./lib/storage";
-import { suggestTodayPlanWithAI } from "./lib/ai";
+import {
+  AI_PROVIDER_PRESETS,
+  suggestTodayPlanWithAI,
+  testAIConnection,
+} from "./lib/ai";
 import {
   checkForUpdates,
   getCurrentAppVersion,
@@ -302,6 +306,10 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
     workspace.settings.ai?.model ?? "gpt-4o-mini"
   );
   const [dirSaved, setDirSaved] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiTestMsg, setAiTestMsg] = useState<{ ok: boolean; text: string } | null>(
+    null
+  );
   const [langNotice, setLangNotice] = useState<{
     ok: boolean;
     text: string;
@@ -989,40 +997,42 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
             {/* AI Direct API Config + Sync Dir Form */}
             <form onSubmit={handleSaveSettings} className="space-y-4">
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                    <Bot className="h-3.5 w-3.5 text-primary" />
-                    <span>AI 直连接口（OpenAI 兼容 / Ollama）</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAiBaseUrl("http://localhost:11434/v1");
-                        setAiModel("qwen2.5:7b");
-                      }}
-                      className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground hover:bg-accent"
-                    >
-                      Ollama 本地
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAiBaseUrl("https://api.deepseek.com/v1");
-                        setAiModel("deepseek-chat");
-                      }}
-                      className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground hover:bg-accent"
-                    >
-                      DeepSeek
-                    </button>
-                  </div>
+                <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                  <Bot className="h-3.5 w-3.5 text-primary" />
+                  <span>AI 平台配置（支持多平台一键预设）</span>
+                </div>
+
+                {/* Multi-provider preset chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {AI_PROVIDER_PRESETS.map((preset) => {
+                    const isSelected =
+                      aiBaseUrl.trim().replace(/\/+$/, "") === preset.baseUrl;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          setAiBaseUrl(preset.baseUrl);
+                          setAiModel(preset.defaultModel);
+                          setAiTestMsg(null);
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] transition ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground font-medium shadow-sm"
+                            : "bg-secondary text-secondary-foreground hover:bg-accent"
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <Input
                   type="text"
                   value={aiBaseUrl}
                   onChange={(e) => setAiBaseUrl(e.target.value)}
-                  placeholder="Base URL，例如 https://api.openai.com/v1"
+                  placeholder="Base URL，例如 https://open.bigmodel.cn/api/paas/v4"
                   className="font-mono"
                 />
                 <div className="grid grid-cols-2 gap-2">
@@ -1036,9 +1046,51 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                     type="text"
                     value={aiModel}
                     onChange={(e) => setAiModel(e.target.value)}
-                    placeholder="模型名，如 gpt-4o-mini"
+                    placeholder="模型名，如 glm-4-flash"
                     className="font-mono"
                   />
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={aiTesting}
+                    onClick={async () => {
+                      setAiTesting(true);
+                      setAiTestMsg(null);
+                      try {
+                        await testAIConnection({
+                          baseUrl: aiBaseUrl,
+                          apiKey: aiApiKey,
+                          model: aiModel,
+                        });
+                        setAiTestMsg({ ok: true, text: "连接成功，接口可用" });
+                      } catch (err) {
+                        setAiTestMsg({
+                          ok: false,
+                          text:
+                            err instanceof Error ? err.message : "连接测试失败",
+                        });
+                      } finally {
+                        setAiTesting(false);
+                      }
+                    }}
+                  >
+                    {aiTesting && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {aiTesting ? "测试中..." : "测试连接"}
+                  </Button>
+
+                  {aiTestMsg && (
+                    <span
+                      className={`truncate text-[11px] ${
+                        aiTestMsg.ok ? "text-emerald-500" : "text-destructive"
+                      }`}
+                    >
+                      {aiTestMsg.text}
+                    </span>
+                  )}
                 </div>
               </div>
 
