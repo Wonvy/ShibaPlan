@@ -53,6 +53,7 @@ export function createDefaultWorkspace(): WorkspaceData {
       customLocales: [],
       theme: "dark",
       paperGrain: true,
+      accentColor: undefined,
       enterToSave: true,
       columnGap: 16,
       ai: {
@@ -60,6 +61,7 @@ export function createDefaultWorkspace(): WorkspaceData {
         apiKey: "",
         model: "gpt-4o-mini",
       },
+      projectArchiveDirs: [],
     },
   };
 }
@@ -74,6 +76,7 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
     trashedIdeas: Array.isArray(raw.trashedIdeas) ? raw.trashedIdeas : [],
     focusLogs: Array.isArray(raw.focusLogs) ? raw.focusLogs : [],
     settings: {
+      ...(raw.settings ?? {}),
       customDataDir: raw.settings?.customDataDir ?? "",
       shortcutLabel: raw.settings?.shortcutLabel ?? "Ctrl + Shift + Space",
       locale: raw.settings?.locale ?? "zh-CN",
@@ -85,6 +88,11 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
           ? raw.settings.theme
           : "dark",
       paperGrain: raw.settings?.paperGrain ?? true,
+      accentColor:
+        typeof raw.settings?.accentColor === "string" &&
+        raw.settings.accentColor.trim()
+          ? raw.settings.accentColor.trim()
+          : undefined,
       enterToSave: raw.settings?.enterToSave ?? true,
       columnGap:
         typeof raw.settings?.columnGap === "number"
@@ -95,6 +103,9 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
         apiKey: raw.settings?.ai?.apiKey ?? "",
         model: raw.settings?.ai?.model ?? "gpt-4o-mini",
       },
+      projectArchiveDirs: Array.isArray(raw.settings?.projectArchiveDirs)
+        ? raw.settings.projectArchiveDirs
+        : [],
     },
   };
 }
