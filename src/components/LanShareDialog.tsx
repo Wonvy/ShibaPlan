@@ -25,6 +25,8 @@ interface LanShareDialogProps {
   customDataDir?: string;
 }
 
+const SELECTED_NIC_KEY = "shibaplan_lan_selected_ip_v1";
+
 export const LanShareDialog: React.FC<LanShareDialogProps> = ({
   open,
   onOpenChange,
@@ -32,13 +34,39 @@ export const LanShareDialog: React.FC<LanShareDialogProps> = ({
 }) => {
   const inTauri = isTauriRuntime();
   const [info, setInfo] = useState<LanServerInfo | null>(null);
+  const [selectedIp, setSelectedIp] = useState<string>(() => {
+    try {
+      return localStorage.getItem(SELECTED_NIC_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
   const [browserUrl, setBrowserUrl] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const activeUrl = inTauri ? info?.url ?? "" : browserUrl;
+  const interfaces = info?.interfaces ?? [];
+  const effectiveIp =
+    interfaces.find((i) => i.ip === selectedIp)?.ip ||
+    info?.ip ||
+    interfaces[0]?.ip ||
+    "";
+  const activeUrl = inTauri
+    ? info && effectiveIp
+      ? `http://${effectiveIp}:${info.port}`
+      : info?.url ?? ""
+    : browserUrl;
+
+  const handleSelectIp = (ip: string) => {
+    setSelectedIp(ip);
+    try {
+      localStorage.setItem(SELECTED_NIC_KEY, ip);
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -148,6 +176,34 @@ export const LanShareDialog: React.FC<LanShareDialogProps> = ({
               >
                 {info?.running ? "停止" : "启动"}
               </Button>
+            </div>
+          )}
+
+          {inTauri && interfaces.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">
+                选择网卡（共 {interfaces.length} 个）
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                {interfaces.map((nic) => {
+                  const active = nic.ip === effectiveIp;
+                  return (
+                    <button
+                      key={nic.ip}
+                      type="button"
+                      onClick={() => handleSelectIp(nic.ip)}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-colors ${
+                        active
+                          ? "bg-primary text-primary-foreground font-medium shadow-sm"
+                          : "bg-secondary text-secondary-foreground hover:bg-accent"
+                      }`}
+                    >
+                      <span className="truncate max-w-[110px]">{nic.name}</span>
+                      <span className="font-mono opacity-85">{nic.ip}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

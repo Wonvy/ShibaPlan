@@ -124,6 +124,10 @@
     -webkit-user-select: none;
   }
 
+  [draggable="true"] {
+    -webkit-user-drag: element;
+  }
+
   input,
   textarea,
   [contenteditable="true"],

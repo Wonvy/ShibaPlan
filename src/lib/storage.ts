@@ -124,11 +124,17 @@ export async function getDefaultDataDir(): Promise<string> {
   return "~/Documents/ShibaPlan";
 }
 
+export interface LanInterface {
+  name: string;
+  ip: string;
+}
+
 export interface LanServerInfo {
   running: boolean;
   ip: string;
   port: number;
   url: string;
+  interfaces?: LanInterface[];
 }
 
 let lanApiAvailable: boolean | null = null;

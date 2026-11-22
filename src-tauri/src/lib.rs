@@ -1110,11 +1110,115 @@ fn open_path_in_os(target_path: String) -> Result<(), String> {
 }
 
 #[derive(Serialize, Clone)]
+struct LanInterface {
+    name: String,
+    ip: String,
+}
+
+#[derive(Serialize, Clone)]
 struct LanServerInfo {
     running: bool,
     ip: String,
     port: u16,
     url: String,
+    interfaces: Vec<LanInterface>,
+}
+
+fn is_valid_lan_ipv4(ip: &str) -> bool {
+    let parts: Vec<&str> = ip.split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    let nums: Vec<u8> = match parts.iter().map(|p| p.parse::<u8>()).collect() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    if nums[0] == 127 || (nums[0] == 169 && nums[1] == 254) || nums[0] == 0 {
+        return false;
+    }
+    true
+}
+
+fn list_lan_interfaces() -> Vec<LanInterface> {
+    let mut list: Vec<LanInterface> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        // Use PowerShell Get-NetIPAddress for clean UTF-8 adapter names + IPv4 without console flash
+        if let Ok(output) = Command::new("powershell")
+            .creation_flags(CREATE_NO_WINDOW)
+            .args([
+                "-NoProfile",
+                "-Command",
+                "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | ForEach-Object { \"$($_.InterfaceAlias)|$($_.IPAddress)\" }",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                for line in text.lines() {
+                    if let Some((name, ip)) = line.trim().split_once('|') {
+                        let clean_ip = ip.trim().to_string();
+                        let clean_name = name.trim().to_string();
+                        if is_valid_lan_ipv4(&clean_ip) && seen.insert(clean_ip.clone()) {
+                            list.push(LanInterface {
+                                name: if clean_name.is_empty() {
+                                    "网络适配器".to_string()
+                                } else {
+                                    clean_name
+                                },
+                                ip: clean_ip,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let primary = detect_lan_ip();
+    if is_valid_lan_ipv4(&primary) && seen.insert(primary.clone()) {
+        list.insert(
+            0,
+            LanInterface {
+                name: "默认网卡".to_string(),
+                ip: primary.clone(),
+            },
+        );
+    }
+
+    // Sort primary detected IP first, then non-virtual LAN IPs (192.168 / 10.x) ahead of virtual 172.x
+    list.sort_by(|a, b| {
+        let score = |iface: &LanInterface| -> i32 {
+            let mut s = 0;
+            if iface.ip == primary {
+                s += 100;
+            }
+            let low = iface.name.to_lowercase();
+            if low.contains("wlan") || low.contains("wi-fi") || low.contains("以太网") || low.contains("ethernet") {
+                s += 40;
+            }
+            if low.contains("vethernet") || low.contains("wsl") || low.contains("docker") || low.contains("vmware") || low.contains("hyper-v") {
+                s -= 50;
+            }
+            if iface.ip.starts_with("192.168.") || iface.ip.starts_with("10.") {
+                s += 20;
+            }
+            s
+        };
+        score(b).cmp(&score(a))
+    });
+
+    if list.is_empty() {
+        list.push(LanInterface {
+            name: "本机".to_string(),
+            ip: primary,
+        });
+    }
+    list
 }
 
 struct LanServerState {
@@ -1309,12 +1413,17 @@ fn handle_lan_client(mut stream: TcpStream, app: AppHandle, custom_dir: Option<S
 fn get_lan_server_info(state: tauri::State<'_, LanServerState>) -> LanServerInfo {
     let running = state.running.load(Ordering::SeqCst);
     let port = *state.port.lock().unwrap();
-    let ip = detect_lan_ip();
+    let interfaces = list_lan_interfaces();
+    let ip = interfaces
+        .first()
+        .map(|i| i.ip.clone())
+        .unwrap_or_else(detect_lan_ip);
     LanServerInfo {
         running,
         url: format!("http://{}:{}", ip, port),
         ip,
         port,
+        interfaces,
     }
 }
 
@@ -1330,12 +1439,17 @@ fn start_lan_server(
 
     if state.running.load(Ordering::SeqCst) {
         let cur_port = *state.port.lock().unwrap();
-        let ip = detect_lan_ip();
+        let interfaces = list_lan_interfaces();
+        let ip = interfaces
+            .first()
+            .map(|i| i.ip.clone())
+            .unwrap_or_else(detect_lan_ip);
         return Ok(LanServerInfo {
             running: true,
             url: format!("http://{}:{}", ip, cur_port),
             ip,
             port: cur_port,
+            interfaces,
         });
     }
 
@@ -1367,12 +1481,17 @@ fn start_lan_server(
         }
     });
 
-    let ip = detect_lan_ip();
+    let interfaces = list_lan_interfaces();
+    let ip = interfaces
+        .first()
+        .map(|i| i.ip.clone())
+        .unwrap_or_else(detect_lan_ip);
     Ok(LanServerInfo {
         running: true,
         url: format!("http://{}:{}", ip, target_port),
         ip,
         port: target_port,
+        interfaces,
     })
 }
 
@@ -1380,12 +1499,17 @@ fn start_lan_server(
 fn stop_lan_server(state: tauri::State<'_, LanServerState>) -> Result<LanServerInfo, String> {
     state.running.store(false, Ordering::SeqCst);
     let port = *state.port.lock().unwrap();
-    let ip = detect_lan_ip();
+    let interfaces = list_lan_interfaces();
+    let ip = interfaces
+        .first()
+        .map(|i| i.ip.clone())
+        .unwrap_or_else(detect_lan_ip);
     Ok(LanServerInfo {
         running: false,
         url: format!("http://{}:{}", ip, port),
         ip,
         port,
+        interfaces,
     })
 }
 
