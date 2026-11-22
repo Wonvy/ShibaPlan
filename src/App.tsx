@@ -260,6 +260,9 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   const { t, locale } = useI18n();
 
   const [view, setView] = useState<TopView>("kanban");
+  const [projectStatusText, setProjectStatusText] = useState<string | null>(
+    null
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
   const [commandOpen, setCommandOpen] = useState(false);
@@ -745,6 +748,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                   setSettingsTab("projects");
                   setSettingsOpen(true);
                 }}
+                onStatusChange={setProjectStatusText}
                 onNotify={onNotify}
               />
             ) : view === "kanban" ? (
@@ -765,6 +769,10 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
           {statusNotice ? (
             <span className="truncate font-medium text-primary">
               {statusNotice}
+            </span>
+          ) : view === "projects" ? (
+            <span className="truncate">
+              {projectStatusText || "项目归档工作台"}
             </span>
           ) : (
             <>

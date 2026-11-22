@@ -46,6 +46,7 @@ import { Button } from "./ui/button";
 interface ProjectsViewProps {
   workspace: WorkspaceData;
   onOpenProjectSettings: () => void;
+  onStatusChange?: (text: string | null) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -230,6 +231,7 @@ const ProjectThumbnail: React.FC<{
 export const ProjectsView: React.FC<ProjectsViewProps> = ({
   workspace,
   onOpenProjectSettings,
+  onStatusChange,
   onNotify,
 }) => {
   const archiveDirs = useMemo(
@@ -431,6 +433,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [selectedExplorerPath, setSelectedExplorerPath] = useState<
     string | null
   >(null);
+  const [selectionFocus, setSelectionFocus] = useState<"project" | "explorer">(
+    "project"
+  );
   const [quickLook, setQuickLook] = useState<{
     entry: ExplorerEntry;
     kind: "image" | "text" | "meta";
@@ -462,6 +467,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const selectProjectForExplorer = useCallback(
     (item: IndexedArchiveItem) => {
       setSelectedProject(item);
+      setSelectionFocus("project");
       const targetDir = item.is_dir
         ? item.path
         : item.path.replace(/[\\/][^\\/]+$/, "");
@@ -659,6 +665,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             ? Math.min(explorerEntries.length - 1, curIdx + 1)
             : Math.max(0, curIdx <= 0 ? 0 : curIdx - 1);
         setSelectedExplorerPath(explorerEntries[nextIdx].path);
+        setSelectionFocus("explorer");
       } else if (!inInput && explorerOpen && e.key === "Enter" && selectedExplorerPath) {
         const activeEntry = explorerEntries.find(
           (ent) => ent.path === selectedExplorerPath
@@ -1057,22 +1064,87 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const isSearching = query.trim().length > 0;
   const visibleItems = matchedItems.slice(0, renderLimit);
 
+  // Sync dynamic selection & filter context to the unified bottom status bar
+  useEffect(() => {
+    if (!onStatusChange) return;
+    if (archiveDirs.length === 0) {
+      onStatusChange("未配置项目目录");
+      return;
+    }
+
+    if (selectionFocus === "explorer" && selectedExplorerPath) {
+      const ent = explorerEntries.find((e) => e.path === selectedExplorerPath);
+      if (ent) {
+        const sizeStr = !ent.is_dir && ent.size > 0 ? ` · ${formatFileSize(ent.size)}` : "";
+        onStatusChange(
+          `${ent.is_dir ? "文件夹" : "文件"}：${ent.name}${sizeStr} · 按空格 Seer 预览`
+        );
+        return;
+      }
+    }
+
+    if (selectedProject) {
+      const parts = [
+        `已选项目：${selectedProject.displayTitle}`,
+        selectedProject.dateLabel || null,
+        selectedProject.is_dir
+          ? `${selectedProject.child_count} 项`
+          : selectedProject.ext
+            ? selectedProject.ext.toUpperCase()
+            : null,
+      ].filter(Boolean);
+      onStatusChange(parts.join(" · "));
+      return;
+    }
+
+    if (isSearching) {
+      onStatusChange(`搜索 "${query.trim()}" · ${matchedItems.length} 条匹配`);
+      return;
+    }
+
+    const scopePrefix =
+      typeof selectedYear === "number"
+        ? typeof selectedMonth === "number"
+          ? `${selectedYear}年${selectedMonth}月`
+          : `${selectedYear}年`
+        : selectedYear === "unknown"
+          ? "未归类"
+          : "全部项目";
+    onStatusChange(
+      `${scopePrefix} · ${statsData.projectCount} 个项目 · ${statsData.fileCount} 个文件`
+    );
+  }, [
+    onStatusChange,
+    archiveDirs.length,
+    selectionFocus,
+    selectedExplorerPath,
+    explorerEntries,
+    selectedProject,
+    isSearching,
+    query,
+    matchedItems.length,
+    selectedYear,
+    selectedMonth,
+    statsData.projectCount,
+    statsData.fileCount,
+  ]);
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Top Everything-style Search & Action Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-2.5 bg-surface/60 shrink-0">
+      {/* Minimal Top Search & View Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-2 border-b border-border/50 bg-background/60 shrink-0">
         <div className="flex flex-wrap items-center gap-2 min-w-0">
-          {/* Compact Everything Search Input */}
-          <div className="relative w-64 sm:w-72 md:w-80">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          {/* Compact Search Input */}
+          <div className="relative w-56 sm:w-64 md:w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               ref={searchInputRef}
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索项目或文件（空格 / | / ! / ext:psd）"
-              title="支持 Everything 语法：空格=与，|=或，!=排除，ext:pdf，folder:，file:"
-              className="h-9 w-full rounded-lg bg-card pl-8 pr-16 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring shadow-card-rest"
+              placeholder="搜索项目或文件..."
+              title="支持 Everything 语法：空格=与，|=或，!=排除，ext:psd，folder:，file:"
+              className="h-8 w-full rounded-lg bg-muted/60 pl-8 pr-14 text-[13px] text-foreground placeholder:text-muted-foreground focus:bg-card focus:outline-none focus:ring-1 focus:ring-ring transition-colors"
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
               {query && (
@@ -1085,14 +1157,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   <X className="h-3.5 w-3.5" />
                 </button>
               )}
-              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+              <span className="font-mono text-xs text-muted-foreground">
                 {matchedItems.length}
               </span>
             </div>
           </div>
 
           {/* Scope Segmented Pills */}
-          <div className="flex items-center rounded-lg bg-muted/70 p-0.5">
+          <div className="flex items-center rounded-lg bg-muted/60 p-0.5">
             {(
               [
                 { id: "projects", label: "项目" },
@@ -1104,7 +1176,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 key={s.id}
                 type="button"
                 onClick={() => setScope(s.id)}
-                className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                className={`rounded-md px-2 py-1 text-xs transition-colors ${
                   effectiveScope === s.id
                     ? "bg-card text-foreground font-medium shadow-card-rest"
                     : "text-muted-foreground hover:text-foreground"
@@ -1116,66 +1188,64 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-        {/* View Mode Switcher: Grid / Timeline / List / Stats */}
-        <div
-          className="flex items-center rounded-lg bg-muted/70 p-0.5"
-          title="切换项目视图"
-        >
-          {(
-            [
-              {
-                id: "grid",
-                label: "网格",
-                icon: <LayoutGrid className="h-3.5 w-3.5" />,
-              },
-              {
-                id: "timeline",
-                label: "时间轴",
-                icon: <Clock className="h-3.5 w-3.5" />,
-              },
-              {
-                id: "list",
-                label: "列表",
-                icon: <List className="h-3.5 w-3.5" />,
-              },
-              {
-                id: "stats",
-                label: "统计",
-                icon: <BarChart3 className="h-3.5 w-3.5" />,
-              },
-            ] as const
-          ).map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => changeViewMode(m.id)}
-              title={`${m.label}视图`}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
-                viewMode === m.id
-                  ? "bg-card text-foreground font-medium shadow-card-rest"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {m.icon}
-              <span className="hidden lg:inline">{m.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Re-index & Directory Settings */}
         <div className="flex items-center gap-1.5">
+          {/* Icon-only View Mode Switcher */}
+          <div
+            className="flex items-center rounded-lg bg-muted/60 p-0.5"
+            title="切换项目视图"
+          >
+            {(
+              [
+                {
+                  id: "grid",
+                  label: "网格视图",
+                  icon: <LayoutGrid className="h-3.5 w-3.5" />,
+                },
+                {
+                  id: "timeline",
+                  label: "时间轴视图",
+                  icon: <Clock className="h-3.5 w-3.5" />,
+                },
+                {
+                  id: "list",
+                  label: "列表视图",
+                  icon: <List className="h-3.5 w-3.5" />,
+                },
+                {
+                  id: "stats",
+                  label: "统计视图",
+                  icon: <BarChart3 className="h-3.5 w-3.5" />,
+                },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => changeViewMode(m.id)}
+                title={m.label}
+                className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                  viewMode === m.id
+                    ? "bg-card text-foreground shadow-card-rest"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {m.icon}
+              </button>
+            ))}
+          </div>
+
+          {/* Compact Icon Actions */}
           <Button
             type="button"
-            variant="secondary"
-            size="sm"
+            variant="ghost"
+            size="icon"
             disabled={indexing || enabledRootPaths.length === 0}
             onClick={() => runIndex(false)}
-            className="h-8 px-2.5 text-xs"
+            className="h-8 w-8"
             title={
               lastIndexedAt
-                ? `${cacheRestored ? "已命中本地缓存" : "已完成扫描"} · 更新于 ${lastIndexedAt}`
-                : "重新扫描并更新缓存"
+                ? `刷新索引（上次更新 ${lastIndexedAt}）`
+                : "刷新索引"
             }
           >
             {indexing ? (
@@ -1183,34 +1253,22 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />
             )}
-            <span className="hidden md:inline">
-              {indexing
-                ? allItems.length > 0
-                  ? "同步中..."
-                  : "索引中..."
-                : "刷新索引"}
-            </span>
           </Button>
 
           <Button
             type="button"
-            variant="secondary"
-            size="sm"
+            variant="ghost"
+            size="icon"
             onClick={onOpenProjectSettings}
-            className="h-8 px-2.5 text-xs"
+            className="h-8 w-8"
+            title={`项目目录设置 (${archiveDirs.length})`}
           >
-            <FolderPlus className="h-3.5 w-3.5 text-primary" />
-            <span>项目目录</span>
-            {archiveDirs.length > 0 && (
-              <span className="rounded bg-primary/15 px-1 font-mono text-xs text-primary">
-                {archiveDirs.length}
-              </span>
-            )}
+            <FolderPlus className="h-3.5 w-3.5" />
           </Button>
 
           <Button
             type="button"
-            variant={explorerOpen ? "default" : "secondary"}
+            variant={explorerOpen ? "secondary" : "ghost"}
             size="icon"
             onClick={() => setExplorerOpen((v) => !v)}
             className="h-8 w-8 shrink-0"
@@ -1218,7 +1276,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           >
             <PanelRight className="h-3.5 w-3.5" />
           </Button>
-        </div>
         </div>
       </div>
 
@@ -1965,7 +2022,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       className="grid gap-2.5 items-stretch"
                     >
                       {groupItems.map((item) => {
-                        const isExpanded = expandedProjectPath === item.path;
                         const isSelected = selectedProject?.path === item.path;
                         const rootTag = rootLabelMap.get(item.root_path);
                         const thumbH = Math.round(cardWidth * 0.58);
@@ -1986,91 +2042,42 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               showPlaceholder
                             />
 
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <div className="flex items-center gap-1.5">
-                                  {item.dateLabel && (
-                                    <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-xs font-medium text-primary">
-                                      {item.dateLabel}
-                                    </span>
-                                  )}
-                                  {archiveDirs.length > 1 && rootTag && (
-                                    <span className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                                      {rootTag}
-                                    </span>
-                                  )}
-                                </div>
-                                <div
-                                  className="truncate text-[13px] font-medium text-foreground"
-                                  title={item.name}
-                                >
-                                  {item.displayTitle}
-                                </div>
+                            <div className="flex items-center justify-between gap-1.5">
+                              <div
+                                className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground"
+                                title={item.name}
+                              >
+                                {item.displayTitle}
                               </div>
-
                               <button
                                 type="button"
-                                onClick={() => openArchivePath(item.path)}
-                                className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openArchivePath(item.path);
+                                }}
+                                className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
                                 title="打开项目文件夹"
                               >
                                 <FolderOpen className="h-3.5 w-3.5" />
                               </button>
                             </div>
 
-                            <div className="mt-2.5 flex items-center justify-between text-xs text-muted-foreground">
-                              <span className="truncate font-mono opacity-80">
+                            <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                              {item.dateLabel && (
+                                <span className="font-mono">{item.dateLabel}</span>
+                              )}
+                              <span>·</span>
+                              <span className="truncate font-mono">
                                 {item.is_dir
-                                  ? `${item.child_count} 个子项`
+                                  ? `${item.child_count} 项`
                                   : item.ext.toUpperCase() || "文件"}
                               </span>
-                              {item.is_dir && item.child_count > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setExpandedProjectPath(
-                                      isExpanded ? null : item.path
-                                    )
-                                  }
-                                  className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 transition hover:bg-accent hover:text-foreground"
-                                >
-                                  {isExpanded ? (
-                                    <ChevronDown className="h-3 w-3" />
-                                  ) : (
-                                    <ChevronRight className="h-3 w-3" />
-                                  )}
-                                  <span>{isExpanded ? "收起" : "预览"}</span>
-                                </button>
+                              {archiveDirs.length > 1 && rootTag && (
+                                <span className="ml-auto truncate opacity-75">
+                                  {rootTag}
+                                </span>
                               )}
                             </div>
-
-                            {isExpanded && (
-                              <div className="mt-2.5 space-y-1 border-t border-border/60 pt-2">
-                                {expandedChildren.length === 0 ? (
-                                  <div className="text-xs text-muted-foreground">
-                                    暂无可预览子文件
-                                  </div>
-                                ) : (
-                                  expandedChildren.slice(0, 10).map((child) => (
-                                    <button
-                                      key={child.path}
-                                      type="button"
-                                      onClick={() => openArchivePath(child.path)}
-                                      className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                                    >
-                                      {child.is_dir ? (
-                                        <Folder className="h-3 w-3 shrink-0 text-primary/80" />
-                                      ) : (
-                                        <File className="h-3 w-3 shrink-0" />
-                                      )}
-                                      <span className="truncate">
-                                        {child.name}
-                                      </span>
-                                    </button>
-                                  ))
-                                )}
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -2232,7 +2239,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         return (
                           <div
                             key={entry.path}
-                            onClick={() => setSelectedExplorerPath(entry.path)}
+                            onClick={() => {
+                              setSelectedExplorerPath(entry.path);
+                              setSelectionFocus("explorer");
+                            }}
                             onDoubleClick={() => {
                               if (entry.is_dir) {
                                 setExplorerPath(entry.path);
@@ -2283,7 +2293,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         return (
                           <div
                             key={entry.path}
-                            onClick={() => setSelectedExplorerPath(entry.path)}
+                            onClick={() => {
+                              setSelectedExplorerPath(entry.path);
+                              setSelectionFocus("explorer");
+                            }}
                             onDoubleClick={() => {
                               if (entry.is_dir) {
                                 setExplorerPath(entry.path);
@@ -2347,11 +2360,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       })}
                     </div>
                   )}
-                </div>
-
-                {/* Explorer Footer Hint */}
-                <div className="border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground shrink-0">
-                  空格键 Seer / 快速预览 · 双击进入或打开
                 </div>
               </aside>
             </>
