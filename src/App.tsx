@@ -734,7 +734,9 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
               <CalendarView workspace={workspace} onUpdate={onUpdate} />
             )}
           </main>
-          <IdeaRiver workspace={workspace} onUpdate={onUpdate} />
+          {view !== "projects" && (
+            <IdeaRiver workspace={workspace} onUpdate={onUpdate} />
+          )}
         </div>
       )}
 
