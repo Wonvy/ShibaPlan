@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
+  BarChart3,
   Calendar,
   ChevronDown,
   ChevronRight,
@@ -49,7 +50,7 @@ interface ProjectsViewProps {
 }
 
 type SearchScope = "projects" | "all" | "files";
-type ProjectViewMode = "grid" | "timeline" | "list";
+type ProjectViewMode = "grid" | "timeline" | "list" | "stats";
 
 const VIEW_MODE_STORAGE_KEY = "shibaplan_projects_view_mode_v1";
 
@@ -259,7 +260,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [viewMode, setViewMode] = useState<ProjectViewMode>(() => {
     try {
       const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-      if (saved === "grid" || saved === "timeline" || saved === "list") {
+      if (
+        saved === "grid" ||
+        saved === "timeline" ||
+        saved === "list" ||
+        saved === "stats"
+      ) {
         return saved;
       }
     } catch {
@@ -647,6 +653,249 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     [filteredPool, query]
   );
 
+  // Statistics data (computed from current root + year + month filter)
+  const statsData = useMemo(() => {
+    const scoped = effectiveItems.filter((item) => {
+      if (selectedRoot !== "all" && item.root_path !== selectedRoot) return false;
+      if (selectedYear === "unknown" && item.year !== null) return false;
+      if (typeof selectedYear === "number" && item.year !== selectedYear)
+        return false;
+      if (typeof selectedMonth === "number" && item.month !== selectedMonth)
+        return false;
+      return true;
+    });
+
+    const projects = scoped.filter((i) => i.is_project);
+    const files = scoped.filter((i) => !i.is_dir);
+    let totalSize = 0;
+
+    const extMap = new Map<string, { count: number; size: number }>();
+    const catDefs: {
+      id: string;
+      label: string;
+      color: string;
+      exts: Set<string>;
+      count: number;
+      size: number;
+    }[] = [
+      {
+        id: "design",
+        label: "设计源文件",
+        color: "#a78bfa",
+        exts: new Set([
+          "psd",
+          "psb",
+          "ai",
+          "cdr",
+          "indd",
+          "fig",
+          "sketch",
+          "xd",
+          "eps",
+          "afdesign",
+          "afphoto",
+        ]),
+        count: 0,
+        size: 0,
+      },
+      {
+        id: "office",
+        label: "PPT / 文档",
+        color: "#38bdf8",
+        exts: new Set([
+          "ppt",
+          "pptx",
+          "ppam",
+          "key",
+          "pdf",
+          "doc",
+          "docx",
+          "xls",
+          "xlsx",
+          "csv",
+          "md",
+          "txt",
+        ]),
+        count: 0,
+        size: 0,
+      },
+      {
+        id: "image",
+        label: "图片素材",
+        color: "#34d399",
+        exts: new Set([
+          "png",
+          "jpg",
+          "jpeg",
+          "webp",
+          "gif",
+          "bmp",
+          "svg",
+          "tif",
+          "tiff",
+          "avif",
+          "ico",
+        ]),
+        count: 0,
+        size: 0,
+      },
+      {
+        id: "cad3d",
+        label: "3D / CAD",
+        color: "#f59e0b",
+        exts: new Set([
+          "stl",
+          "step",
+          "stp",
+          "dwg",
+          "dxf",
+          "c4d",
+          "blend",
+          "obj",
+          "fbx",
+          "3dm",
+          "skp",
+          "iges",
+          "igs",
+          "sldprt",
+          "sldasm",
+        ]),
+        count: 0,
+        size: 0,
+      },
+      {
+        id: "media",
+        label: "音视频",
+        color: "#fb7185",
+        exts: new Set([
+          "mp4",
+          "mov",
+          "avi",
+          "mkv",
+          "wmv",
+          "mp3",
+          "wav",
+          "flac",
+          "prproj",
+          "aep",
+        ]),
+        count: 0,
+        size: 0,
+      },
+      {
+        id: "other",
+        label: "代码 / 压缩 / 其他",
+        color: "#94a3b8",
+        exts: new Set(),
+        count: 0,
+        size: 0,
+      },
+    ];
+
+    for (const f of files) {
+      totalSize += f.size;
+      const ext = f.ext || "无后缀";
+      const cur = extMap.get(ext) ?? { count: 0, size: 0 };
+      cur.count += 1;
+      cur.size += f.size;
+      extMap.set(ext, cur);
+
+      let matched = false;
+      for (const cat of catDefs) {
+        if (cat.id !== "other" && cat.exts.has(ext)) {
+          cat.count += 1;
+          cat.size += f.size;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        const other = catDefs[catDefs.length - 1];
+        other.count += 1;
+        other.size += f.size;
+      }
+    }
+
+    const topExts = Array.from(extMap.entries())
+      .map(([ext, info]) => ({ ext, count: info.count, size: info.size }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 15);
+
+    // Trend bars: by month when a specific year is selected, else by year
+    const trendBars: {
+      key: string;
+      label: string;
+      count: number;
+      year?: number;
+      month?: number;
+    }[] = [];
+
+    if (typeof selectedYear === "number") {
+      const mCounts = new Map<number, number>();
+      for (const p of projects) {
+        if (p.month) mCounts.set(p.month, (mCounts.get(p.month) ?? 0) + 1);
+      }
+      for (let mo = 1; mo <= 12; mo++) {
+        trendBars.push({
+          key: `${selectedYear}-${mo}`,
+          label: `${mo}月`,
+          count: mCounts.get(mo) ?? 0,
+          year: selectedYear,
+          month: mo,
+        });
+      }
+    } else {
+      const yCounts = new Map<number, number>();
+      for (const p of projects) {
+        if (p.year) yCounts.set(p.year, (yCounts.get(p.year) ?? 0) + 1);
+      }
+      const sortedYears = Array.from(yCounts.entries()).sort(
+        (a, b) => a[0] - b[0]
+      );
+      for (const [y, cnt] of sortedYears) {
+        trendBars.push({
+          key: String(y),
+          label: String(y),
+          count: cnt,
+          year: y,
+        });
+      }
+    }
+
+    const maxTrendCount = Math.max(1, ...trendBars.map((b) => b.count));
+    const maxExtCount = Math.max(1, ...topExts.map((e) => e.count));
+
+    // Peak month overall
+    const ymCounts = new Map<string, number>();
+    for (const p of projects) {
+      if (p.year && p.month) {
+        const k = `${p.year}年${p.month}月`;
+        ymCounts.set(k, (ymCounts.get(k) ?? 0) + 1);
+      }
+    }
+    let peakLabel = "-";
+    let peakCount = 0;
+    for (const [k, v] of ymCounts.entries()) {
+      if (v > peakCount) {
+        peakCount = v;
+        peakLabel = k;
+      }
+    }
+
+    return {
+      projectCount: projects.length,
+      fileCount: files.length,
+      totalSize,
+      categories: catDefs.filter((c) => c.count > 0),
+      topExts,
+      maxExtCount,
+      trendBars,
+      maxTrendCount,
+      peakLabel,
+      peakCount,
+    };
+  }, [effectiveItems, selectedRoot, selectedYear, selectedMonth]);
+
   // Nested children lookup for inline project preview
   const expandedChildren = useMemo(() => {
     if (!expandedProjectPath) return [];
@@ -763,6 +1012,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 id: "list",
                 label: "列表",
                 icon: <List className="h-3.5 w-3.5" />,
+              },
+              {
+                id: "stats",
+                label: "统计",
+                icon: <BarChart3 className="h-3.5 w-3.5" />,
               },
             ] as const
           ).map((m) => (
@@ -1072,6 +1326,222 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   >
                     清空搜索条件
                   </Button>
+                )}
+              </div>
+            ) : viewMode === "stats" && !isSearching ? (
+              /* VISUAL STATISTICS DASHBOARD */
+              <div className="space-y-5 pb-6">
+                {/* Top KPI Summary Cards */}
+                <div className="grid grid-cols-2 xl:grid-cols-4 gap-2.5">
+                  <div className="rounded-xl bg-card p-3.5 shadow-card-rest">
+                    <div className="text-xs text-muted-foreground">项目总数</div>
+                    <div className="mt-1 font-mono text-xl font-semibold text-foreground">
+                      {statsData.projectCount}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-card p-3.5 shadow-card-rest">
+                    <div className="text-xs text-muted-foreground">索引文件数</div>
+                    <div className="mt-1 font-mono text-xl font-semibold text-foreground">
+                      {statsData.fileCount}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-card p-3.5 shadow-card-rest">
+                    <div className="text-xs text-muted-foreground">累计体积</div>
+                    <div className="mt-1 font-mono text-xl font-semibold text-foreground">
+                      {formatFileSize(statsData.totalSize) || "0 B"}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-card p-3.5 shadow-card-rest">
+                    <div className="text-xs text-muted-foreground">最高产月份</div>
+                    <div className="mt-1 truncate text-sm font-semibold text-primary">
+                      {statsData.peakLabel}
+                    </div>
+                    {statsData.peakCount > 0 && (
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {statsData.peakCount} 个项目
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* File Category Stacked Bar */}
+                <div className="rounded-xl bg-card p-4 shadow-card-rest space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-foreground">
+                      文件大类分布
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      共 {statsData.fileCount} 个文件
+                    </span>
+                  </div>
+
+                  {statsData.fileCount === 0 ? (
+                    <div className="py-4 text-center text-xs text-muted-foreground">
+                      暂无文件数据
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted/60">
+                        {statsData.categories.map((cat) => (
+                          <div
+                            key={cat.id}
+                            style={{
+                              width: `${(cat.count / statsData.fileCount) * 100}%`,
+                              backgroundColor: cat.color,
+                            }}
+                            title={`${cat.label}: ${cat.count} 个 (${Math.round(
+                              (cat.count / statsData.fileCount) * 100
+                            )}%)`}
+                            className="h-full transition-all"
+                          />
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                        {statsData.categories.map((cat) => {
+                          const pct = Math.round(
+                            (cat.count / statsData.fileCount) * 100
+                          );
+                          return (
+                            <div
+                              key={cat.id}
+                              className="flex items-center justify-between gap-2 rounded-lg bg-muted/40 px-2.5 py-2 text-xs"
+                            >
+                              <span className="flex items-center gap-1.5 truncate text-foreground">
+                                <span
+                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                  style={{ backgroundColor: cat.color }}
+                                />
+                                <span className="truncate">{cat.label}</span>
+                              </span>
+                              <span className="shrink-0 font-mono text-muted-foreground">
+                                {cat.count} ({pct}%)
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Top File Extensions Horizontal Bar Chart (Clickable!) */}
+                <div className="rounded-xl bg-card p-4 shadow-card-rest space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-foreground">
+                      文件格式排行（PSD / PPT / PDF / AI 等）
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      点击任意格式直接检索文件
+                    </span>
+                  </div>
+
+                  {statsData.topExts.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-muted-foreground">
+                      暂无文件统计
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {statsData.topExts.map((item) => {
+                        const pct = Math.max(
+                          3,
+                          Math.round((item.count / statsData.maxExtCount) * 100)
+                        );
+                        return (
+                          <button
+                            key={item.ext}
+                            type="button"
+                            onClick={() => {
+                              if (item.ext !== "无后缀") {
+                                setScope("files");
+                                setQuery(`ext:${item.ext}`);
+                              }
+                            }}
+                            className="group flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent"
+                            title={`点击查看全部 .${item.ext} 文件`}
+                          >
+                            <span className="w-14 shrink-0 font-mono text-xs font-semibold uppercase text-foreground">
+                              .{item.ext}
+                            </span>
+                            <div className="flex-1 h-2.5 overflow-hidden rounded-full bg-muted/60">
+                              <div
+                                style={{ width: `${pct}%` }}
+                                className="h-full rounded-full bg-primary transition-all duration-300 group-hover:opacity-90"
+                              />
+                            </div>
+                            <span className="w-16 shrink-0 text-right font-mono text-xs font-medium text-foreground">
+                              {item.count} 个
+                            </span>
+                            <span className="hidden sm:inline-block w-20 shrink-0 text-right font-mono text-xs text-muted-foreground">
+                              {formatFileSize(item.size)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Yearly / Monthly Project Trend Chart */}
+                {statsData.trendBars.length > 0 && (
+                  <div className="rounded-xl bg-card p-4 shadow-card-rest space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-foreground">
+                        {typeof selectedYear === "number"
+                          ? `${selectedYear}年 月度项目产出趋势`
+                          : "历年项目产出趋势"}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        点击柱状条筛选对应时间
+                      </span>
+                    </div>
+
+                    <div className="flex h-44 items-end gap-2 pt-4">
+                      {statsData.trendBars.map((bar) => {
+                        const hPct =
+                          bar.count === 0
+                            ? 4
+                            : Math.max(
+                                12,
+                                Math.round(
+                                  (bar.count / statsData.maxTrendCount) * 100
+                                )
+                              );
+                        return (
+                          <button
+                            key={bar.key}
+                            type="button"
+                            onClick={() => {
+                              if (bar.year !== undefined) {
+                                setSelectedYear(bar.year);
+                                if (bar.month !== undefined) {
+                                  setSelectedMonth(bar.month);
+                                  changeViewMode("grid");
+                                }
+                              }
+                            }}
+                            className="group flex flex-1 flex-col items-center gap-1.5 h-full justify-end"
+                            title={`${bar.label}: ${bar.count} 个项目`}
+                          >
+                            <span className="font-mono text-xs text-muted-foreground group-hover:text-primary">
+                              {bar.count > 0 ? bar.count : ""}
+                            </span>
+                            <div
+                              style={{ height: `${hPct}%` }}
+                              className={`w-full max-w-[36px] rounded-t-md transition-all ${
+                                bar.count > 0
+                                  ? "bg-primary/80 group-hover:bg-primary"
+                                  : "bg-muted/50"
+                              }`}
+                            />
+                            <span className="font-mono text-xs text-muted-foreground truncate max-w-full">
+                              {bar.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
             ) : isSearching ||
