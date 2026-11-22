@@ -188,6 +188,259 @@ struct FolderEntry {
     is_dir: bool,
 }
 
+#[derive(Serialize)]
+struct ArchiveScanEntry {
+    name: String,
+    path: String,
+    root_path: String,
+    relative_path: String,
+    is_dir: bool,
+    is_project: bool,
+    ext: String,
+    size: u64,
+    modified_ms: u64,
+    context_year: Option<i32>,
+    context_month: Option<u32>,
+    child_count: usize,
+}
+
+fn parse_pure_year_folder(name: &str) -> Option<i32> {
+    let trimmed = name.trim().trim_start_matches('#').trim_end_matches('年').trim();
+    if trimmed.len() == 4 && trimmed.chars().all(|c| c.is_ascii_digit()) {
+        if let Ok(y) = trimmed.parse::<i32>() {
+            if (1990..=2099).contains(&y) {
+                return Some(y);
+            }
+        }
+    }
+    None
+}
+
+fn parse_pure_month_folder(name: &str) -> Option<u32> {
+    let trimmed = name.trim().trim_start_matches('#').trim();
+    let stripped = trimmed
+        .strip_suffix('月')
+        .or_else(|| trimmed.strip_suffix("月份"))
+        .unwrap_or(trimmed)
+        .trim();
+    if (1..=2).contains(&stripped.len()) && stripped.chars().all(|c| c.is_ascii_digit()) {
+        if let Ok(m) = stripped.parse::<u32>() {
+            if (1..=12).contains(&m) {
+                return Some(m);
+            }
+        }
+    }
+    // Also support YYYY-MM or YYYY.MM as month container
+    if trimmed.len() == 7 {
+        let bytes = trimmed.as_bytes();
+        if (bytes[4] == b'-' || bytes[4] == b'.' || bytes[4] == b'_')
+            && trimmed[0..4].chars().all(|c| c.is_ascii_digit())
+            && trimmed[5..7].chars().all(|c| c.is_ascii_digit())
+        {
+            if let Ok(m) = trimmed[5..7].parse::<u32>() {
+                if (1..=12).contains(&m) {
+                    return Some(m);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn should_skip_archive_name(name: &str) -> bool {
+    matches!(
+        name,
+        ".DS_Store"
+            | "Thumbs.db"
+            | "desktop.ini"
+            | "$RECYCLE.BIN"
+            | "System Volume Information"
+            | ".git"
+            | "node_modules"
+            | ".svn"
+            | "__pycache__"
+    )
+}
+
+fn scan_archive_recursive(
+    dir: &PathBuf,
+    root: &PathBuf,
+    root_str: &str,
+    depth: usize,
+    inside_project: bool,
+    ctx_year: Option<i32>,
+    ctx_month: Option<u32>,
+    out: &mut Vec<ArchiveScanEntry>,
+    max_entries: usize,
+) {
+    if out.len() >= max_entries || depth > 5 {
+        return;
+    }
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in read_dir.flatten() {
+        if out.len() >= max_entries {
+            break;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if should_skip_archive_name(&name) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let is_dir = meta.is_dir();
+        let modified_ms = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        let relative_path = path
+            .strip_prefix(root)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| name.clone());
+
+        if is_dir {
+            // Check if this folder is purely an organizational Year or Month container (when not yet inside a project)
+            if !inside_project {
+                if let Some(y) = parse_pure_year_folder(&name) {
+                    scan_archive_recursive(
+                        &path,
+                        root,
+                        root_str,
+                        depth + 1,
+                        false,
+                        Some(y),
+                        None,
+                        out,
+                        max_entries,
+                    );
+                    continue;
+                }
+                if let Some(m) = parse_pure_month_folder(&name) {
+                    let next_year = if name.len() == 7 {
+                        name[0..4].parse::<i32>().ok().or(ctx_year)
+                    } else {
+                        ctx_year
+                    };
+                    scan_archive_recursive(
+                        &path,
+                        root,
+                        root_str,
+                        depth + 1,
+                        false,
+                        next_year,
+                        Some(m),
+                        out,
+                        max_entries,
+                    );
+                    continue;
+                }
+            }
+
+            let is_project = !inside_project;
+            let child_count = if is_project {
+                fs::read_dir(&path)
+                    .map(|rd| rd.flatten().take(200).count())
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+
+            out.push(ArchiveScanEntry {
+                name,
+                path: path.to_string_lossy().to_string(),
+                root_path: root_str.to_string(),
+                relative_path,
+                is_dir: true,
+                is_project,
+                ext: String::new(),
+                size: 0,
+                modified_ms,
+                context_year: ctx_year,
+                context_month: ctx_month,
+                child_count,
+            });
+
+            // Also index up to 2 levels inside each project for Everything-style instant file search
+            if depth < 4 {
+                scan_archive_recursive(
+                    &path,
+                    root,
+                    root_str,
+                    depth + 1,
+                    true,
+                    ctx_year,
+                    ctx_month,
+                    out,
+                    max_entries,
+                );
+            }
+        } else {
+            let ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            out.push(ArchiveScanEntry {
+                name,
+                path: path.to_string_lossy().to_string(),
+                root_path: root_str.to_string(),
+                relative_path,
+                is_dir: false,
+                is_project: !inside_project,
+                ext,
+                size: meta.len(),
+                modified_ms,
+                context_year: ctx_year,
+                context_month: ctx_month,
+                child_count: 0,
+            });
+        }
+    }
+}
+
+#[tauri::command]
+fn scan_project_archive_roots(roots: Vec<String>) -> Result<Vec<ArchiveScanEntry>, String> {
+    let mut results: Vec<ArchiveScanEntry> = Vec::new();
+    let max_entries = 18_000;
+
+    for raw_root in roots {
+        let clean = raw_root.trim().trim_matches('"');
+        if clean.is_empty() {
+            continue;
+        }
+        let root_path = PathBuf::from(clean);
+        if !root_path.is_dir() {
+            continue;
+        }
+        let root_str = root_path.to_string_lossy().to_string();
+        let root_name = root_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let initial_year = parse_pure_year_folder(&root_name);
+
+        scan_archive_recursive(
+            &root_path,
+            &root_path,
+            &root_str,
+            0,
+            false,
+            initial_year,
+            None,
+            &mut results,
+            max_entries,
+        );
+    }
+
+    Ok(results)
+}
+
 #[tauri::command]
 fn inspect_path(path: String) -> Result<PathInfo, String> {
     let clean = path.trim().trim_matches('"');
@@ -696,6 +949,7 @@ pub fn run() {
             export_idea_markdown,
             inspect_path,
             list_folder_entries,
+            scan_project_archive_roots,
             open_path_in_os,
             get_lan_server_info,
             start_lan_server,

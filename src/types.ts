@@ -92,6 +92,13 @@ export interface AIConfig {
   model: string;
 }
 
+export interface ProjectArchiveDir {
+  id: string;
+  path: string;
+  label?: string;
+  enabled?: boolean;
+}
+
 export interface AppSettings {
   customDataDir: string;
   shortcutLabel: string;
@@ -103,6 +110,7 @@ export interface AppSettings {
   enterToSave: boolean;
   columnGap?: number;
   ai?: AIConfig;
+  projectArchiveDirs?: ProjectArchiveDir[];
 }
 
 export interface WorkspaceData {

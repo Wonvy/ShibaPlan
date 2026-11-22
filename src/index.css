@@ -232,11 +232,26 @@
   .bg-primary\/12 {
     background-color: hsl(var(--primary) / 0.12);
   }
+  .bg-primary\/20 {
+    background-color: hsl(var(--primary) / 0.2);
+  }
+  .bg-surface\/40 {
+    background-color: hsl(var(--surface) / 0.4);
+  }
+  .bg-surface\/60 {
+    background-color: hsl(var(--surface) / 0.6);
+  }
+  .bg-card\/80 {
+    background-color: hsl(var(--card) / 0.8);
+  }
   .bg-muted\/40 {
     background-color: hsl(var(--muted) / 0.4);
   }
   .bg-muted\/50 {
     background-color: hsl(var(--muted) / 0.5);
+  }
+  .bg-muted\/70 {
+    background-color: hsl(var(--muted) / 0.7);
   }
   .bg-secondary\/75 {
     background-color: hsl(var(--secondary) / 0.75);

@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Download,
   ExternalLink,
+  FolderArchive,
   Kanban,
   Languages,
   Layers,
@@ -39,6 +40,7 @@ import { CustomLocalePack, I18nProvider, useI18n } from "./lib/i18n";
 import { QuickCapture } from "./components/QuickCapture";
 import { KanbanBoard } from "./components/KanbanBoard";
 import { CalendarView } from "./components/CalendarView";
+import { ProjectsView } from "./components/ProjectsView";
 import { IdeaRiver } from "./components/IdeaRiver";
 import { CommandPalette } from "./components/CommandPalette";
 import { LanShareDialog } from "./components/LanShareDialog";
@@ -52,7 +54,7 @@ import {
   DialogTitle,
 } from "./components/ui/dialog";
 
-type TopView = "kanban" | "calendar";
+type TopView = "projects" | "kanban" | "calendar";
 
 const MAX_HISTORY = 30;
 
@@ -464,6 +466,18 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
         {/* Center Segmented Tabs */}
         <div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
           <button
+            onClick={() => setView("projects")}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-all ${
+              view === "projects"
+                ? "bg-card text-foreground shadow-card-rest"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <FolderArchive className="h-3.5 w-3.5" />
+            <span>项目</span>
+          </button>
+
+          <button
             onClick={() => setView("kanban")}
             className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-all ${
               view === "kanban"
@@ -569,7 +583,13 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
       ) : (
         <div className="flex flex-1 flex-col overflow-hidden">
           <main className="flex-1 overflow-hidden">
-            {view === "kanban" ? (
+            {view === "projects" ? (
+              <ProjectsView
+                workspace={workspace}
+                onUpdate={onUpdate}
+                onNotify={onNotify}
+              />
+            ) : view === "kanban" ? (
               <KanbanBoard workspace={workspace} onUpdate={onUpdate} />
             ) : (
               <CalendarView workspace={workspace} onUpdate={onUpdate} />
