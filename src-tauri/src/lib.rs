@@ -957,6 +957,65 @@ fn read_file_text_preview(path: String) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
+#[cfg(target_os = "windows")]
+mod win_seer {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+
+    const WM_COPYDATA: u32 = 0x004A;
+    const SEER_INVOKE_W32: usize = 5000;
+
+    #[repr(C)]
+    struct CopyDataStruct {
+        dw_data: usize,
+        cb_data: u32,
+        lp_data: *const c_void,
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn FindWindowW(lp_class_name: *const u16, lp_window_name: *const u16) -> isize;
+        fn SendMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
+    }
+
+    /// Official Seer third-party integration protocol (1218.io):
+    /// FindWindowW("SeerWindowClass") + SendMessageW(WM_COPYDATA, dwData = 5000 / SEER_INVOKE_W32)
+    pub fn invoke_seer_w32(path: &Path) -> bool {
+        let class_name: Vec<u16> = "SeerWindowClass"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let hwnd = unsafe { FindWindowW(class_name.as_ptr(), std::ptr::null()) };
+        if hwnd == 0 {
+            return false;
+        }
+
+        let wide_path: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let cds = CopyDataStruct {
+            dw_data: SEER_INVOKE_W32,
+            cb_data: (wide_path.len() * std::mem::size_of::<u16>()) as u32,
+            lp_data: wide_path.as_ptr() as *const c_void,
+        };
+
+        unsafe {
+            SendMessageW(
+                hwnd,
+                WM_COPYDATA,
+                0,
+                (&cds as *const CopyDataStruct) as isize,
+            );
+        }
+        true
+    }
+}
+
 #[tauri::command]
 fn trigger_seer_preview(target_path: String) -> Result<String, String> {
     let p = PathBuf::from(target_path.trim());
@@ -966,46 +1025,42 @@ fn trigger_seer_preview(target_path: String) -> Result<String, String> {
 
     #[cfg(target_os = "windows")]
     {
-        let mut candidates: Vec<PathBuf> = vec![
-            PathBuf::from(r"C:\Program Files\Seer\Seer.exe"),
-            PathBuf::from(r"C:\Program Files (x86)\Seer\Seer.exe"),
-            PathBuf::from(r"C:\Program Files\SeerPro\Seer.exe"),
-            PathBuf::from(r"C:\Program Files (x86)\SeerPro\Seer.exe"),
-        ];
+        // 1. Official Seer Win32 IPC protocol: FindWindowW("SeerWindowClass") + WM_COPYDATA (dwData = 5000)
+        if win_seer::invoke_seer_w32(&p) {
+            return Ok("seer".to_string());
+        }
+
+        // 2. Fallback: QuickLook CLI if installed
+        let mut ql_candidates: Vec<PathBuf> = Vec::new();
         if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
-            candidates.push(PathBuf::from(&local_app).join("Programs").join("Seer").join("Seer.exe"));
-            candidates.push(PathBuf::from(&local_app).join("Programs").join("QuickLook").join("QuickLook.exe"));
+            ql_candidates.push(
+                PathBuf::from(&local_app)
+                    .join("Programs")
+                    .join("QuickLook")
+                    .join("QuickLook.exe"),
+            );
         }
         if let Ok(prog_files) = std::env::var("ProgramFiles") {
-            candidates.push(PathBuf::from(&prog_files).join("QuickLook").join("QuickLook.exe"));
+            ql_candidates.push(
+                PathBuf::from(&prog_files)
+                    .join("QuickLook")
+                    .join("QuickLook.exe"),
+            );
         }
-
-        for exe in candidates {
-            if exe.is_file() {
-                let kind = if exe
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_lowercase().contains("seer"))
-                    .unwrap_or(false)
-                {
-                    "seer"
-                } else {
-                    "quicklook"
-                };
-                if Command::new(&exe).arg(&p).spawn().is_ok() {
-                    return Ok(kind.to_string());
-                }
+        for exe in ql_candidates {
+            if exe.is_file() && Command::new(&exe).arg(&p).spawn().is_ok() {
+                return Ok("quicklook".to_string());
             }
-        }
-
-        // Also check if Seer.exe is directly available in PATH
-        if Command::new("Seer.exe").arg(&p).spawn().is_ok() {
-            return Ok("seer".to_string());
         }
     }
 
     #[cfg(target_os = "macos")]
     {
-        if Command::new("qlmanage").args(["-p", &p.to_string_lossy()]).spawn().is_ok() {
+        if Command::new("qlmanage")
+            .args(["-p", &p.to_string_lossy()])
+            .spawn()
+            .is_ok()
+        {
             return Ok("quicklook".to_string());
         }
     }
