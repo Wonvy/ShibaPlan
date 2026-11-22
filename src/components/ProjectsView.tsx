@@ -22,8 +22,10 @@ import {
 import { ProjectArchiveDir, WorkspaceData } from "../types";
 import { isTauriRuntime, uid } from "../lib/storage";
 import {
+  getMemoryArchiveCache,
   IndexedArchiveItem,
   loadArchiveThumbnail,
+  loadCachedProjectArchive,
   openArchivePath,
   pickArchiveFolder,
   scanProjectArchiveRoots,
@@ -179,10 +181,28 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     [workspace.settings.projectArchiveDirs]
   );
 
-  const [allItems, setAllItems] = useState<IndexedArchiveItem[]>([]);
+  const enabledRootPaths = useMemo(
+    () =>
+      archiveDirs
+        .filter((d) => d.enabled !== false && d.path.trim())
+        .map((d) => d.path.trim()),
+    [archiveDirs]
+  );
+
+  const initialMemCache = getMemoryArchiveCache(enabledRootPaths);
+  const [allItems, setAllItems] = useState<IndexedArchiveItem[]>(
+    () => initialMemCache?.items ?? []
+  );
   const [indexing, setIndexing] = useState(false);
+  const [cacheRestored, setCacheRestored] = useState(Boolean(initialMemCache));
   const [indexError, setIndexError] = useState<string | null>(null);
-  const [lastIndexedAt, setLastIndexedAt] = useState<string | null>(null);
+  const [lastIndexedAt, setLastIndexedAt] = useState<string | null>(() => {
+    if (!initialMemCache) return null;
+    const d = new Date(initialMemCache.updatedAtMs);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(
+      d.getMinutes()
+    ).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  });
 
   // Search & Filter states
   const [query, setQuery] = useState("");
@@ -204,35 +224,34 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const enabledRootPaths = useMemo(
-    () =>
-      archiveDirs
-        .filter((d) => d.enabled !== false && d.path.trim())
-        .map((d) => d.path.trim()),
-    [archiveDirs]
-  );
+  const formatTimeLabel = (ms: number) => {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(
+      d.getMinutes()
+    ).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  };
 
   const runIndex = useCallback(
     async (silent = false) => {
       if (enabledRootPaths.length === 0) {
         setAllItems([]);
         setIndexError(null);
+        setCacheRestored(false);
         return;
       }
       setIndexing(true);
       setIndexError(null);
       try {
-        const indexed = await scanProjectArchiveRoots(enabledRootPaths);
-        setAllItems(indexed);
-        const now = new Date();
-        setLastIndexedAt(
-          `${String(now.getHours()).padStart(2, "0")}:${String(
-            now.getMinutes()
-          ).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`
+        const { items: indexed, updatedAtMs } = await scanProjectArchiveRoots(
+          enabledRootPaths,
+          workspace.settings.customDataDir
         );
+        setAllItems(indexed);
+        setCacheRestored(false);
+        setLastIndexedAt(formatTimeLabel(updatedAtMs));
         if (!silent) {
           const projCount = indexed.filter((i) => i.is_project).length;
-          onNotify(`索引完成：${projCount} 个项目，共 ${indexed.length} 条记录`);
+          onNotify(`索引已更新并缓存：${projCount} 个项目，共 ${indexed.length} 条记录`);
         }
       } catch (err) {
         setIndexError(
@@ -242,13 +261,44 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         setIndexing(false);
       }
     },
-    [enabledRootPaths, onNotify]
+    [enabledRootPaths, workspace.settings.customDataDir, onNotify]
   );
 
-  // Auto-index whenever configured archive directories change
+  // Instant load from memory/disk cache, then background revalidate only if stale (>10m) or missing
   useEffect(() => {
-    runIndex(true);
-  }, [runIndex]);
+    let cancelled = false;
+    if (enabledRootPaths.length === 0) {
+      setAllItems([]);
+      setCacheRestored(false);
+      return;
+    }
+
+    const hydrate = async () => {
+      const cached = await loadCachedProjectArchive(
+        enabledRootPaths,
+        workspace.settings.customDataDir
+      );
+      if (cancelled) return;
+
+      if (cached && cached.items.length > 0) {
+        setAllItems(cached.items);
+        setCacheRestored(true);
+        setLastIndexedAt(formatTimeLabel(cached.updatedAtMs));
+        const ageMs = Date.now() - cached.updatedAtMs;
+        // Silently refresh in background if cache is older than 10 minutes
+        if (ageMs > 10 * 60 * 1000) {
+          runIndex(true);
+        }
+      } else {
+        runIndex(true);
+      }
+    };
+
+    hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabledRootPaths, workspace.settings.customDataDir, runIndex]);
 
   // Quick focus search with `/` or `Ctrl+F`
   useEffect(() => {
@@ -533,7 +583,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             disabled={indexing || enabledRootPaths.length === 0}
             onClick={() => runIndex(false)}
             className="h-8 px-2.5 text-[11px]"
-            title={lastIndexedAt ? `上次索引 ${lastIndexedAt}` : "重新索引"}
+            title={
+              lastIndexedAt
+                ? `${cacheRestored ? "已命中本地缓存" : "已完成扫描"} · 更新于 ${lastIndexedAt}`
+                : "重新扫描并更新缓存"
+            }
           >
             {indexing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -541,7 +595,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               <RefreshCw className="h-3.5 w-3.5" />
             )}
             <span className="hidden md:inline">
-              {indexing ? "索引中..." : "刷新索引"}
+              {indexing
+                ? allItems.length > 0
+                  ? "同步中..."
+                  : "索引中..."
+                : "刷新索引"}
             </span>
           </Button>
 

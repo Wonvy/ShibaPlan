@@ -1,6 +1,6 @@
 use base64::Engine;
 use chrono::Local;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
@@ -189,7 +189,7 @@ struct FolderEntry {
     is_dir: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 struct ArchiveScanEntry {
     name: String,
     path: String,
@@ -204,6 +204,13 @@ struct ArchiveScanEntry {
     context_month: Option<u32>,
     child_count: usize,
     thumbnail_path: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArchiveIndexCache {
+    roots: Vec<String>,
+    updated_at_ms: u64,
+    entries: Vec<ArchiveScanEntry>,
 }
 
 fn is_preview_image_ext(ext: &str) -> bool {
@@ -508,15 +515,20 @@ fn scan_archive_recursive(
 }
 
 #[tauri::command]
-fn scan_project_archive_roots(roots: Vec<String>) -> Result<Vec<ArchiveScanEntry>, String> {
+fn scan_project_archive_roots(
+    roots: Vec<String>,
+    custom_dir: Option<String>,
+) -> Result<Vec<ArchiveScanEntry>, String> {
     let mut results: Vec<ArchiveScanEntry> = Vec::new();
     let max_entries = 18_000;
+    let mut normalized_roots: Vec<String> = Vec::new();
 
     for raw_root in roots {
         let clean = raw_root.trim().trim_matches('"');
         if clean.is_empty() {
             continue;
         }
+        normalized_roots.push(clean.to_string());
         let root_path = PathBuf::from(clean);
         if !root_path.is_dir() {
             continue;
@@ -541,7 +553,38 @@ fn scan_project_archive_roots(roots: Vec<String>) -> Result<Vec<ArchiveScanEntry
         );
     }
 
+    // Persist index cache to disk for instant startup & Everything-style search
+    let data_dir = resolve_data_dir(custom_dir);
+    if fs::create_dir_all(&data_dir).is_ok() {
+        let cache_file = data_dir.join("project_archive_cache.json");
+        let updated_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let cache = ArchiveIndexCache {
+            roots: normalized_roots,
+            updated_at_ms,
+            entries: results.clone(),
+        };
+        if let Ok(json) = serde_json::to_string(&cache) {
+            let _ = fs::write(cache_file, json);
+        }
+    }
+
     Ok(results)
+}
+
+#[tauri::command]
+fn load_project_archive_cache(
+    custom_dir: Option<String>,
+) -> Result<Option<ArchiveIndexCache>, String> {
+    let cache_file = resolve_data_dir(custom_dir).join("project_archive_cache.json");
+    if !cache_file.is_file() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&cache_file).map_err(|e| e.to_string())?;
+    let parsed: ArchiveIndexCache = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(Some(parsed))
 }
 
 #[tauri::command]
@@ -1100,6 +1143,7 @@ pub fn run() {
             inspect_path,
             list_folder_entries,
             scan_project_archive_roots,
+            load_project_archive_cache,
             pick_folder_path,
             read_archive_thumbnail,
             open_path_in_os,

@@ -303,31 +303,128 @@ export function buildArchiveIndex(
   return items;
 }
 
-export async function scanProjectArchiveRoots(
-  roots: string[]
-): Promise<IndexedArchiveItem[]> {
-  const cleanRoots = roots.map((r) => r.trim()).filter(Boolean);
-  if (cleanRoots.length === 0) return [];
+interface ArchiveIndexCachePayload {
+  roots: string[];
+  updated_at_ms: number;
+  entries: ArchiveScanEntry[];
+}
 
+interface MemoryArchiveCache {
+  rootsKey: string;
+  updatedAtMs: number;
+  items: IndexedArchiveItem[];
+}
+
+const BROWSER_ARCHIVE_CACHE_KEY = "shibaplan_project_archive_cache_v1";
+let memoryArchiveCache: MemoryArchiveCache | null = null;
+
+function makeRootsKey(roots: string[]): string {
+  return roots
+    .map((r) => r.trim().replace(/^"|"$/g, "").toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}
+
+export function getMemoryArchiveCache(
+  roots: string[]
+): { items: IndexedArchiveItem[]; updatedAtMs: number } | null {
+  const key = makeRootsKey(roots);
+  if (!key || !memoryArchiveCache || memoryArchiveCache.rootsKey !== key) {
+    return null;
+  }
+  return {
+    items: memoryArchiveCache.items,
+    updatedAtMs: memoryArchiveCache.updatedAtMs,
+  };
+}
+
+export async function loadCachedProjectArchive(
+  roots: string[],
+  customDataDir?: string
+): Promise<{ items: IndexedArchiveItem[]; updatedAtMs: number } | null> {
+  const key = makeRootsKey(roots);
+  if (!key) return null;
+
+  const mem = getMemoryArchiveCache(roots);
+  if (mem) return mem;
+
+  try {
+    let payload: ArchiveIndexCachePayload | null = null;
+    if (isTauriRuntime()) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      payload = await invoke<ArchiveIndexCachePayload | null>(
+        "load_project_archive_cache",
+        { customDir: customDataDir?.trim() || null }
+      );
+    } else {
+      const raw = localStorage.getItem(BROWSER_ARCHIVE_CACHE_KEY);
+      if (raw) payload = JSON.parse(raw) as ArchiveIndexCachePayload;
+    }
+
+    if (!payload || !Array.isArray(payload.entries)) return null;
+    if (makeRootsKey(payload.roots || []) !== key) return null;
+
+    const items = buildArchiveIndex(payload.entries);
+    memoryArchiveCache = {
+      rootsKey: key,
+      updatedAtMs: payload.updated_at_ms || Date.now(),
+      items,
+    };
+    return { items, updatedAtMs: memoryArchiveCache.updatedAtMs };
+  } catch {
+    return null;
+  }
+}
+
+export async function scanProjectArchiveRoots(
+  roots: string[],
+  customDataDir?: string
+): Promise<{ items: IndexedArchiveItem[]; updatedAtMs: number }> {
+  const cleanRoots = roots.map((r) => r.trim()).filter(Boolean);
+  if (cleanRoots.length === 0) {
+    memoryArchiveCache = null;
+    return { items: [], updatedAtMs: Date.now() };
+  }
+
+  let raw: ArchiveScanEntry[];
   if (isTauriRuntime()) {
     const { invoke } = await import("@tauri-apps/api/core");
-    const raw = await invoke<ArchiveScanEntry[]>("scan_project_archive_roots", {
+    raw = await invoke<ArchiveScanEntry[]>("scan_project_archive_roots", {
       roots: cleanRoots,
+      customDir: customDataDir?.trim() || null,
     });
-    return buildArchiveIndex(raw);
+  } else {
+    // Vite dev server local fallback so testing in browser tab works seamlessly
+    const res = await fetch("/api/dev-archive/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roots: cleanRoots }),
+    });
+    if (!res.ok) {
+      throw new Error("请在桌面端或本地开发环境下索引本地文件夹");
+    }
+    raw = (await res.json()) as ArchiveScanEntry[];
+    try {
+      const cacheObj: ArchiveIndexCachePayload = {
+        roots: cleanRoots,
+        updated_at_ms: Date.now(),
+        entries: raw,
+      };
+      localStorage.setItem(BROWSER_ARCHIVE_CACHE_KEY, JSON.stringify(cacheObj));
+    } catch {
+      // Ignore quota errors in browser mode
+    }
   }
 
-  // Vite dev server local fallback so testing in browser tab works seamlessly
-  const res = await fetch("/api/dev-archive/scan", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ roots: cleanRoots }),
-  });
-  if (!res.ok) {
-    throw new Error("请在桌面端或本地开发环境下索引本地文件夹");
-  }
-  const raw = (await res.json()) as ArchiveScanEntry[];
-  return buildArchiveIndex(raw);
+  const items = buildArchiveIndex(raw);
+  const updatedAtMs = Date.now();
+  memoryArchiveCache = {
+    rootsKey: makeRootsKey(cleanRoots),
+    updatedAtMs,
+    items,
+  };
+  return { items, updatedAtMs };
 }
 
 export async function openArchivePath(targetPath: string): Promise<void> {
