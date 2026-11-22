@@ -6,6 +6,15 @@ export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+function detectSystemLocale(): string {
+  if (typeof navigator !== "undefined" && navigator.language) {
+    return navigator.language.toLowerCase().startsWith("zh")
+      ? "zh-CN"
+      : "en-US";
+  }
+  return "zh-CN";
+}
+
 export function createDefaultWorkspace(): WorkspaceData {
   const now = new Date().toISOString();
   return {
@@ -40,7 +49,7 @@ export function createDefaultWorkspace(): WorkspaceData {
     settings: {
       customDataDir: "",
       shortcutLabel: "Ctrl + Shift + Space",
-      locale: "zh-CN",
+      locale: detectSystemLocale(),
       customLocales: [],
       theme: "dark",
       paperGrain: true,

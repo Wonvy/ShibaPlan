@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowDownToLine,
   BookOpen,
   Bot,
   CalendarDays,
   Check,
   DatabaseBackup,
   Download,
+  ExternalLink,
   FolderOpen,
   Kanban,
   Languages,
@@ -14,6 +16,7 @@ import {
   Moon,
   Palette,
   Redo2,
+  RefreshCw,
   Search,
   Settings,
   Sparkles,
@@ -32,6 +35,11 @@ import {
   saveWorkspace,
 } from "./lib/storage";
 import { suggestTodayPlanWithAI } from "./lib/ai";
+import {
+  checkForUpdates,
+  getCurrentAppVersion,
+  UpdateCheckResult,
+} from "./lib/updater";
 import { CustomLocalePack, I18nProvider, useI18n } from "./lib/i18n";
 import { QuickCapture } from "./components/QuickCapture";
 import { KanbanBoard } from "./components/KanbanBoard";
@@ -244,6 +252,44 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   const [aiPlanLoading, setAiPlanLoading] = useState(false);
   const [aiPlanResult, setAiPlanResult] = useState<string>("");
   const [aiPlanError, setAiPlanError] = useState<string | null>(null);
+
+  // Version & Online Update state
+  const [appVersion, setAppVersion] = useState("0.1.0");
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+
+  const runUpdateCheck = useCallback(
+    async (silent = false) => {
+      setCheckingUpdate(true);
+      try {
+        const res = await checkForUpdates();
+        setAppVersion(res.currentVersion);
+        setUpdateInfo(res);
+        if (res.hasUpdate) {
+          if (!silent) setUpdateDialogOpen(true);
+        } else if (!silent) {
+          onNotify(`当前已是最新版本 v${res.currentVersion}`);
+        }
+      } catch (err) {
+        if (!silent) {
+          onNotify(err instanceof Error ? err.message : "检查更新失败");
+        }
+      } finally {
+        setCheckingUpdate(false);
+      }
+    },
+    [onNotify]
+  );
+
+  useEffect(() => {
+    getCurrentAppVersion().then(setAppVersion);
+    // Silent background update check shortly after launch
+    const timer = setTimeout(() => {
+      runUpdateCheck(true);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [runUpdateCheck]);
 
   // Settings form states
   const [defaultDir, setDefaultDir] = useState("");
@@ -632,6 +678,37 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
             <Languages className="h-3 w-3" />
             <span className="uppercase">{locale}</span>
           </button>
+
+          <button
+            onClick={() => {
+              if (updateInfo?.hasUpdate) {
+                setUpdateDialogOpen(true);
+              } else {
+                runUpdateCheck(false);
+              }
+            }}
+            className={`flex items-center gap-1 font-mono text-[10px] transition ${
+              updateInfo?.hasUpdate
+                ? "text-primary font-medium hover:opacity-80"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            title={
+              updateInfo?.hasUpdate
+                ? `发现新版本 v${updateInfo.latestVersion}，点击更新`
+                : "点击检查在线更新"
+            }
+          >
+            {checkingUpdate ? (
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : updateInfo?.hasUpdate ? (
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+            ) : null}
+            <span>
+              {updateInfo?.hasUpdate
+                ? `v${appVersion} -> v${updateInfo.latestVersion}`
+                : `v${appVersion}`}
+            </span>
+          </button>
         </div>
       </footer>
 
@@ -646,6 +723,69 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
         onOpenSettings={() => setSettingsOpen(true)}
         onNotify={onNotify}
       />
+
+      {/* Online Update Dialog */}
+      <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowDownToLine className="h-4 w-4 text-primary" />
+              发现新版本 v{updateInfo?.latestVersion}
+            </DialogTitle>
+          </DialogHeader>
+
+          <Separator className="my-3" />
+
+          <div className="space-y-3 text-xs">
+            <div className="flex items-center justify-between rounded-xl bg-muted/60 px-3 py-2 font-mono">
+              <span className="text-muted-foreground">
+                当前版本 v{appVersion}
+              </span>
+              <span className="font-semibold text-primary">
+                最新 v{updateInfo?.latestVersion}
+              </span>
+            </div>
+
+            {updateInfo?.releaseNotes && (
+              <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-xl bg-background p-3 leading-relaxed text-foreground/85">
+                {updateInfo.releaseNotes}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setUpdateDialogOpen(false)}
+              >
+                稍后提醒
+              </Button>
+              {updateInfo?.releaseUrl && (
+                <a
+                  href={updateInfo.releaseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground hover:bg-accent"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  查看发布页
+                </a>
+              )}
+              {updateInfo?.downloadUrl && (
+                <a
+                  href={updateInfo.downloadUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-primary px-3 text-[11px] font-medium text-primary-foreground hover:opacity-90"
+                >
+                  <Download className="h-3 w-3" />
+                  下载安装包
+                </a>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* AI Today Plan Dialog */}
       <Dialog open={aiPlanOpen} onOpenChange={setAiPlanOpen}>
@@ -962,6 +1102,31 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                   className="hidden"
                 />
               </div>
+            </div>
+            {/* Version & Online Update Check */}
+            <div className="flex items-center justify-between rounded-xl bg-muted/60 px-3 py-2.5">
+              <div>
+                <div className="text-xs font-medium text-foreground">
+                  ShibaPlan v{appVersion}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  {updateInfo?.hasUpdate
+                    ? `发现新版本 v${updateInfo.latestVersion}`
+                    : "支持在线检测 GitHub Releases 新版本"}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={checkingUpdate}
+                onClick={() => runUpdateCheck(false)}
+              >
+                <RefreshCw
+                  className={`h-3 w-3 ${checkingUpdate ? "animate-spin" : ""}`}
+                />
+                {checkingUpdate ? "检查中..." : "检查更新"}
+              </Button>
             </div>
           </div>
         </DialogContent>
