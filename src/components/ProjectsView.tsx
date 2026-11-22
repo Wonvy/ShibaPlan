@@ -9,7 +9,9 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FolderSearch,
   HardDrive,
+  Image as ImageIcon,
   Loader2,
   Plus,
   RefreshCw,
@@ -18,10 +20,12 @@ import {
   X,
 } from "lucide-react";
 import { ProjectArchiveDir, WorkspaceData } from "../types";
-import { uid } from "../lib/storage";
+import { isTauriRuntime, uid } from "../lib/storage";
 import {
   IndexedArchiveItem,
+  loadArchiveThumbnail,
   openArchivePath,
+  pickArchiveFolder,
   scanProjectArchiveRoots,
   searchArchiveItems,
 } from "../lib/archive";
@@ -76,6 +80,94 @@ function renderHighlightedText(text: string, terms: string[]): React.ReactNode {
     )
   );
 }
+
+const ProjectThumbnail: React.FC<{
+  thumbPath: string | null;
+  alt: string;
+  compact?: boolean;
+}> = ({ thumbPath, alt, compact = false }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!thumbPath) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "180px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [thumbPath]);
+
+  useEffect(() => {
+    if (!visible || !thumbPath) return;
+    let cancelled = false;
+    loadArchiveThumbnail(thumbPath).then((url) => {
+      if (!cancelled) {
+        if (url) setSrc(url);
+        else setFailed(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, thumbPath]);
+
+  if (!thumbPath || failed) return null;
+
+  if (compact) {
+    return (
+      <div
+        ref={containerRef}
+        className="h-8 w-8 shrink-0 overflow-hidden rounded-md bg-muted/60"
+      >
+        {src ? (
+          <img
+            src={src}
+            alt={alt}
+            loading="lazy"
+            onError={() => setFailed(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-muted-foreground/50">
+            <ImageIcon className="h-3.5 w-3.5" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative mb-2.5 aspect-[16/9] w-full overflow-hidden rounded-lg bg-muted/50"
+    >
+      {src ? (
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-muted-foreground/35">
+          <ImageIcon className="h-5 w-5" />
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const ProjectsView: React.FC<ProjectsViewProps> = ({
   workspace,
@@ -192,9 +284,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     setRenderLimit(160);
   }, [query, scope, selectedRoot, selectedYear, selectedMonth]);
 
-  const handleAddArchiveDir = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanPath = newDirPath.trim().replace(/^"|"$/g, "");
+  const addArchivePathDirect = (rawPath: string, alias?: string) => {
+    const cleanPath = rawPath.trim().replace(/^"|"$/g, "");
     if (!cleanPath) return;
 
     if (
@@ -209,7 +300,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     const nextDir: ProjectArchiveDir = {
       id: uid("arch"),
       path: cleanPath,
-      label: newDirLabel.trim() || undefined,
+      label: alias?.trim() || undefined,
       enabled: true,
     };
 
@@ -223,6 +314,22 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     setNewDirPath("");
     setNewDirLabel("");
     onNotify("已添加项目目录，正在自动索引...");
+  };
+
+  const handleAddArchiveDir = (e: React.FormEvent) => {
+    e.preventDefault();
+    addArchivePathDirect(newDirPath, newDirLabel);
+  };
+
+  const handlePickFolder = async () => {
+    try {
+      const picked = await pickArchiveFolder();
+      if (picked) {
+        addArchivePathDirect(picked, newDirLabel);
+      }
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : "选择文件夹失败");
+    }
   };
 
   const handleToggleDir = (id: string) => {
@@ -475,13 +582,27 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             </div>
 
             <form onSubmit={handleAddArchiveDir} className="space-y-2.5">
-              <Input
-                type="text"
-                value={newDirPath}
-                onChange={(e) => setNewDirPath(e.target.value)}
-                placeholder="例如 W:\#完成项目 或 D:\设计归档"
-                className="font-mono text-xs"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  value={newDirPath}
+                  onChange={(e) => setNewDirPath(e.target.value)}
+                  placeholder="例如 W:\#完成项目 或 D:\设计归档"
+                  className="flex-1 font-mono text-xs"
+                />
+                {isTauriRuntime() && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={handlePickFolder}
+                    className="h-9 shrink-0 px-3"
+                  >
+                    <FolderSearch className="h-3.5 w-3.5" />
+                    选择文件夹
+                  </Button>
+                )}
+              </div>
               <Input
                 type="text"
                 value={newDirLabel}
@@ -710,7 +831,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     onDoubleClick={() => openArchivePath(item.path)}
                     className="group flex items-center gap-2.5 rounded-xl bg-card/80 px-3 py-2 text-xs transition-all hover:bg-card shadow-card-rest"
                   >
-                    {item.is_dir ? (
+                    {item.thumbnail_path ? (
+                      <ProjectThumbnail
+                        thumbPath={item.thumbnail_path}
+                        alt={item.name}
+                        compact
+                      />
+                    ) : item.is_dir ? (
                       <Folder className="h-4 w-4 shrink-0 text-primary" />
                     ) : (
                       <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -795,6 +922,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             onDoubleClick={() => openArchivePath(item.path)}
                             className="group flex flex-col rounded-xl bg-card p-3 transition-all shadow-card-rest hover:shadow-card-hover"
                           >
+                            <ProjectThumbnail
+                              thumbPath={item.thumbnail_path}
+                              alt={item.displayTitle}
+                            />
+
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0 flex-1 space-y-1">
                                 <div className="flex items-center gap-1.5">
@@ -922,13 +1054,27 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               <div className="text-xs font-medium text-foreground">
                 添加新文件夹（支持添加多个目录自动索引）
               </div>
-              <Input
-                type="text"
-                value={newDirPath}
-                onChange={(e) => setNewDirPath(e.target.value)}
-                placeholder="文件夹绝对路径，如 W:\#完成项目"
-                className="font-mono text-xs"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  value={newDirPath}
+                  onChange={(e) => setNewDirPath(e.target.value)}
+                  placeholder="文件夹绝对路径，如 W:\#完成项目"
+                  className="flex-1 font-mono text-xs"
+                />
+                {isTauriRuntime() && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={handlePickFolder}
+                    className="h-9 shrink-0 px-3"
+                  >
+                    <FolderSearch className="h-3.5 w-3.5" />
+                    浏览选择
+                  </Button>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <Input
                   type="text"

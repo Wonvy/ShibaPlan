@@ -13,6 +13,7 @@ export interface ArchiveScanEntry {
   context_year: number | null;
   context_month: number | null;
   child_count: number;
+  thumbnail_path: string | null;
 }
 
 export interface ParsedArchiveDate {
@@ -339,6 +340,75 @@ export async function openArchivePath(targetPath: string): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path: targetPath }),
   }).catch(() => {});
+}
+
+export async function pickArchiveFolder(): Promise<string | null> {
+  if (isTauriRuntime()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string | null>("pick_folder_path");
+  }
+  return null;
+}
+
+const thumbnailCache = new Map<string, string | null>();
+const thumbnailInflight = new Map<string, Promise<string | null>>();
+let activeThumbLoads = 0;
+const thumbQueue: (() => void)[] = [];
+
+function acquireThumbSlot(): Promise<void> {
+  if (activeThumbLoads < 4) {
+    activeThumbLoads++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    thumbQueue.push(() => {
+      activeThumbLoads++;
+      resolve();
+    });
+  });
+}
+
+function releaseThumbSlot(): void {
+  activeThumbLoads = Math.max(0, activeThumbLoads - 1);
+  const next = thumbQueue.shift();
+  if (next) next();
+}
+
+export async function loadArchiveThumbnail(
+  filePath: string
+): Promise<string | null> {
+  if (!filePath) return null;
+  if (thumbnailCache.has(filePath)) {
+    return thumbnailCache.get(filePath) ?? null;
+  }
+  const existing = thumbnailInflight.get(filePath);
+  if (existing) return existing;
+
+  const task = (async () => {
+    await acquireThumbSlot();
+    try {
+      if (isTauriRuntime()) {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const dataUrl = await invoke<string>("read_archive_thumbnail", {
+          path: filePath,
+        });
+        thumbnailCache.set(filePath, dataUrl);
+        return dataUrl;
+      }
+      const url = `/api/dev-archive/thumb?path=${encodeURIComponent(filePath)}`;
+      thumbnailCache.set(filePath, url);
+      return url;
+    } catch {
+      thumbnailCache.set(filePath, null);
+      return null;
+    } finally {
+      releaseThumbSlot();
+      thumbnailInflight.delete(filePath);
+    }
+  })();
+
+  thumbnailInflight.set(filePath, task);
+  return task;
 }
 
 function wildcardToRegex(pattern: string): RegExp {

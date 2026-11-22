@@ -42,6 +42,71 @@ function parsePureMonth(name: string): number | null {
   return null;
 }
 
+const PREVIEW_IMAGE_EXTS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "bmp",
+  "gif",
+  "svg",
+  "avif",
+]);
+
+function findDevThumbnail(dir: string): string | null {
+  let bestScore = -1;
+  let bestPath: string | null = null;
+  let visited = 0;
+
+  const scan = (cur: string, depth: number) => {
+    if (depth > 2 || visited > 140) return;
+    let items: fs.Dirent[];
+    try {
+      items = fs.readdirSync(cur, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    const subdirs: string[] = [];
+    for (const it of items) {
+      visited++;
+      if (visited > 140) break;
+      if (SKIP_NAMES.has(it.name) || it.name === "__MACOSX") continue;
+      const full = path.join(cur, it.name);
+      if (it.isDirectory()) {
+        if (depth < 2) subdirs.push(full);
+        continue;
+      }
+      const ext = path.extname(it.name).replace(/^\./, "").toLowerCase();
+      if (!PREVIEW_IMAGE_EXTS.has(ext)) continue;
+      let sz = 0;
+      try {
+        sz = fs.statSync(full).size;
+      } catch {
+        continue;
+      }
+      if (sz < 1024 || sz > 15_000_000) continue;
+      let score = depth === 0 ? 40 : depth === 1 ? 25 : 10;
+      if (["jpg", "jpeg", "png", "webp"].includes(ext)) score += 15;
+      const lower = it.name.toLowerCase();
+      if (
+        /(cover|thumb|preview|final|render|poster|logo|main|封面|效果|成品|海报|主图|展示|定稿|终稿|渲染)/.test(
+          lower
+        )
+      ) {
+        score += 80;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestPath = full;
+      }
+    }
+    for (const s of subdirs) scan(s, depth + 1);
+  };
+
+  scan(dir, 0);
+  return bestPath;
+}
+
 function devArchivePlugin(): Plugin {
   return {
     name: "shibaplan-dev-archive",
@@ -101,12 +166,14 @@ function devArchivePlugin(): Plugin {
                   }
                   const isProject = !insideProject;
                   let childCount = 0;
+                  let thumbnailPath: string | null = null;
                   if (isProject) {
                     try {
                       childCount = fs.readdirSync(full).length;
                     } catch {
                       childCount = 0;
                     }
+                    thumbnailPath = findDevThumbnail(full);
                   }
                   results.push({
                     name: ent.name,
@@ -121,6 +188,7 @@ function devArchivePlugin(): Plugin {
                     context_year: ctxYear,
                     context_month: ctxMonth,
                     child_count: childCount,
+                    thumbnail_path: thumbnailPath,
                   });
                   if (depth < 4) {
                     walk(full, rootDir, depth + 1, true, ctxYear, ctxMonth);
@@ -140,6 +208,10 @@ function devArchivePlugin(): Plugin {
                     context_year: ctxYear,
                     context_month: ctxMonth,
                     child_count: 0,
+                    thumbnail_path:
+                      PREVIEW_IMAGE_EXTS.has(ext) && stat.size <= 15_000_000
+                        ? full
+                        : null,
                   });
                 }
               }
@@ -159,6 +231,36 @@ function devArchivePlugin(): Plugin {
             res.end(JSON.stringify({ error: String(err) }));
           }
         });
+      });
+
+      server.middlewares.use("/api/dev-archive/thumb", (req, res, next) => {
+        if (req.method !== "GET") return next();
+        try {
+          const url = new URL(req.url || "", "http://localhost");
+          const filePath = url.searchParams.get("path") || "";
+          if (!filePath || !fs.existsSync(filePath)) {
+            res.statusCode = 404;
+            res.end();
+            return;
+          }
+          const ext = path.extname(filePath).replace(/^\./, "").toLowerCase();
+          const mimeMap: Record<string, string> = {
+            png: "image/png",
+            jpg: "image/jpeg",
+            jpeg: "image/jpeg",
+            webp: "image/webp",
+            gif: "image/gif",
+            bmp: "image/bmp",
+            svg: "image/svg+xml",
+            avif: "image/avif",
+          };
+          res.setHeader("Content-Type", mimeMap[ext] || "application/octet-stream");
+          res.setHeader("Cache-Control", "public, max-age=3600");
+          fs.createReadStream(filePath).pipe(res);
+        } catch {
+          res.statusCode = 500;
+          res.end();
+        }
       });
 
       server.middlewares.use("/api/dev-archive/open", (req, res, next) => {

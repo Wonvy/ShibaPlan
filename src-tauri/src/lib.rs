@@ -15,6 +15,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 fn resolve_data_dir(custom_dir: Option<String>) -> PathBuf {
@@ -202,6 +203,98 @@ struct ArchiveScanEntry {
     context_year: Option<i32>,
     context_month: Option<u32>,
     child_count: usize,
+    thumbnail_path: Option<String>,
+}
+
+fn is_preview_image_ext(ext: &str) -> bool {
+    matches!(ext, "jpg" | "jpeg" | "png" | "webp" | "bmp" | "gif" | "svg" | "avif")
+}
+
+fn score_thumbnail_candidate(name: &str, ext: &str, size: u64, depth: usize) -> i32 {
+    if !is_preview_image_ext(ext) || size < 1_024 || size > 15_000_000 {
+        return -1;
+    }
+    let lower = name.to_lowercase();
+    let mut score: i32 = match depth {
+        0 => 40,
+        1 => 25,
+        _ => 10,
+    };
+    if matches!(ext, "jpg" | "jpeg" | "png" | "webp") {
+        score += 15;
+    }
+    for kw in [
+        "cover", "thumb", "preview", "final", "render", "poster", "logo", "main",
+        "封面", "效果", "成品", "海报", "主图", "展示", "定稿", "终稿", "渲染",
+    ] {
+        if lower.contains(kw) {
+            score += 80;
+            break;
+        }
+    }
+    if lower.starts_with("._") || lower.contains("backup") || lower.contains("tmp") {
+        score -= 50;
+    }
+    score
+}
+
+fn find_project_thumbnail_inner(
+    dir: &PathBuf,
+    depth: usize,
+    best: &mut Option<(i32, String)>,
+    visited: &mut usize,
+) {
+    if depth > 2 || *visited > 160 {
+        return;
+    }
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut subdirs: Vec<PathBuf> = Vec::new();
+    for entry in read_dir.flatten() {
+        *visited += 1;
+        if *visited > 160 {
+            break;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if should_skip_archive_name(&name) || name == "__MACOSX" {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            if depth < 2 {
+                subdirs.push(path);
+            }
+        } else {
+            let ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            let s = score_thumbnail_candidate(&name, &ext, meta.len(), depth);
+            if s > 0 {
+                let replace = match best {
+                    Some((cur, _)) => s > *cur,
+                    None => true,
+                };
+                if replace {
+                    *best = Some((s, path.to_string_lossy().to_string()));
+                }
+            }
+        }
+    }
+    for sub in subdirs {
+        find_project_thumbnail_inner(&sub, depth + 1, best, visited);
+    }
+}
+
+fn find_project_thumbnail(dir: &PathBuf) -> Option<String> {
+    let mut best: Option<(i32, String)> = None;
+    let mut visited = 0usize;
+    find_project_thumbnail_inner(dir, 0, &mut best, &mut visited);
+    best.map(|(_, p)| p)
 }
 
 fn parse_pure_year_folder(name: &str) -> Option<i32> {
@@ -344,12 +437,14 @@ fn scan_archive_recursive(
             }
 
             let is_project = !inside_project;
-            let child_count = if is_project {
-                fs::read_dir(&path)
+            let (child_count, thumbnail_path) = if is_project {
+                let count = fs::read_dir(&path)
                     .map(|rd| rd.flatten().take(200).count())
-                    .unwrap_or(0)
+                    .unwrap_or(0);
+                let thumb = find_project_thumbnail(&path);
+                (count, thumb)
             } else {
-                0
+                (0, None)
             };
 
             out.push(ArchiveScanEntry {
@@ -365,6 +460,7 @@ fn scan_archive_recursive(
                 context_year: ctx_year,
                 context_month: ctx_month,
                 child_count,
+                thumbnail_path,
             });
 
             // Also index up to 2 levels inside each project for Everything-style instant file search
@@ -386,9 +482,15 @@ fn scan_archive_recursive(
                 .extension()
                 .map(|e| e.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
+            let path_str = path.to_string_lossy().to_string();
+            let thumbnail_path = if is_preview_image_ext(&ext) && meta.len() <= 15_000_000 {
+                Some(path_str.clone())
+            } else {
+                None
+            };
             out.push(ArchiveScanEntry {
                 name,
-                path: path.to_string_lossy().to_string(),
+                path: path_str,
                 root_path: root_str.to_string(),
                 relative_path,
                 is_dir: false,
@@ -399,6 +501,7 @@ fn scan_archive_recursive(
                 context_year: ctx_year,
                 context_month: ctx_month,
                 child_count: 0,
+                thumbnail_path,
             });
         }
     }
@@ -439,6 +542,49 @@ fn scan_project_archive_roots(roots: Vec<String>) -> Result<Vec<ArchiveScanEntry
     }
 
     Ok(results)
+}
+
+#[tauri::command]
+async fn pick_folder_path(app: AppHandle) -> Result<Option<String>, String> {
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .set_title("选择项目归档文件夹")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| format!("打开文件夹选择器失败: {}", e))?;
+
+    Ok(picked.and_then(|fp| fp.into_path().ok()).map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn read_archive_thumbnail(path: String) -> Result<String, String> {
+    let p = PathBuf::from(path.trim());
+    if !p.is_file() {
+        return Err("缩略图文件不存在".to_string());
+    }
+    let meta = fs::metadata(&p).map_err(|e| e.to_string())?;
+    if meta.len() > 15_000_000 {
+        return Err("图片过大".to_string());
+    }
+    let bytes = fs::read(&p).map_err(|e| e.to_string())?;
+    let ext = p
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "avif" => "image/avif",
+        _ => "application/octet-stream",
+    };
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:{};base64,{}", mime, encoded))
 }
 
 #[tauri::command]
@@ -830,6 +976,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app);
         }))
+        .plugin(tauri_plugin_dialog::init())
         .manage(LanServerState::default())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -953,6 +1100,8 @@ pub fn run() {
             inspect_path,
             list_folder_entries,
             scan_project_archive_roots,
+            pick_folder_path,
+            read_archive_thumbnail,
             open_path_in_os,
             get_lan_server_info,
             start_lan_server,
