@@ -1,0 +1,22 @@
+[package]
+name = "shibaplan"
+version = "0.1.0"
+description = "ShibaPlan - Cross-platform workspace for Design, Dev, Eval & AI-ready Idea Capture"
+authors = ["ShibaPlan"]
+edition = "2021"
+
+[lib]
+name = "shibaplan_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+base64 = "0.22"
+chrono = "0.4"

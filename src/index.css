@@ -1,0 +1,304 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ========================================================================
+     SHADCN/UI DESIGN TOKENS — DARK (Default Refined Zinc)
+     ======================================================================== */
+  :root,
+  [data-theme="dark"] {
+    --background: 240 10% 4.5%;
+    --foreground: 240 5% 94%;
+    --surface: 240 8% 7.2%;
+    --surface-elevated: 240 7% 10.5%;
+    --surface-river: 240 9% 5.8%;
+    --card: 240 7% 9.8%;
+    --card-foreground: 240 5% 94%;
+    --popover: 240 8% 10.2%;
+    --popover-foreground: 240 5% 94%;
+    --primary: 38 92% 52%;
+    --primary-foreground: 240 10% 6%;
+    --secondary: 240 6% 14%;
+    --secondary-foreground: 240 5% 90%;
+    --muted: 240 6% 13.5%;
+    --muted-foreground: 240 5% 56%;
+    --accent: 240 6% 16%;
+    --accent-foreground: 240 5% 96%;
+    --destructive: 0 72% 56%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 6% 14%;
+    --input: 240 6% 16%;
+    --ring: 38 92% 52%;
+    --radius: 0.75rem;
+    --shadow-col-rest: 0 2px 12px rgba(0, 0, 0, 0.24);
+    --shadow-card-rest: 0 1px 3px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    --shadow-card-hover: 0 8px 22px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    --shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.07);
+    color-scheme: dark;
+  }
+
+  /* ========================================================================
+     SHADCN/UI DESIGN TOKENS — LIGHT (Crisp Minimal Neutral)
+     ======================================================================== */
+  [data-theme="light"] {
+    --background: 220 14% 96%;
+    --foreground: 240 10% 9%;
+    --surface: 220 14% 92.5%;
+    --surface-elevated: 0 0% 100%;
+    --surface-river: 220 14% 93.5%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 9%;
+    --primary: 32 95% 44%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 12% 91%;
+    --secondary-foreground: 240 8% 18%;
+    --muted: 220 12% 91.5%;
+    --muted-foreground: 240 5% 45%;
+    --accent: 220 12% 90%;
+    --accent-foreground: 240 10% 9%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 12% 88%;
+    --input: 220 12% 86%;
+    --ring: 32 95% 44%;
+    --shadow-col-rest: 0 1px 4px rgba(15, 23, 42, 0.05);
+    --shadow-card-rest: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.03);
+    --shadow-card-hover: 0 8px 20px rgba(15, 23, 42, 0.1), 0 2px 6px rgba(15, 23, 42, 0.05);
+    --shadow-popover: 0 16px 36px rgba(15, 23, 42, 0.14), 0 0 0 1px rgba(15, 23, 42, 0.06);
+    color-scheme: light;
+  }
+
+  /* ========================================================================
+     SHADCN/UI DESIGN TOKENS — PAPER (Warm Archival Japanese Stationery)
+     ======================================================================== */
+  [data-theme="paper"] {
+    --background: 40 33% 91%;
+    --foreground: 26 16% 16%;
+    --surface: 39 30% 87.5%;
+    --surface-elevated: 42 50% 97%;
+    --surface-river: 39 28% 86%;
+    --card: 42 48% 96.5%;
+    --card-foreground: 26 16% 16%;
+    --popover: 42 55% 97.5%;
+    --popover-foreground: 26 16% 16%;
+    --primary: 27 68% 45%;
+    --primary-foreground: 42 60% 98%;
+    --secondary: 38 24% 84%;
+    --secondary-foreground: 26 16% 22%;
+    --muted: 38 22% 85.5%;
+    --muted-foreground: 30 12% 44%;
+    --accent: 38 26% 83%;
+    --accent-foreground: 26 16% 16%;
+    --destructive: 0 65% 48%;
+    --destructive-foreground: 42 60% 98%;
+    --border: 34 20% 80%;
+    --input: 34 20% 78%;
+    --ring: 27 68% 45%;
+    --shadow-col-rest: 0 1px 5px rgba(78, 58, 38, 0.07);
+    --shadow-card-rest: 0 1px 4px rgba(78, 58, 38, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    --shadow-card-hover: 0 8px 20px rgba(78, 58, 38, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    --shadow-popover: 0 16px 38px rgba(62, 46, 30, 0.18), 0 0 0 1px rgba(94, 72, 48, 0.12);
+    color-scheme: light;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Tactile fine paper fiber grain overlay (toggleable across ALL themes) */
+[data-grain="on"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.14;
+  mix-blend-mode: soft-light;
+  background-size: 180px 180px;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.15' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)' opacity='0.55'/%3E%3C/svg%3E");
+}
+
+[data-theme="light"][data-grain="on"] body::after {
+  opacity: 0.18;
+  mix-blend-mode: multiply;
+}
+
+[data-theme="paper"][data-grain="on"] body::after {
+  opacity: 0.32;
+  mix-blend-mode: multiply;
+}
+
+/* Subtle custom scrollbars aligned to theme tokens */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.22);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.38);
+}
+
+/* Legacy hex compatibility bridge so remaining dark utilities harmonize cleanly */
+[data-theme="light"] .bg-\[\#111113\],
+[data-theme="paper"] .bg-\[\#111113\] {
+  background-color: hsl(var(--background)) !important;
+}
+[data-theme="light"] .bg-\[\#131316\],
+[data-theme="paper"] .bg-\[\#131316\] {
+  background-color: hsl(var(--surface-river)) !important;
+}
+[data-theme="light"] .bg-\[\#151518\],
+[data-theme="light"] .bg-\[\#151518\]\/50,
+[data-theme="light"] .bg-\[\#16161a\],
+[data-theme="paper"] .bg-\[\#151518\],
+[data-theme="paper"] .bg-\[\#151518\]\/50,
+[data-theme="paper"] .bg-\[\#16161a\] {
+  background-color: hsl(var(--surface)) !important;
+  box-shadow: var(--shadow-col-rest) !important;
+}
+[data-theme="light"] .bg-\[\#161619\],
+[data-theme="light"] .bg-\[\#17171b\],
+[data-theme="light"] .bg-\[\#18181b\],
+[data-theme="light"] .bg-\[\#19191e\],
+[data-theme="light"] .bg-\[\#1a1a1f\],
+[data-theme="light"] .bg-\[\#1b1b1f\],
+[data-theme="light"] .bg-\[\#1d1d22\],
+[data-theme="light"] .bg-\[\#1c1c21\],
+[data-theme="light"] .bg-\[\#1b1b20\]\/95,
+[data-theme="light"] .bg-\[\#1c1c21\]\/95,
+[data-theme="light"] .bg-\[\#1d1d21\],
+[data-theme="light"] .bg-\[\#1f1f24\],
+[data-theme="light"] .bg-\[\#202026\],
+[data-theme="paper"] .bg-\[\#161619\],
+[data-theme="paper"] .bg-\[\#17171b\],
+[data-theme="paper"] .bg-\[\#18181b\],
+[data-theme="paper"] .bg-\[\#19191e\],
+[data-theme="paper"] .bg-\[\#1a1a1f\],
+[data-theme="paper"] .bg-\[\#1b1b1f\],
+[data-theme="paper"] .bg-\[\#1d1d22\],
+[data-theme="paper"] .bg-\[\#1c1c21\],
+[data-theme="paper"] .bg-\[\#1b1b20\]\/95,
+[data-theme="paper"] .bg-\[\#1c1c21\]\/95,
+[data-theme="paper"] .bg-\[\#1d1d21\],
+[data-theme="paper"] .bg-\[\#1f1f24\],
+[data-theme="paper"] .bg-\[\#202026\] {
+  background-color: hsl(var(--card)) !important;
+  box-shadow: var(--shadow-card-rest) !important;
+}
+[data-theme="light"] .bg-\[\#232327\],
+[data-theme="light"] .bg-\[\#232328\],
+[data-theme="light"] .hover\:bg-\[\#1e1e24\]:hover,
+[data-theme="light"] .hover\:bg-\[\#1f1f25\]:hover,
+[data-theme="light"] .hover\:bg-\[\#24242c\]:hover,
+[data-theme="light"] .hover\:bg-\[\#25252c\]:hover,
+[data-theme="paper"] .bg-\[\#232327\],
+[data-theme="paper"] .bg-\[\#232328\],
+[data-theme="paper"] .hover\:bg-\[\#1e1e24\]:hover,
+[data-theme="paper"] .hover\:bg-\[\#1f1f25\]:hover,
+[data-theme="paper"] .hover\:bg-\[\#24242c\]:hover,
+[data-theme="paper"] .hover\:bg-\[\#25252c\]:hover {
+  background-color: hsl(var(--surface-elevated)) !important;
+  box-shadow: var(--shadow-card-hover) !important;
+}
+[data-theme="light"] .bg-white\/\[0\.04\],
+[data-theme="light"] .bg-white\/\[0\.05\],
+[data-theme="light"] .bg-white\/\[0\.06\],
+[data-theme="paper"] .bg-white\/\[0\.04\],
+[data-theme="paper"] .bg-white\/\[0\.05\],
+[data-theme="paper"] .bg-white\/\[0\.06\] {
+  background-color: hsl(var(--muted)) !important;
+}
+[data-theme="light"] .hover\:bg-white\/\[0\.06\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.07\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.08\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.1\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.11\]:hover,
+[data-theme="light"] .hover\:bg-white\/\[0\.12\]:hover,
+[data-theme="paper"] .hover\:bg-white\/\[0\.06\]:hover,
+[data-theme="paper"] .hover\:bg-white\/\[0\.07\]:hover,
+[data-theme="paper"] .hover\:bg-white\/\[0\.08\]:hover,
+[data-theme="paper"] .hover\:bg-white\/\[0\.1\]:hover,
+[data-theme="paper"] .hover\:bg-white\/\[0\.11\]:hover,
+[data-theme="paper"] .hover\:bg-white\/\[0\.12\]:hover {
+  background-color: hsl(var(--accent)) !important;
+}
+[data-theme="light"] .border-white\/\[0\.05\],
+[data-theme="light"] .border-white\/\[0\.06\],
+[data-theme="light"] .border-white\/\[0\.07\],
+[data-theme="paper"] .border-white\/\[0\.05\],
+[data-theme="paper"] .border-white\/\[0\.06\],
+[data-theme="paper"] .border-white\/\[0\.07\] {
+  border-color: hsl(var(--border)) !important;
+}
+[data-theme="light"] .ring-white\/\[0\.05\],
+[data-theme="light"] .ring-white\/\[0\.06\],
+[data-theme="light"] .ring-white\/\[0\.07\],
+[data-theme="light"] .ring-white\/\[0\.08\],
+[data-theme="light"] .ring-white\/\[0\.1\],
+[data-theme="light"] .ring-white\/\[0\.12\],
+[data-theme="paper"] .ring-white\/\[0\.05\],
+[data-theme="paper"] .ring-white\/\[0\.06\],
+[data-theme="paper"] .ring-white\/\[0\.07\],
+[data-theme="paper"] .ring-white\/\[0\.08\],
+[data-theme="paper"] .ring-white\/\[0\.1\],
+[data-theme="paper"] .ring-white\/\[0\.12\] {
+  --tw-ring-color: hsl(var(--border)) !important;
+}
+[data-theme="light"] .text-zinc-100,
+[data-theme="light"] .text-zinc-200,
+[data-theme="paper"] .text-zinc-100,
+[data-theme="paper"] .text-zinc-200 {
+  color: hsl(var(--foreground)) !important;
+}
+[data-theme="light"] .text-zinc-300,
+[data-theme="light"] .text-zinc-400,
+[data-theme="light"] .text-zinc-500,
+[data-theme="light"] .text-zinc-600,
+[data-theme="paper"] .text-zinc-300,
+[data-theme="paper"] .text-zinc-400,
+[data-theme="paper"] .text-zinc-500,
+[data-theme="paper"] .text-zinc-600 {
+  color: hsl(var(--muted-foreground)) !important;
+}
+[data-theme="light"] .text-shiba-300,
+[data-theme="light"] .text-shiba-400,
+[data-theme="paper"] .text-shiba-300,
+[data-theme="paper"] .text-shiba-400 {
+  color: hsl(var(--primary)) !important;
+}
+[data-theme="light"] .bg-shiba-500,
+[data-theme="paper"] .bg-shiba-500 {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+[data-theme="light"] .bg-black\/70,
+[data-theme="paper"] .bg-black\/70 {
+  background-color: rgba(15, 23, 42, 0.34) !important;
+}
