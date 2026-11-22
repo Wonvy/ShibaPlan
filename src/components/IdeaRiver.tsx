@@ -1026,8 +1026,17 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
       )}
 
       {/* Ultra-Minimal Icon-First Header Bar */}
-      <div className="flex h-9 shrink-0 items-center justify-between gap-2 px-3 sm:px-5">
-        <div className="flex items-center gap-2 min-w-0">
+      <div
+        onDoubleClick={(e) => {
+          if ((e.target as HTMLElement).closest("button, input, a")) return;
+          setCollapsed((c) => !c);
+        }}
+        className="flex h-9 shrink-0 items-center justify-between gap-2 px-3 sm:px-5"
+      >
+        <div
+          className="flex items-center gap-2 min-w-0 cursor-pointer"
+          title={collapsed ? "双击展开灵感流" : "双击折叠灵感流"}
+        >
           {viewMode === "river" ? (
             <Waves className="h-3.5 w-3.5 shrink-0 text-shiba-400" />
           ) : (
