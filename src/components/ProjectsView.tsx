@@ -103,14 +103,12 @@ const ProjectThumbnail: React.FC<{
   variant?: "card" | "timeline" | "compact";
   fixedHeight?: number;
   showPlaceholder?: boolean;
-  onPreview?: (src: string, title: string) => void;
 }> = ({
   thumbPath,
   alt,
   variant = "card",
   fixedHeight = 128,
   showPlaceholder = false,
-  onPreview,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -162,21 +160,11 @@ const ProjectThumbnail: React.FC<{
     return null;
   }
 
-  const handleClick = (e: React.MouseEvent) => {
-    if (!src || !onPreview) return;
-    e.stopPropagation();
-    onPreview(src, alt);
-  };
-
   if (variant === "compact") {
     return (
       <div
         ref={containerRef}
-        onClick={handleClick}
-        className={`flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/50 p-0.5 ${
-          src && onPreview ? "cursor-zoom-in" : ""
-        }`}
-        title={src && onPreview ? "点击查看大图" : undefined}
+        className="flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/50 p-0.5"
       >
         {src ? (
           <img
@@ -197,11 +185,7 @@ const ProjectThumbnail: React.FC<{
     return (
       <div
         ref={containerRef}
-        onClick={handleClick}
-        className={`flex w-36 sm:w-48 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5 ${
-          src && onPreview ? "cursor-zoom-in" : ""
-        }`}
-        title={src && onPreview ? "点击查看大图" : undefined}
+        className="flex w-36 sm:w-48 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5"
       >
         {src ? (
           <img
@@ -223,12 +207,8 @@ const ProjectThumbnail: React.FC<{
   return (
     <div
       ref={containerRef}
-      onClick={handleClick}
       style={{ height: fixedHeight }}
-      className={`mb-2.5 flex w-full items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5 ${
-        src && onPreview ? "cursor-zoom-in" : ""
-      }`}
-      title={src && onPreview ? "点击查看大图" : undefined}
+      className="mb-2.5 flex w-full items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5"
     >
       {src ? (
         <img
@@ -299,10 +279,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     }
     return "grid";
   });
-  const [lightbox, setLightbox] = useState<{
-    src: string;
-    title: string;
-  } | null>(null);
   const [selectedRoot, setSelectedRoot] = useState<string>("all");
 
   const changeViewMode = (mode: ProjectViewMode) => {
@@ -648,8 +624,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       } else if (e.key === "Escape") {
         if (quickLook) {
           setQuickLook(null);
-        } else if (lightbox) {
-          setLightbox(null);
         } else if (active === searchInputRef.current) {
           if (query) {
             setQuery("");
@@ -707,7 +681,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   }, [
     query,
     quickLook,
-    lightbox,
     explorerOpen,
     explorerEntries,
     selectedExplorerPath,
@@ -1738,7 +1711,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         thumbPath={item.thumbnail_path}
                         alt={item.name}
                         variant="compact"
-                        onPreview={(src, title) => setLightbox({ src, title })}
                       />
                     ) : item.is_dir ? (
                       <Folder className="h-4 w-4 shrink-0 text-primary" />
@@ -1851,9 +1823,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                                 thumbPath={item.thumbnail_path}
                                 alt={item.displayTitle}
                                 variant="timeline"
-                                onPreview={(src, title) =>
-                                  setLightbox({ src, title })
-                                }
                               />
 
                               <div className="min-w-0 flex-1 space-y-1.5 w-full">
@@ -2015,9 +1984,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               variant="card"
                               fixedHeight={thumbH}
                               showPlaceholder
-                              onPreview={(src, title) =>
-                                setLightbox({ src, title })
-                              }
                             />
 
                             <div className="flex items-start justify-between gap-2">
@@ -2473,38 +2439,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Full-Size Adaptive Image Lightbox */}
-      {lightbox && (
-        <div
-          onClick={() => setLightbox(null)}
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/75 p-6 backdrop-blur-sm"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative flex max-h-[88vh] max-w-[90vw] flex-col items-center gap-3"
-          >
-            <img
-              src={lightbox.src}
-              alt={lightbox.title}
-              className="max-h-[80vh] max-w-[88vw] rounded-xl object-contain shadow-2xl"
-            />
-            <div className="flex items-center gap-3 rounded-full bg-popover/90 px-4 py-1.5 text-xs text-popover-foreground shadow-popover-soft">
-              <span className="max-w-[60vw] truncate font-medium">
-                {lightbox.title}
-              </span>
-              <button
-                type="button"
-                onClick={() => setLightbox(null)}
-                className="rounded-full p-0.5 text-muted-foreground hover:text-foreground"
-                title="关闭预览"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
             </div>
           </div>
         </div>
