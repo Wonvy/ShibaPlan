@@ -3,12 +3,9 @@ import {
   ArrowDownToLine,
   BookOpen,
   Bot,
-  CalendarDays,
   Copy,
   Download,
   ExternalLink,
-  FolderArchive,
-  Kanban,
   Languages,
   Loader2,
   Minus,
@@ -585,44 +582,35 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
           </span>
         </div>
 
-        {/* Center Segmented Tabs */}
-        <div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
-          <button
-            onClick={() => setView("projects")}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-[13px] font-medium transition-all ${
-              view === "projects"
-                ? "bg-card text-foreground shadow-card-rest"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <FolderArchive className="h-3.5 w-3.5" />
-            <span>项目</span>
-          </button>
-
-          <button
-            onClick={() => setView("kanban")}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-[13px] font-medium transition-all ${
-              view === "kanban"
-                ? "bg-card text-foreground shadow-card-rest"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Kanban className="h-3.5 w-3.5" />
-            <span>{t("nav.kanban")}</span>
-          </button>
-
-          <button
-            onClick={() => setView("calendar")}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-[13px] font-medium transition-all ${
-              view === "calendar"
-                ? "bg-card text-foreground shadow-card-rest"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <CalendarDays className="h-3.5 w-3.5" />
-            <span>{t("nav.calendar")}</span>
-          </button>
-        </div>
+        {/* Center Minimal Text-Only Navigation Titles */}
+        <nav className="flex h-full items-center gap-6">
+          {(
+            [
+              { id: "projects", label: "项目" },
+              { id: "kanban", label: t("nav.kanban") },
+              { id: "calendar", label: t("nav.calendar") },
+            ] as const
+          ).map((tab) => {
+            const active = view === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setView(tab.id)}
+                className={`relative flex h-full items-center px-1 text-[15px] tracking-wide transition-colors ${
+                  active
+                    ? "font-semibold text-foreground"
+                    : "font-medium text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span>{tab.label}</span>
+                {active && (
+                  <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary" />
+                )}
+              </button>
+            );
+          })}
+        </nav>
 
         {/* Icon-Only Right Actions */}
         <div className="flex items-center gap-0.5 sm:gap-1">
