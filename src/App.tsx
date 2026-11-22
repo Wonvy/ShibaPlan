@@ -4,6 +4,7 @@ import {
   BookOpen,
   Bot,
   CalendarDays,
+  Copy,
   Download,
   ExternalLink,
   FolderArchive,
@@ -11,14 +12,17 @@ import {
   Languages,
   Layers,
   Loader2,
+  Minus,
   Moon,
   QrCode,
   Redo2,
   Search,
   Settings,
   Sparkles,
+  Square,
   Sun,
   Undo2,
+  X,
 } from "lucide-react";
 import { ThemeMode, WorkspaceData } from "./types";
 import {
@@ -260,6 +264,59 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
   const [commandOpen, setCommandOpen] = useState(false);
   const [lanShareOpen, setLanShareOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/window")
+      .then(async ({ getCurrentWindow }) => {
+        const win = getCurrentWindow();
+        setIsMaximized(await win.isMaximized());
+        unlisten = await win.onResized(async () => {
+          setIsMaximized(await win.isMaximized());
+        });
+      })
+      .catch(() => {});
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const handleWindowMinimize = useCallback(async () => {
+    if (!isTauriRuntime()) return;
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().minimize();
+  }, []);
+
+  const handleWindowToggleMaximize = useCallback(async () => {
+    if (!isTauriRuntime()) return;
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    await win.toggleMaximize();
+    setIsMaximized(await win.isMaximized());
+  }, []);
+
+  const handleWindowClose = useCallback(async () => {
+    if (!isTauriRuntime()) return;
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().close();
+  }, []);
+
+  const handleHeaderMouseDown = useCallback(
+    async (e: React.MouseEvent<HTMLElement>) => {
+      if (!isTauriRuntime() || e.button !== 0) return;
+      const target = e.target as HTMLElement;
+      if (target.closest("button, a, input, [role='button']")) return;
+      if (e.detail === 2) {
+        await handleWindowToggleMaximize();
+        return;
+      }
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().startDragging();
+    },
+    [handleWindowToggleMaximize]
+  );
 
   // AI Today Plan Dialog state
   const [aiPlanOpen, setAiPlanOpen] = useState(false);
@@ -452,13 +509,20 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
 
   return (
     <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground touch-manipulation">
-      {/* shadcn/ui Refined Minimal Header */}
-      <header className="flex h-11 shrink-0 items-center justify-between border-b border-border/60 bg-background/85 px-3 sm:px-5 backdrop-blur-md">
-        <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary">
+      {/* Frameless Custom Titlebar + Minimal Header */}
+      <header
+        data-tauri-drag-region
+        onMouseDown={handleHeaderMouseDown}
+        className="flex h-11 shrink-0 items-center justify-between border-b border-border/60 bg-background/85 pl-3 sm:pl-4 pr-2 backdrop-blur-md"
+      >
+        <div
+          data-tauri-drag-region
+          className="flex items-center gap-2"
+        >
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary pointer-events-none">
             <Layers className="h-3.5 w-3.5" />
           </div>
-          <span className="text-[13px] font-semibold tracking-tight text-foreground">
+          <span className="text-[13px] font-semibold tracking-tight text-foreground pointer-events-none">
             ShibaPlan
           </span>
         </div>
@@ -572,6 +636,42 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
           >
             <Settings className="h-3.5 w-3.5" />
           </Button>
+
+          {isTauriRuntime() && (
+            <>
+              <div className="mx-1 h-4 w-px bg-border/70" />
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={handleWindowMinimize}
+                  title="最小化"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleWindowToggleMaximize}
+                  title={isMaximized ? "还原窗口" : "最大化"}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  {isMaximized ? (
+                    <Copy className="h-3 w-3" />
+                  ) : (
+                    <Square className="h-3 w-3" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleWindowClose}
+                  title="隐藏到托盘"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </header>
 
