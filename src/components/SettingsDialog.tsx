@@ -4,6 +4,7 @@ import {
   BookOpen,
   Bot,
   Check,
+  Copy,
   DatabaseBackup,
   Download,
   Eye,
@@ -16,6 +17,7 @@ import {
   Palette,
   RefreshCw,
   RotateCcw,
+  ScrollText,
   Search,
   Sparkles,
   Sun,
@@ -29,6 +31,12 @@ import {
   testAIConnection,
 } from "../lib/ai";
 import { ACCENT_COLOR_PRESETS, normalizeHex } from "../lib/theme";
+import {
+  clearAppLogs,
+  getLogFilePath,
+  readAppLogs,
+} from "../lib/logger";
+import { openPathInOs } from "../lib/storage";
 import { UpdateCheckResult } from "../lib/updater";
 import { useI18n } from "../lib/i18n";
 import { Button } from "./ui/button";
@@ -36,7 +44,7 @@ import { Input } from "./ui/input";
 import { Separator } from "./ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 
-export type SettingsTabId = "appearance" | "ai" | "data" | "about";
+export type SettingsTabId = "appearance" | "ai" | "data" | "logs" | "about";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -120,6 +128,32 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
+
+  // Logs tab state
+  const [logText, setLogText] = useState("");
+  const [logPath, setLogPath] = useState<string | null>(null);
+  const [logLoading, setLogLoading] = useState(false);
+  const [errorsOnly, setErrorsOnly] = useState(false);
+
+  const loadLogs = async () => {
+    setLogLoading(true);
+    try {
+      const [content, path] = await Promise.all([
+        readAppLogs(workspace.settings.customDataDir, 400),
+        getLogFilePath(workspace.settings.customDataDir),
+      ]);
+      setLogText(content);
+      setLogPath(path);
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (open && activeTab === "logs") {
+      loadLogs();
+    }
+  }, [open, activeTab]);
 
   useEffect(() => {
     if (open) {
@@ -274,6 +308,11 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
       id: "data",
       label: "语言与数据",
       icon: <DatabaseBackup className="h-3.5 w-3.5" />,
+    },
+    {
+      id: "logs",
+      label: "错误日志",
+      icon: <ScrollText className="h-3.5 w-3.5" />,
     },
     {
       id: "about",
@@ -910,7 +949,150 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
               </div>
             )}
 
-            {/* TAB 4: ABOUT & UPDATES */}
+            {/* TAB 4: ERROR & DIAGNOSTIC LOGS */}
+            {activeTab === "logs" && (
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      运行与错误日志
+                    </h3>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      自动记录前端异常、未捕获 Promise 错误与 Rust 崩溃信息
+                    </p>
+                  </div>
+                  <div className="flex items-center rounded-lg bg-muted/70 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setErrorsOnly(false)}
+                      className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+                        !errorsOnly
+                          ? "bg-card text-foreground font-medium shadow-card-rest"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      全部
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setErrorsOnly(true)}
+                      className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+                        errorsOnly
+                          ? "bg-card text-foreground font-medium shadow-card-rest"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      仅错误
+                    </button>
+                  </div>
+                </div>
+
+                {logPath && (
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/50 px-3 py-2 text-[11px]">
+                    <span className="truncate font-mono text-muted-foreground select-text">
+                      {logPath}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const dir = logPath.replace(/[\\/][^\\/]+$/, "");
+                        openPathInOs(dir).catch(() => {});
+                      }}
+                      className="shrink-0 inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[10px] text-secondary-foreground hover:bg-accent"
+                    >
+                      <FolderOpen className="h-3 w-3" />
+                      打开目录
+                    </button>
+                  </div>
+                )}
+
+                <div className="h-64 overflow-y-auto rounded-xl bg-muted/50 p-3 font-mono text-[11px] leading-relaxed text-foreground/85 select-text">
+                  {logLoading ? (
+                    <div className="flex h-full items-center justify-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      加载日志中...
+                    </div>
+                  ) : (
+                    (() => {
+                      const lines = logText
+                        .split("\n")
+                        .filter((l) => l.trim().length > 0);
+                      const filtered = errorsOnly
+                        ? lines.filter(
+                            (l) => l.includes("[ERROR]") || l.startsWith("  ")
+                          )
+                        : lines;
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="flex h-full items-center justify-center text-muted-foreground">
+                            {errorsOnly ? "暂无错误日志" : "暂无日志记录"}
+                          </div>
+                        );
+                      }
+                      return (
+                        <pre className="whitespace-pre-wrap break-all">
+                          {filtered.join("\n")}
+                        </pre>
+                      );
+                    })()
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={logLoading}
+                      onClick={loadLogs}
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${
+                          logLoading ? "animate-spin" : ""
+                        }`}
+                      />
+                      刷新
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={!logText}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(logText);
+                          onNotify("已复制日志内容");
+                        } catch {
+                          onNotify("复制失败");
+                        }
+                      }}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      复制日志
+                    </Button>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={!logText}
+                    onClick={async () => {
+                      await clearAppLogs(workspace.settings.customDataDir);
+                      setLogText("");
+                      onNotify("日志已清空");
+                    }}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    清空日志
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: ABOUT & UPDATES */}
             {activeTab === "about" && (
               <div className="space-y-5">
                 <div>

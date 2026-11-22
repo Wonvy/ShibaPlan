@@ -35,6 +35,7 @@ import {
 } from "./lib/storage";
 import { suggestTodayPlanWithAI } from "./lib/ai";
 import { applyAccentColor } from "./lib/theme";
+import { setLoggerCustomDataDir } from "./lib/logger";
 import {
   checkForUpdates,
   getCurrentAppVersion,
@@ -379,6 +380,10 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   useEffect(() => {
     getDefaultDataDir().then(setDefaultDir);
   }, []);
+
+  useEffect(() => {
+    setLoggerCustomDataDir(workspace.settings.customDataDir);
+  }, [workspace.settings.customDataDir]);
 
   // Global shortcuts: Ctrl+K (Command Palette), Ctrl+Z / Ctrl+Shift+Z (Undo / Redo)
   useEffect(() => {

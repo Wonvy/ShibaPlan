@@ -30,6 +30,101 @@ fn resolve_data_dir(custom_dir: Option<String>) -> PathBuf {
         .join("ShibaPlan")
 }
 
+fn resolve_log_file(custom_dir: Option<String>) -> PathBuf {
+    resolve_data_dir(custom_dir)
+        .join("logs")
+        .join("shibaplan.log")
+}
+
+fn write_log_line(
+    level: &str,
+    source: &str,
+    message: &str,
+    detail: Option<&str>,
+    custom_dir: Option<String>,
+) {
+    let log_path = resolve_log_file(custom_dir);
+    if let Some(parent) = log_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    // Rotate log file if larger than 2 MB
+    if let Ok(meta) = fs::metadata(&log_path) {
+        if meta.len() > 2 * 1024 * 1024 {
+            let backup = log_path.with_extension("log.old");
+            let _ = fs::rename(&log_path, backup);
+        }
+    }
+
+    let ts = Local::now().format("%Y-%m-%d %H:%M:%S");
+    let mut line = format!("[{}] [{}] [{}] {}", ts, level.to_uppercase(), source, message);
+    if let Some(d) = detail {
+        let trimmed = d.trim();
+        if !trimmed.is_empty() {
+            line.push_str("\n  ");
+            line.push_str(&trimmed.replace('\n', "\n  "));
+        }
+    }
+    line.push('\n');
+
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
+#[tauri::command]
+fn append_app_log(
+    level: String,
+    source: String,
+    message: String,
+    detail: Option<String>,
+    custom_dir: Option<String>,
+) -> Result<(), String> {
+    write_log_line(&level, &source, &message, detail.as_deref(), custom_dir);
+    Ok(())
+}
+
+#[tauri::command]
+fn read_app_logs(
+    limit: Option<usize>,
+    custom_dir: Option<String>,
+) -> Result<String, String> {
+    let log_path = resolve_log_file(custom_dir);
+    if !log_path.is_file() {
+        return Ok(String::new());
+    }
+    let content = fs::read_to_string(&log_path).map_err(|e| format!("读取日志失败: {}", e))?;
+    let max_lines = limit.unwrap_or(300).min(2000);
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.len() <= max_lines {
+        Ok(content)
+    } else {
+        Ok(lines[lines.len() - max_lines..].join("\n"))
+    }
+}
+
+#[tauri::command]
+fn clear_app_logs(custom_dir: Option<String>) -> Result<(), String> {
+    let log_path = resolve_log_file(custom_dir);
+    if log_path.is_file() {
+        fs::write(&log_path, "").map_err(|e| format!("清空日志失败: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_log_file_path(custom_dir: Option<String>) -> Result<String, String> {
+    let log_path = resolve_log_file(custom_dir);
+    if let Some(parent) = log_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    Ok(log_path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn get_default_data_dir() -> String {
     resolve_data_dir(None).to_string_lossy().to_string()
@@ -1015,6 +1110,15 @@ fn open_capture_window(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Capture any unexpected native Rust panic into logs/shibaplan.log
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        write_log_line("ERROR", "rust-panic", &info.to_string(), None, None);
+        default_hook(info);
+    }));
+
+    write_log_line("INFO", "app", "ShibaPlan desktop starting", None, None);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app);
@@ -1038,10 +1142,24 @@ pub fn run() {
 
             let shortcut_manager = app.global_shortcut();
             match shortcut_manager.register(primary) {
-                Ok(_) => eprintln!("[ShibaPlan] registered Alt+Space"),
+                Ok(_) => write_log_line("INFO", "hotkey", "Registered Alt+Space", None, None),
                 Err(e) => {
-                    eprintln!("[ShibaPlan] Alt+Space occupied ({}), trying Ctrl+Shift+Space", e);
-                    let _ = shortcut_manager.register(fallback);
+                    write_log_line(
+                        "WARN",
+                        "hotkey",
+                        &format!("Alt+Space occupied ({}), trying Ctrl+Shift+Space", e),
+                        None,
+                        None,
+                    );
+                    if let Err(e2) = shortcut_manager.register(fallback) {
+                        write_log_line(
+                            "ERROR",
+                            "hotkey",
+                            &format!("Fallback Ctrl+Shift+Space failed: {}", e2),
+                            None,
+                            None,
+                        );
+                    }
                 }
             }
 
@@ -1146,6 +1264,10 @@ pub fn run() {
             load_project_archive_cache,
             pick_folder_path,
             read_archive_thumbnail,
+            append_app_log,
+            read_app_logs,
+            clear_app_logs,
+            get_log_file_path,
             open_path_in_os,
             get_lan_server_info,
             start_lan_server,
