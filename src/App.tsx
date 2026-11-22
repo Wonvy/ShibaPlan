@@ -4,27 +4,20 @@ import {
   BookOpen,
   Bot,
   CalendarDays,
-  Check,
-  DatabaseBackup,
   Download,
   ExternalLink,
-  FolderOpen,
   Kanban,
   Languages,
   Layers,
   Loader2,
   Moon,
-  Palette,
   QrCode,
   Redo2,
-  RefreshCw,
   Search,
   Settings,
   Sparkles,
   Sun,
-  Trash2,
   Undo2,
-  Upload,
 } from "lucide-react";
 import { ThemeMode, WorkspaceData } from "./types";
 import {
@@ -35,11 +28,8 @@ import {
   openCaptureWindow,
   saveWorkspace,
 } from "./lib/storage";
-import {
-  AI_PROVIDER_PRESETS,
-  suggestTodayPlanWithAI,
-  testAIConnection,
-} from "./lib/ai";
+import { suggestTodayPlanWithAI } from "./lib/ai";
+import { applyAccentColor } from "./lib/theme";
 import {
   checkForUpdates,
   getCurrentAppVersion,
@@ -52,8 +42,8 @@ import { CalendarView } from "./components/CalendarView";
 import { IdeaRiver } from "./components/IdeaRiver";
 import { CommandPalette } from "./components/CommandPalette";
 import { LanShareDialog } from "./components/LanShareDialog";
+import { SettingsDialog, SettingsTabId } from "./components/SettingsDialog";
 import { Button } from "./components/ui/button";
-import { Input } from "./components/ui/input";
 import { Separator } from "./components/ui/separator";
 import {
   Dialog,
@@ -261,18 +251,11 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   statusNotice,
   onNotify,
 }) => {
-  const {
-    t,
-    locale,
-    setLocale,
-    availableLocales,
-    exportCurrentLocale,
-    importLocaleFile,
-    removeCustomLocale,
-  } = useI18n();
+  const { t, locale } = useI18n();
 
   const [view, setView] = useState<TopView>("kanban");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
   const [commandOpen, setCommandOpen] = useState(false);
   const [lanShareOpen, setLanShareOpen] = useState(false);
 
@@ -320,45 +303,23 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
     return () => clearTimeout(timer);
   }, [runUpdateCheck]);
 
-  // Settings form states
   const [defaultDir, setDefaultDir] = useState("");
-  const [dirInput, setDirInput] = useState(workspace.settings.customDataDir);
-  const [aiBaseUrl, setAiBaseUrl] = useState(
-    workspace.settings.ai?.baseUrl ?? "https://api.openai.com/v1"
-  );
-  const [aiApiKey, setAiApiKey] = useState(workspace.settings.ai?.apiKey ?? "");
-  const [aiModel, setAiModel] = useState(
-    workspace.settings.ai?.model ?? "gpt-4o-mini"
-  );
-  const [dirSaved, setDirSaved] = useState(false);
-  const [aiTesting, setAiTesting] = useState(false);
-  const [aiTestMsg, setAiTestMsg] = useState<{ ok: boolean; text: string } | null>(
-    null
-  );
-  const [langNotice, setLangNotice] = useState<{
-    ok: boolean;
-    text: string;
-  } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const backupInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const theme = workspace.settings.theme || "dark";
     const grain = workspace.settings.paperGrain ?? true;
     document.documentElement.setAttribute("data-theme", theme);
     document.documentElement.setAttribute("data-grain", grain ? "on" : "off");
-  }, [workspace.settings.theme, workspace.settings.paperGrain]);
+    applyAccentColor(workspace.settings.accentColor);
+  }, [
+    workspace.settings.theme,
+    workspace.settings.paperGrain,
+    workspace.settings.accentColor,
+  ]);
 
   useEffect(() => {
     getDefaultDataDir().then(setDefaultDir);
   }, []);
-
-  useEffect(() => {
-    setDirInput(workspace.settings.customDataDir);
-    setAiBaseUrl(workspace.settings.ai?.baseUrl ?? "https://api.openai.com/v1");
-    setAiApiKey(workspace.settings.ai?.apiKey ?? "");
-    setAiModel(workspace.settings.ai?.model ?? "gpt-4o-mini");
-  }, [workspace.settings]);
 
   // Global shortcuts: Ctrl+K (Command Palette), Ctrl+Z / Ctrl+Shift+Z (Undo / Redo)
   useEffect(() => {
@@ -416,33 +377,6 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
     }
   };
 
-  const handleSaveSettings = (e: React.FormEvent) => {
-    e.preventDefault();
-    onUpdate({
-      ...workspace,
-      settings: {
-        ...workspace.settings,
-        customDataDir: dirInput.trim(),
-        ai: {
-          baseUrl: aiBaseUrl.trim(),
-          apiKey: aiApiKey.trim(),
-          model: aiModel.trim(),
-        },
-      },
-    });
-    setDirSaved(true);
-    setTimeout(() => setDirSaved(false), 1800);
-  };
-
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const res = await importLocaleFile(file);
-    setLangNotice({ ok: res.ok, text: res.message });
-    setTimeout(() => setLangNotice(null), 3200);
-    e.target.value = "";
-  };
-
   const handleExportWorkspaceBackup = () => {
     const blob = new Blob([JSON.stringify(workspace, null, 2)], {
       type: "application/json;charset=utf-8",
@@ -487,7 +421,6 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   };
 
   const currentTheme: ThemeMode = workspace.settings.theme || "dark";
-  const paperGrain = workspace.settings.paperGrain ?? true;
 
   const setTheme = (nextTheme: ThemeMode) => {
     onUpdate({
@@ -495,16 +428,6 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
       settings: {
         ...workspace.settings,
         theme: nextTheme,
-      },
-    });
-  };
-
-  const togglePaperGrain = () => {
-    onUpdate({
-      ...workspace,
-      settings: {
-        ...workspace.settings,
-        paperGrain: !paperGrain,
       },
     });
   };
@@ -713,7 +636,10 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
           </button>
 
           <button
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => {
+              setSettingsTab("data");
+              setSettingsOpen(true);
+            }}
             className="flex items-center gap-1 text-muted-foreground transition hover:text-foreground"
             title={t("settings.languageLabel")}
           >
@@ -864,6 +790,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                   size="sm"
                   onClick={() => {
                     setAiPlanOpen(false);
+                    setSettingsTab("ai");
                     setSettingsOpen(true);
                   }}
                 >
@@ -893,337 +820,23 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
         </DialogContent>
       </Dialog>
 
-      {/* shadcn/ui Radix Settings Dialog */}
-      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("settings.title")}</DialogTitle>
-          </DialogHeader>
-
-          <Separator className="my-3.5" />
-
-          <div className="space-y-5">
-            {/* Theme Selector */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                <Palette className="h-3.5 w-3.5 text-primary" />
-                <span>{t("settings.themeLabel")}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    { id: "dark", icon: <Moon className="h-3.5 w-3.5" /> },
-                    { id: "light", icon: <Sun className="h-3.5 w-3.5" /> },
-                    { id: "paper", icon: <BookOpen className="h-3.5 w-3.5" /> },
-                  ] as const
-                ).map((item) => (
-                  <Button
-                    key={item.id}
-                    type="button"
-                    variant={currentTheme === item.id ? "default" : "secondary"}
-                    onClick={() => setTheme(item.id)}
-                    className="w-full"
-                  >
-                    {item.icon}
-                    <span>{t(`theme.${item.id}`)}</span>
-                  </Button>
-                ))}
-              </div>
-
-              {/* Tactile Fine Paper Grain Switch */}
-              <div className="flex items-center justify-between rounded-xl bg-muted/60 px-3 py-2">
-                <div>
-                  <div className="text-xs font-medium text-foreground">
-                    细微纸张颗粒质感
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    在深色、浅色与纸张主题下叠加柔和哑光纤维颗粒
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={paperGrain}
-                  onClick={togglePaperGrain}
-                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-                    paperGrain ? "bg-primary" : "bg-input"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow transition-transform ${
-                      paperGrain ? "translate-x-4" : "translate-x-1"
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-
-            {/* Language Selector + Import / Export */}
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                <Languages className="h-3.5 w-3.5 text-primary" />
-                <span>{t("settings.languageLabel")}</span>
-              </div>
-
-              <div className="flex flex-wrap gap-1.5">
-                {availableLocales.map((item) => (
-                  <div
-                    key={item.code}
-                    className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs transition ${
-                      locale === item.code
-                        ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                        : "bg-secondary text-secondary-foreground hover:bg-accent"
-                    }`}
-                  >
-                    <button onClick={() => setLocale(item.code)}>
-                      {item.name}
-                    </button>
-                    {!item.builtin && (
-                      <button
-                        onClick={() => removeCustomLocale(item.code)}
-                        className="ml-1 opacity-70 hover:opacity-100"
-                        title={t("common.delete")}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={exportCurrentLocale}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  {t("settings.exportLang")}
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  {t("settings.importLang")}
-                </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".json,application/json"
-                  onChange={handleImportFile}
-                  className="hidden"
-                />
-              </div>
-
-              {langNotice && (
-                <div
-                  className={`rounded-lg px-3 py-2 text-xs ${
-                    langNotice.ok
-                      ? "bg-emerald-500/12 text-emerald-500"
-                      : "bg-destructive/12 text-destructive"
-                  }`}
-                >
-                  {langNotice.text}
-                </div>
-              )}
-            </div>
-
-            <Separator />
-
-            {/* AI Direct API Config + Sync Dir Form */}
-            <form onSubmit={handleSaveSettings} className="space-y-4">
-              <div className="space-y-2.5">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                  <Bot className="h-3.5 w-3.5 text-primary" />
-                  <span>AI 平台配置（支持多平台一键预设）</span>
-                </div>
-
-                {/* Multi-provider preset chips */}
-                <div className="flex flex-wrap gap-1.5">
-                  {AI_PROVIDER_PRESETS.map((preset) => {
-                    const isSelected =
-                      aiBaseUrl.trim().replace(/\/+$/, "") === preset.baseUrl;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => {
-                          setAiBaseUrl(preset.baseUrl);
-                          setAiModel(preset.defaultModel);
-                          setAiTestMsg(null);
-                        }}
-                        className={`rounded-lg px-2 py-1 text-[11px] transition ${
-                          isSelected
-                            ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                            : "bg-secondary text-secondary-foreground hover:bg-accent"
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <Input
-                  type="text"
-                  value={aiBaseUrl}
-                  onChange={(e) => setAiBaseUrl(e.target.value)}
-                  placeholder="Base URL，例如 https://open.bigmodel.cn/api/paas/v4"
-                  className="font-mono"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <Input
-                    type="password"
-                    value={aiApiKey}
-                    onChange={(e) => setAiApiKey(e.target.value)}
-                    placeholder="API Key（本地 Ollama 可留空）"
-                  />
-                  <Input
-                    type="text"
-                    value={aiModel}
-                    onChange={(e) => setAiModel(e.target.value)}
-                    placeholder="模型名，如 glm-4-flash"
-                    className="font-mono"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={aiTesting}
-                    onClick={async () => {
-                      setAiTesting(true);
-                      setAiTestMsg(null);
-                      try {
-                        await testAIConnection({
-                          baseUrl: aiBaseUrl,
-                          apiKey: aiApiKey,
-                          model: aiModel,
-                        });
-                        setAiTestMsg({ ok: true, text: "连接成功，接口可用" });
-                      } catch (err) {
-                        setAiTestMsg({
-                          ok: false,
-                          text:
-                            err instanceof Error ? err.message : "连接测试失败",
-                        });
-                      } finally {
-                        setAiTesting(false);
-                      }
-                    }}
-                  >
-                    {aiTesting && <Loader2 className="h-3 w-3 animate-spin" />}
-                    {aiTesting ? "测试中..." : "测试连接"}
-                  </Button>
-
-                  {aiTestMsg && (
-                    <span
-                      className={`truncate text-[11px] ${
-                        aiTestMsg.ok ? "text-emerald-500" : "text-destructive"
-                      }`}
-                    >
-                      {aiTestMsg.text}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                  <FolderOpen className="h-3.5 w-3.5 text-primary" />
-                  {t("settings.syncDirLabel")}
-                </label>
-                <Input
-                  type="text"
-                  value={dirInput}
-                  onChange={(e) => setDirInput(e.target.value)}
-                  placeholder={defaultDir}
-                  className="font-mono"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2">
-                {dirSaved && (
-                  <span className="flex items-center gap-1 text-xs text-emerald-500">
-                    <Check className="h-3.5 w-3.5" />
-                    {t("common.saved")}
-                  </span>
-                )}
-                <Button type="submit">{t("common.save")}</Button>
-              </div>
-            </form>
-
-            <Separator />
-
-            {/* Full Workspace Backup & Restore */}
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                <DatabaseBackup className="h-3.5 w-3.5 text-primary" />
-                <span>数据整库备份与恢复</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleExportWorkspaceBackup}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  导出完整备份 (.json)
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => backupInputRef.current?.click()}
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  从备份恢复
-                </Button>
-                <input
-                  ref={backupInputRef}
-                  type="file"
-                  accept=".json,application/json"
-                  onChange={handleImportWorkspaceBackup}
-                  className="hidden"
-                />
-              </div>
-            </div>
-            {/* Version & Online Update Check */}
-            <div className="flex items-center justify-between rounded-xl bg-muted/60 px-3 py-2.5">
-              <div>
-                <div className="text-xs font-medium text-foreground">
-                  ShibaPlan v{appVersion}
-                </div>
-                <div className="text-[10px] text-muted-foreground">
-                  {updateInfo?.hasUpdate
-                    ? `发现新版本 v${updateInfo.latestVersion}`
-                    : "支持在线检测 GitHub Releases 新版本"}
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={checkingUpdate}
-                onClick={() => runUpdateCheck(false)}
-              >
-                <RefreshCw
-                  className={`h-3 w-3 ${checkingUpdate ? "animate-spin" : ""}`}
-                />
-                {checkingUpdate ? "检查中..." : "检查更新"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Tabbed Settings Dialog */}
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        initialTab={settingsTab}
+        workspace={workspace}
+        onUpdate={onUpdate}
+        defaultDir={defaultDir}
+        appVersion={appVersion}
+        updateInfo={updateInfo}
+        checkingUpdate={checkingUpdate}
+        onCheckUpdate={() => runUpdateCheck(false)}
+        onOpenUpdateDialog={() => setUpdateDialogOpen(true)}
+        onExportBackup={handleExportWorkspaceBackup}
+        onImportBackup={handleImportWorkspaceBackup}
+        onNotify={onNotify}
+      />
     </div>
   );
 };

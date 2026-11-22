@@ -203,6 +203,27 @@
   .text-primary-foreground {
     color: hsl(var(--primary-foreground));
   }
+  .text-primary-foreground\/80 {
+    color: hsl(var(--primary-foreground) / 0.8);
+  }
+  .bg-primary-foreground {
+    background-color: hsl(var(--primary-foreground));
+  }
+  .bg-primary\/12 {
+    background-color: hsl(var(--primary) / 0.12);
+  }
+  .bg-muted\/40 {
+    background-color: hsl(var(--muted) / 0.4);
+  }
+  .bg-muted\/50 {
+    background-color: hsl(var(--muted) / 0.5);
+  }
+  .bg-secondary\/75 {
+    background-color: hsl(var(--secondary) / 0.75);
+  }
+  .text-muted-foreground\/75 {
+    color: hsl(var(--muted-foreground) / 0.75);
+  }
   .text-secondary-foreground {
     color: hsl(var(--secondary-foreground));
   }
@@ -428,4 +449,27 @@
 [data-theme="light"] .bg-black\/70,
 [data-theme="paper"] .bg-black\/70 {
   background-color: rgba(15, 23, 42, 0.34) !important;
+}
+
+/* Propagate user custom accent color across legacy shiba-* accent classes */
+[data-custom-accent="on"] .text-shiba-300,
+[data-custom-accent="on"] .text-shiba-400,
+[data-custom-accent="on"] .text-shiba-500 {
+  color: hsl(var(--primary)) !important;
+}
+[data-custom-accent="on"] .bg-shiba-500,
+[data-custom-accent="on"] .bg-shiba-400 {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+[data-custom-accent="on"] .bg-shiba-500\/15,
+[data-custom-accent="on"] .bg-shiba-500\/20,
+[data-custom-accent="on"] .bg-shiba-500\/10 {
+  background-color: hsl(var(--primary) / 0.15) !important;
+}
+[data-custom-accent="on"] .ring-shiba-500\/40,
+[data-custom-accent="on"] .ring-shiba-500\/50,
+[data-custom-accent="on"] .border-shiba-500\/40 {
+  border-color: hsl(var(--primary) / 0.45) !important;
+  --tw-ring-color: hsl(var(--primary) / 0.45) !important;
 }

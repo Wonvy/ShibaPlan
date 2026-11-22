@@ -192,3 +192,80 @@ export async function testAIConnection(config: AIConfig): Promise<string> {
   );
   return reply.slice(0, 40);
 }
+
+function extractModelIds(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") return [];
+  const obj = payload as Record<string, unknown>;
+  const list = Array.isArray(obj.data)
+    ? obj.data
+    : Array.isArray(obj.models)
+      ? obj.models
+      : Array.isArray(payload)
+        ? (payload as unknown[])
+        : [];
+
+  const ids = new Set<string>();
+  for (const item of list) {
+    if (typeof item === "string" && item.trim()) {
+      ids.add(item.trim());
+    } else if (item && typeof item === "object") {
+      const rec = item as Record<string, unknown>;
+      const rawId =
+        typeof rec.id === "string"
+          ? rec.id
+          : typeof rec.name === "string"
+            ? rec.name
+            : typeof rec.model === "string"
+              ? rec.model
+              : "";
+      const cleaned = rawId.replace(/^models\//, "").trim();
+      if (cleaned) ids.add(cleaned);
+    }
+  }
+  return Array.from(ids).sort((a, b) => a.localeCompare(b));
+}
+
+export async function fetchAvailableModels(
+  config: Pick<AIConfig, "baseUrl" | "apiKey">
+): Promise<string[]> {
+  const baseUrl = (config.baseUrl || "").trim().replace(/\/+$/, "");
+  if (!baseUrl) {
+    throw new Error("请先填写 Base URL");
+  }
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (config.apiKey?.trim()) {
+    headers["Authorization"] = `Bearer ${config.apiKey.trim()}`;
+  }
+
+  const candidates = [`${baseUrl}/models`];
+  if (baseUrl.includes("11434")) {
+    const origin = baseUrl.replace(/\/v1$/i, "");
+    candidates.push(`${origin}/api/tags`);
+  }
+
+  let lastError = "未能获取到可用模型列表";
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { method: "GET", headers });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        lastError = `获取模型失败 (${res.status}): ${errText.slice(0, 120)}`;
+        continue;
+      }
+      const data = await res.json();
+      const models = extractModelIds(data);
+      if (models.length > 0) {
+        return models;
+      }
+      lastError = "接口返回成功，但模型列表为空";
+    } catch (err) {
+      lastError =
+        err instanceof Error ? `请求失败: ${err.message}` : "网络请求失败";
+    }
+  }
+
+  throw new Error(lastError);
+}

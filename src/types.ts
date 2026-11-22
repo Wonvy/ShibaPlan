@@ -99,6 +99,7 @@ export interface AppSettings {
   customLocales: CustomLocalePack[];
   theme: ThemeMode;
   paperGrain?: boolean;
+  accentColor?: string;
   enterToSave: boolean;
   columnGap?: number;
   ai?: AIConfig;
