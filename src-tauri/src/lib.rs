@@ -285,6 +285,16 @@ struct FolderEntry {
     is_dir: bool,
 }
 
+#[derive(Serialize)]
+struct ExplorerEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+    ext: String,
+    size: u64,
+    modified_ms: u64,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct ArchiveScanEntry {
     name: String,
@@ -883,6 +893,127 @@ fn list_folder_entries(folder_path: String) -> Result<Vec<FolderEntry>, String> 
 }
 
 #[tauri::command]
+fn list_project_explorer_entries(folder_path: String) -> Result<Vec<ExplorerEntry>, String> {
+    let p = PathBuf::from(folder_path.trim());
+    if !p.is_dir() {
+        return Err("不是有效的文件夹路径".to_string());
+    }
+    let read_dir = fs::read_dir(&p).map_err(|e| format!("读取目录失败: {}", e))?;
+    let mut entries: Vec<ExplorerEntry> = Vec::new();
+
+    for entry in read_dir.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if should_skip_archive_name(&name) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let is_dir = meta.is_dir();
+        let ext = if is_dir {
+            String::new()
+        } else {
+            path.extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default()
+        };
+        let modified_ms = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        entries.push(ExplorerEntry {
+            name,
+            path: path.to_string_lossy().to_string(),
+            is_dir,
+            ext,
+            size: if is_dir { 0 } else { meta.len() },
+            modified_ms,
+        });
+    }
+
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    entries.truncate(300);
+    Ok(entries)
+}
+
+#[tauri::command]
+fn read_file_text_preview(path: String) -> Result<String, String> {
+    let p = PathBuf::from(path.trim());
+    if !p.is_file() {
+        return Err("文件不存在".to_string());
+    }
+    let mut file = fs::File::open(&p).map_err(|e| format!("打开文件失败: {}", e))?;
+    let mut buf = vec![0u8; 128 * 1024];
+    let n = file.read(&mut buf).map_err(|e| format!("读取文件失败: {}", e))?;
+    buf.truncate(n);
+    Ok(String::from_utf8_lossy(&buf).to_string())
+}
+
+#[tauri::command]
+fn trigger_seer_preview(target_path: String) -> Result<String, String> {
+    let p = PathBuf::from(target_path.trim());
+    if !p.exists() {
+        return Err("目标路径不存在".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut candidates: Vec<PathBuf> = vec![
+            PathBuf::from(r"C:\Program Files\Seer\Seer.exe"),
+            PathBuf::from(r"C:\Program Files (x86)\Seer\Seer.exe"),
+            PathBuf::from(r"C:\Program Files\SeerPro\Seer.exe"),
+            PathBuf::from(r"C:\Program Files (x86)\SeerPro\Seer.exe"),
+        ];
+        if let Ok(local_app) = std::env::var("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(&local_app).join("Programs").join("Seer").join("Seer.exe"));
+            candidates.push(PathBuf::from(&local_app).join("Programs").join("QuickLook").join("QuickLook.exe"));
+        }
+        if let Ok(prog_files) = std::env::var("ProgramFiles") {
+            candidates.push(PathBuf::from(&prog_files).join("QuickLook").join("QuickLook.exe"));
+        }
+
+        for exe in candidates {
+            if exe.is_file() {
+                let kind = if exe
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase().contains("seer"))
+                    .unwrap_or(false)
+                {
+                    "seer"
+                } else {
+                    "quicklook"
+                };
+                if Command::new(&exe).arg(&p).spawn().is_ok() {
+                    return Ok(kind.to_string());
+                }
+            }
+        }
+
+        // Also check if Seer.exe is directly available in PATH
+        if Command::new("Seer.exe").arg(&p).spawn().is_ok() {
+            return Ok("seer".to_string());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if Command::new("qlmanage").args(["-p", &p.to_string_lossy()]).spawn().is_ok() {
+            return Ok("quicklook".to_string());
+        }
+    }
+
+    Ok("builtin".to_string())
+}
+
+#[tauri::command]
 fn open_path_in_os(target_path: String) -> Result<(), String> {
     let p = PathBuf::from(target_path.trim());
     if !p.exists() {
@@ -1367,6 +1498,9 @@ pub fn run() {
             export_idea_markdown,
             inspect_path,
             list_folder_entries,
+            list_project_explorer_entries,
+            read_file_text_preview,
+            trigger_seer_preview,
             scan_project_archive_roots,
             load_project_archive_cache,
             pick_folder_path,

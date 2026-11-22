@@ -485,6 +485,97 @@ export async function openArchivePath(targetPath: string): Promise<void> {
   }).catch(() => {});
 }
 
+export interface ExplorerEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  ext: string;
+  size: number;
+  modified_ms: number;
+}
+
+const IMAGE_EXTS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "bmp",
+  "svg",
+  "avif",
+]);
+
+const TEXT_EXTS = new Set([
+  "txt",
+  "md",
+  "markdown",
+  "json",
+  "xml",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "csv",
+  "log",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "css",
+  "html",
+  "py",
+  "rs",
+  "c",
+  "cpp",
+  "h",
+  "ino",
+  "iss",
+  "bat",
+  "ps1",
+  "sh",
+  "sql",
+]);
+
+export function isPreviewableImageExt(ext: string): boolean {
+  return IMAGE_EXTS.has(ext.toLowerCase());
+}
+
+export function isPreviewableTextExt(ext: string): boolean {
+  return TEXT_EXTS.has(ext.toLowerCase());
+}
+
+export async function listProjectExplorerEntries(
+  folderPath: string
+): Promise<ExplorerEntry[]> {
+  if (!folderPath.trim()) return [];
+  if (isTauriRuntime()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<ExplorerEntry[]>("list_project_explorer_entries", {
+      folderPath,
+    });
+  }
+  return [];
+}
+
+export async function readFileTextPreview(path: string): Promise<string> {
+  if (isTauriRuntime()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string>("read_file_text_preview", { path });
+  }
+  return "";
+}
+
+export async function triggerSeerPreview(
+  targetPath: string
+): Promise<"seer" | "quicklook" | "builtin"> {
+  if (isTauriRuntime()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const res = await invoke<string>("trigger_seer_preview", { targetPath });
+    if (res === "seer" || res === "quicklook") return res;
+  }
+  return "builtin";
+}
+
 export async function pickArchiveFolder(): Promise<string | null> {
   if (isTauriRuntime()) {
     const { invoke } = await import("@tauri-apps/api/core");
