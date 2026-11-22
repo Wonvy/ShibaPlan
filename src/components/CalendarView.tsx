@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar as CalendarIcon,
   Check,
@@ -222,8 +222,23 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     return days;
   }, [cursor]);
 
+  const wheelCooldownRef = useRef(0);
+
   const shiftMonth = (delta: number) => {
+    setHoveredDate(null);
     setCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
+  };
+
+  const handleCalendarWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (selectedDate || e.ctrlKey || e.metaKey) return;
+    const dominant =
+      Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (Math.abs(dominant) < 12) return;
+
+    const now = Date.now();
+    if (now < wheelCooldownRef.current) return;
+    wheelCooldownRef.current = now + 220;
+    shiftMonth(dominant > 0 ? 1 : -1);
   };
 
   const jumpToday = () => {
@@ -370,7 +385,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const selectedTasks = selectedDate ? tasksByDate.get(selectedDate) ?? [] : [];
 
   return (
-    <div className="flex h-full flex-col overflow-hidden px-3 sm:px-6 py-3 sm:py-4">
+    <div
+      onWheel={handleCalendarWheel}
+      className="flex h-full flex-col overflow-hidden px-3 sm:px-6 py-3 sm:py-4"
+    >
       {/* Minimal Calendar Header */}
       <div className="mb-2.5 flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2">
