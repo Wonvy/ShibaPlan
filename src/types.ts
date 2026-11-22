@@ -99,6 +99,8 @@ export interface ProjectArchiveDir {
   enabled?: boolean;
 }
 
+export type ProjectDateMode = "name_first" | "files_first" | "name_only";
+
 export interface AppSettings {
   customDataDir: string;
   shortcutLabel: string;
@@ -111,6 +113,7 @@ export interface AppSettings {
   columnGap?: number;
   ai?: AIConfig;
   projectArchiveDirs?: ProjectArchiveDir[];
+  projectDateMode?: ProjectDateMode;
 }
 
 export interface WorkspaceData {

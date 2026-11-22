@@ -27,7 +27,12 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { ProjectArchiveDir, ThemeMode, WorkspaceData } from "../types";
+import {
+  ProjectArchiveDir,
+  ProjectDateMode,
+  ThemeMode,
+  WorkspaceData,
+} from "../types";
 import {
   AI_PROVIDER_PRESETS,
   fetchAvailableModels,
@@ -141,8 +146,20 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
   // Project Archive Folders state
   const archiveDirs = workspace.settings.projectArchiveDirs ?? [];
+  const projectDateMode: ProjectDateMode =
+    workspace.settings.projectDateMode ?? "name_first";
   const [newProjectDir, setNewProjectDir] = useState("");
   const [newProjectLabel, setNewProjectLabel] = useState("");
+
+  const setProjectDateMode = (mode: ProjectDateMode) => {
+    onUpdate({
+      ...workspace,
+      settings: {
+        ...workspace.settings,
+        projectDateMode: mode,
+      },
+    });
+  };
 
   const getArchiveFolderLabel = (dir: ProjectArchiveDir) => {
     if (dir.label?.trim()) return dir.label.trim();
@@ -718,6 +735,69 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     </Button>
                   </div>
                 </form>
+
+                <Separator />
+
+                {/* Real Date Detection Mode */}
+                <div className="space-y-2.5">
+                  <div>
+                    <div className="text-[13px] font-medium text-foreground">
+                      项目真实日期识别策略
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      对项目内设计稿与交付文件按月份加权聚类，避开旧模板与偶发误改干扰，精准还原完成日期
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {(
+                      [
+                        {
+                          id: "name_first",
+                          title: "智能识别（推荐）",
+                          desc: "优先目录日期，无日期时按内部文件聚类推断",
+                        },
+                        {
+                          id: "files_first",
+                          title: "优先真实文件日期",
+                          desc: "始终以项目内多文件修改聚类日期为准",
+                        },
+                        {
+                          id: "name_only",
+                          title: "仅按目录命名",
+                          desc: "只读取文件夹名与上级年月",
+                        },
+                      ] as const
+                    ).map((opt) => {
+                      const active = projectDateMode === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setProjectDateMode(opt.id)}
+                          className={`flex flex-col items-start gap-1 rounded-xl p-2.5 text-left transition-colors ${
+                            active
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "bg-muted/50 text-foreground hover:bg-accent"
+                          }`}
+                        >
+                          <div className="flex w-full items-center justify-between text-xs font-medium">
+                            <span>{opt.title}</span>
+                            {active && <Check className="h-3.5 w-3.5 shrink-0" />}
+                          </div>
+                          <div
+                            className={`text-xs leading-snug ${
+                              active
+                                ? "text-primary-foreground/80"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {opt.desc}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 <Separator />
 

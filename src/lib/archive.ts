@@ -1,3 +1,4 @@
+import { ProjectDateMode } from "../types";
 import { isTauriRuntime, openPathInOs } from "./storage";
 
 export interface ArchiveScanEntry {
@@ -14,6 +15,7 @@ export interface ArchiveScanEntry {
   context_month: number | null;
   child_count: number;
   thumbnail_path: string | null;
+  real_date_ms?: number | null;
 }
 
 export interface ParsedArchiveDate {
@@ -23,7 +25,7 @@ export interface ParsedArchiveDate {
   dateLabel: string; // e.g. "2025-10-10", "2025-10", "2021", or ""
   sortKey: number; // YYYYMMDD integer for fast descending sort
   displayTitle: string; // cleaned title without leading date prefix
-  source: "name" | "folder" | "mtime" | "none";
+  source: "name" | "files" | "folder" | "mtime" | "none";
 }
 
 export interface IndexedArchiveItem extends ArchiveScanEntry {
@@ -33,7 +35,7 @@ export interface IndexedArchiveItem extends ArchiveScanEntry {
   dateLabel: string;
   sortKey: number;
   displayTitle: string;
-  dateSource: "name" | "folder" | "mtime" | "none";
+  dateSource: "name" | "files" | "folder" | "mtime" | "none";
   searchNameLower: string;
   searchPathLower: string;
   searchDateLower: string;
@@ -66,167 +68,216 @@ function cleanTitleAfterDate(rawName: string, matchedPrefix: string): string {
  * - 3月19日 / 03-19 / 3.19 (with contextYear)
  * - Falls back to parent year/month container folder, then file modified time.
  */
+function dateFromMs(
+  ms: number | null | undefined,
+  displayTitle: string,
+  source: "files" | "mtime"
+): ParsedArchiveDate | null {
+  if (!ms || ms <= 0) return null;
+  const dt = new Date(ms);
+  if (Number.isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear();
+  const mo = dt.getMonth() + 1;
+  const d = dt.getDate();
+  if (!isValidYMD(y, mo, d)) return null;
+  return {
+    year: y,
+    month: mo,
+    day: d,
+    dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
+    sortKey: y * 10000 + mo * 100 + d,
+    displayTitle,
+    source,
+  };
+}
+
 export function parseArchiveDate(
   name: string,
   contextYear: number | null,
   contextMonth: number | null,
-  modifiedMs: number
+  modifiedMs: number,
+  realDateMs?: number | null,
+  dateMode: ProjectDateMode = "name_first"
 ): ParsedArchiveDate {
   const trimmed = name.trim();
   const baseNoExt = trimmed.replace(/\.[^./\\]{1,8}$/, "");
 
-  // 1. YYYY[-./_]M[-./_]D at start or anywhere
-  let m = trimmed.match(
-    /^#?((?:19|20)\d{2})[-./_年](\d{1,2})[-./_月](\d{1,2})日?/
-  );
-  if (m) {
-    const y = +m[1],
-      mo = +m[2],
-      d = +m[3];
-    if (isValidYMD(y, mo, d)) {
-      return {
-        year: y,
-        month: mo,
-        day: d,
-        dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
-        sortKey: y * 10000 + mo * 100 + d,
-        displayTitle: cleanTitleAfterDate(trimmed, m[0]),
-        source: "name",
-      };
+  const parseFromName = (): ParsedArchiveDate | null => {
+    // 1. YYYY[-./_]M[-./_]D at start
+    let m = trimmed.match(
+      /^#?((?:19|20)\d{2})[-./_年](\d{1,2})[-./_月](\d{1,2})日?/
+    );
+    if (m) {
+      const y = +m[1],
+        mo = +m[2],
+        d = +m[3];
+      if (isValidYMD(y, mo, d)) {
+        return {
+          year: y,
+          month: mo,
+          day: d,
+          dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
+          sortKey: y * 10000 + mo * 100 + d,
+          displayTitle: cleanTitleAfterDate(trimmed, m[0]),
+          source: "name",
+        };
+      }
     }
+
+    // 2. YYYYMMDD at start (8 digits)
+    m = trimmed.match(/^#?((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)/);
+    if (m) {
+      const y = +m[1],
+        mo = +m[2],
+        d = +m[3];
+      if (isValidYMD(y, mo, d)) {
+        return {
+          year: y,
+          month: mo,
+          day: d,
+          dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
+          sortKey: y * 10000 + mo * 100 + d,
+          displayTitle: cleanTitleAfterDate(trimmed, m[0]),
+          source: "name",
+        };
+      }
+    }
+
+    // 3. YY[-./_]MM[-./_]DD at start
+    m = trimmed.match(/^#?(\d{2})[-./_](\d{1,2})[-./_](\d{1,2})(?!\d)/);
+    if (m) {
+      const y = 2000 + +m[1],
+        mo = +m[2],
+        d = +m[3];
+      if (isValidYMD(y, mo, d)) {
+        return {
+          year: y,
+          month: mo,
+          day: d,
+          dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
+          sortKey: y * 10000 + mo * 100 + d,
+          displayTitle: cleanTitleAfterDate(trimmed, m[0]),
+          source: "name",
+        };
+      }
+    }
+
+    // 4. YYMMDD at start (6 digits)
+    m = trimmed.match(/^#?(\d{2})(\d{2})(\d{2})(?!\d)/);
+    if (m) {
+      const y = 2000 + +m[1],
+        mo = +m[2],
+        d = +m[3];
+      if (isValidYMD(y, mo, d)) {
+        return {
+          year: y,
+          month: mo,
+          day: d,
+          dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
+          sortKey: y * 10000 + mo * 100 + d,
+          displayTitle: cleanTitleAfterDate(trimmed, m[0]),
+          source: "name",
+        };
+      }
+    }
+
+    // 5. MMDD at start (4 digits like "0103 宁炮-CAD图") with contextYear
+    m = trimmed.match(/^(\d{2})(\d{2})(?=[\s_\-—·\u4e00-\u9fa5a-zA-Z]|$)/);
+    if (m && contextYear) {
+      const mo = +m[1],
+        d = +m[2];
+      if (isValidYMD(contextYear, mo, d)) {
+        return {
+          year: contextYear,
+          month: mo,
+          day: d,
+          dateLabel: `${contextYear}-${pad2(mo)}-${pad2(d)}`,
+          sortKey: contextYear * 10000 + mo * 100 + d,
+          displayTitle: cleanTitleAfterDate(trimmed, m[0]),
+          source: "name",
+        };
+      }
+    }
+
+    // 6. M月D日 or M.D or M-D at start with contextYear
+    m = trimmed.match(
+      /^(\d{1,2})[月.-](\d{1,2})日?(?=[\s_\-—·\u4e00-\u9fa5a-zA-Z]|$)/
+    );
+    if (m && contextYear) {
+      const mo = +m[1],
+        d = +m[2];
+      if (isValidYMD(contextYear, mo, d)) {
+        return {
+          year: contextYear,
+          month: mo,
+          day: d,
+          dateLabel: `${contextYear}-${pad2(mo)}-${pad2(d)}`,
+          sortKey: contextYear * 10000 + mo * 100 + d,
+          displayTitle: cleanTitleAfterDate(trimmed, m[0]),
+          source: "name",
+        };
+      }
+    }
+
+    // 7. YYYY-MM / YYYY.MM / YYYY年M月 at start
+    m = trimmed.match(/^#?((?:19|20)\d{2})[-./_年](\d{1,2})月?(?!\d)/);
+    if (m) {
+      const y = +m[1],
+        mo = +m[2];
+      if (y >= 1990 && y <= 2099 && mo >= 1 && mo <= 12) {
+        return {
+          year: y,
+          month: mo,
+          day: null,
+          dateLabel: `${y}-${pad2(mo)}`,
+          sortKey: y * 10000 + mo * 100,
+          displayTitle: cleanTitleAfterDate(trimmed, m[0]),
+          source: "name",
+        };
+      }
+    }
+
+    // 8. Embedded YYYY-MM-DD or YYYYMMDD anywhere in name
+    m = baseNoExt.match(/((?:19|20)\d{2})[-./_]?(\d{2})[-./_]?(\d{2})(?!\d)/);
+    if (m) {
+      const y = +m[1],
+        mo = +m[2],
+        d = +m[3];
+      if (isValidYMD(y, mo, d)) {
+        return {
+          year: y,
+          month: mo,
+          day: d,
+          dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
+          sortKey: y * 10000 + mo * 100 + d,
+          displayTitle: trimmed,
+          source: "name",
+        };
+      }
+    }
+
+    return null;
+  };
+
+  const nameParsed = parseFromName();
+  const cleanTitle = nameParsed?.displayTitle ?? trimmed;
+
+  // Mode 1: Prefer weighted real file modification date cluster
+  if (dateMode === "files_first") {
+    const byFiles = dateFromMs(realDateMs, cleanTitle, "files");
+    if (byFiles) return byFiles;
   }
 
-  // 2. YYYYMMDD at start (8 digits not followed by another digit)
-  m = trimmed.match(/^#?((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)/);
-  if (m) {
-    const y = +m[1],
-      mo = +m[2],
-      d = +m[3];
-    if (isValidYMD(y, mo, d)) {
-      return {
-        year: y,
-        month: mo,
-        day: d,
-        dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
-        sortKey: y * 10000 + mo * 100 + d,
-        displayTitle: cleanTitleAfterDate(trimmed, m[0]),
-        source: "name",
-      };
-    }
+  // Explicit date in folder/file name
+  if (nameParsed) return nameParsed;
+
+  // Mode 2 (default "name_first"): when name has no date, infer real date from inner files before parent folder / mtime
+  if (dateMode === "name_first") {
+    const byFiles = dateFromMs(realDateMs, trimmed, "files");
+    if (byFiles) return byFiles;
   }
 
-  // 3. YY[-./_]MM[-./_]DD at start (e.g. 25-02-19 告白咖啡)
-  m = trimmed.match(/^#?(\d{2})[-./_](\d{1,2})[-./_](\d{1,2})(?!\d)/);
-  if (m) {
-    const y = 2000 + +m[1],
-      mo = +m[2],
-      d = +m[3];
-    if (isValidYMD(y, mo, d)) {
-      return {
-        year: y,
-        month: mo,
-        day: d,
-        dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
-        sortKey: y * 10000 + mo * 100 + d,
-        displayTitle: cleanTitleAfterDate(trimmed, m[0]),
-        source: "name",
-      };
-    }
-  }
-
-  // 4. YYMMDD at start (6 digits, e.g. 250219 某某)
-  m = trimmed.match(/^#?(\d{2})(\d{2})(\d{2})(?!\d)/);
-  if (m) {
-    const y = 2000 + +m[1],
-      mo = +m[2],
-      d = +m[3];
-    if (isValidYMD(y, mo, d)) {
-      return {
-        year: y,
-        month: mo,
-        day: d,
-        dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
-        sortKey: y * 10000 + mo * 100 + d,
-        displayTitle: cleanTitleAfterDate(trimmed, m[0]),
-        source: "name",
-      };
-    }
-  }
-
-  // 5. MMDD at start (4 digits like "0103 宁炮-CAD图") when contextYear exists
-  m = trimmed.match(/^(\d{2})(\d{2})(?=[\s_\-—·\u4e00-\u9fa5a-zA-Z]|$)/);
-  if (m && contextYear) {
-    const mo = +m[1],
-      d = +m[2];
-    if (isValidYMD(contextYear, mo, d)) {
-      return {
-        year: contextYear,
-        month: mo,
-        day: d,
-        dateLabel: `${contextYear}-${pad2(mo)}-${pad2(d)}`,
-        sortKey: contextYear * 10000 + mo * 100 + d,
-        displayTitle: cleanTitleAfterDate(trimmed, m[0]),
-        source: "name",
-      };
-    }
-  }
-
-  // 6. M月D日 or M.D or M-D at start when contextYear exists
-  m = trimmed.match(/^(\d{1,2})[月.-](\d{1,2})日?(?=[\s_\-—·\u4e00-\u9fa5a-zA-Z]|$)/);
-  if (m && contextYear) {
-    const mo = +m[1],
-      d = +m[2];
-    if (isValidYMD(contextYear, mo, d)) {
-      return {
-        year: contextYear,
-        month: mo,
-        day: d,
-        dateLabel: `${contextYear}-${pad2(mo)}-${pad2(d)}`,
-        sortKey: contextYear * 10000 + mo * 100 + d,
-        displayTitle: cleanTitleAfterDate(trimmed, m[0]),
-        source: "name",
-      };
-    }
-  }
-
-  // 7. YYYY-MM / YYYY.MM / YYYY年M月 at start
-  m = trimmed.match(/^#?((?:19|20)\d{2})[-./_年](\d{1,2})月?(?!\d)/);
-  if (m) {
-    const y = +m[1],
-      mo = +m[2];
-    if (y >= 1990 && y <= 2099 && mo >= 1 && mo <= 12) {
-      return {
-        year: y,
-        month: mo,
-        day: null,
-        dateLabel: `${y}-${pad2(mo)}`,
-        sortKey: y * 10000 + mo * 100,
-        displayTitle: cleanTitleAfterDate(trimmed, m[0]),
-        source: "name",
-      };
-    }
-  }
-
-  // 8. Embedded YYYY-MM-DD or YYYYMMDD anywhere in name
-  m = baseNoExt.match(/((?:19|20)\d{2})[-./_]?(\d{2})[-./_]?(\d{2})(?!\d)/);
-  if (m) {
-    const y = +m[1],
-      mo = +m[2],
-      d = +m[3];
-    if (isValidYMD(y, mo, d)) {
-      return {
-        year: y,
-        month: mo,
-        day: d,
-        dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
-        sortKey: y * 10000 + mo * 100 + d,
-        displayTitle: trimmed,
-        source: "name",
-      };
-    }
-  }
-
-  // 9. Inherit from parent Year / Month container folder
+  // Fallback: inherit from parent Year / Month container folder
   if (contextYear) {
     const mo = contextMonth ?? null;
     return {
@@ -240,24 +291,9 @@ export function parseArchiveDate(
     };
   }
 
-  // 10. Fallback to filesystem modification date
-  if (modifiedMs > 0) {
-    const dt = new Date(modifiedMs);
-    if (!Number.isNaN(dt.getTime())) {
-      const y = dt.getFullYear();
-      const mo = dt.getMonth() + 1;
-      const d = dt.getDate();
-      return {
-        year: y,
-        month: mo,
-        day: d,
-        dateLabel: `${y}-${pad2(mo)}-${pad2(d)}`,
-        sortKey: y * 10000 + mo * 100 + d,
-        displayTitle: trimmed,
-        source: "mtime",
-      };
-    }
-  }
+  // Final fallback: folder/file own modification timestamp
+  const byMtime = dateFromMs(modifiedMs, trimmed, "mtime");
+  if (byMtime) return byMtime;
 
   return {
     year: null,
@@ -271,14 +307,17 @@ export function parseArchiveDate(
 }
 
 export function buildArchiveIndex(
-  rawEntries: ArchiveScanEntry[]
+  rawEntries: ArchiveScanEntry[],
+  dateMode: ProjectDateMode = "name_first"
 ): IndexedArchiveItem[] {
   const items: IndexedArchiveItem[] = rawEntries.map((entry) => {
     const parsed = parseArchiveDate(
       entry.name,
       entry.context_year,
       entry.context_month,
-      entry.modified_ms
+      entry.modified_ms,
+      entry.real_date_ms,
+      dateMode
     );
     return {
       ...entry,
@@ -297,10 +336,17 @@ export function buildArchiveIndex(
 
   items.sort((a, b) => {
     if (b.sortKey !== a.sortKey) return b.sortKey - a.sortKey;
-    return b.modified_ms - a.modified_ms;
+    return (b.real_date_ms ?? b.modified_ms) - (a.real_date_ms ?? a.modified_ms);
   });
 
   return items;
+}
+
+export function reapplyArchiveDateMode(
+  items: IndexedArchiveItem[],
+  dateMode: ProjectDateMode
+): IndexedArchiveItem[] {
+  return buildArchiveIndex(items, dateMode);
 }
 
 interface ArchiveIndexCachePayload {

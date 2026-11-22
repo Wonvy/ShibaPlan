@@ -27,6 +27,7 @@ import {
   loadArchiveThumbnail,
   loadCachedProjectArchive,
   openArchivePath,
+  reapplyArchiveDateMode,
   scanProjectArchiveRoots,
   searchArchiveItems,
 } from "../lib/archive";
@@ -410,14 +411,20 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     return map;
   }, [archiveDirs]);
 
+  const dateMode = workspace.settings.projectDateMode ?? "name_first";
+  const effectiveItems = useMemo(
+    () => reapplyArchiveDateMode(allItems, dateMode),
+    [allItems, dateMode]
+  );
+
   // Project-only list for Year/Month timeline counts
   const projectsByRoot = useMemo(() => {
-    return allItems.filter(
+    return effectiveItems.filter(
       (item) =>
         item.is_project &&
         (selectedRoot === "all" || item.root_path === selectedRoot)
     );
-  }, [allItems, selectedRoot]);
+  }, [effectiveItems, selectedRoot]);
 
   const timelineStats = useMemo(() => {
     const yearMap = new Map<number, Map<number, number>>();
@@ -457,7 +464,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
   // Filtered base pool before Everything search
   const filteredPool = useMemo(() => {
-    return allItems.filter((item) => {
+    return effectiveItems.filter((item) => {
       if (effectiveScope === "projects" && !item.is_project) return false;
       if (effectiveScope === "files" && item.is_dir) return false;
       if (selectedRoot !== "all" && item.root_path !== selectedRoot) return false;
@@ -468,7 +475,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         return false;
       return true;
     });
-  }, [allItems, effectiveScope, selectedRoot, selectedYear, selectedMonth]);
+  }, [effectiveItems, effectiveScope, selectedRoot, selectedYear, selectedMonth]);
 
   // Everything-style search
   const { items: matchedItems, highlightTerms } = useMemo(

@@ -1,6 +1,7 @@
 use base64::Engine;
-use chrono::Local;
+use chrono::{Datelike, Local, TimeZone};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
@@ -299,6 +300,8 @@ struct ArchiveScanEntry {
     context_month: Option<u32>,
     child_count: usize,
     thumbnail_path: Option<String>,
+    #[serde(default)]
+    real_date_ms: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -397,6 +400,107 @@ fn find_project_thumbnail(dir: &PathBuf) -> Option<String> {
     let mut visited = 0usize;
     find_project_thumbnail_inner(dir, 0, &mut best, &mut visited);
     best.map(|(_, p)| p)
+}
+
+fn deliverable_file_weight(name: &str, ext: &str) -> u32 {
+    if name.starts_with("~$") || matches!(ext, "tmp" | "bak" | "lnk" | "ini" | "db" | "log") {
+        return 0;
+    }
+    if matches!(
+        ext,
+        "psd" | "ai" | "cdr" | "indd" | "fig" | "sketch" | "xd" | "c4d" | "blend"
+            | "stl" | "step" | "stp" | "dwg" | "dxf" | "obj" | "fbx" | "3dm" | "skp"
+            | "prproj" | "aep" | "pptx" | "ppt" | "docx" | "doc" | "xlsx" | "xls"
+            | "pdf" | "png" | "jpg" | "jpeg" | "webp" | "svg" | "tif" | "tiff"
+            | "mp4" | "mov" | "avi" | "zip" | "rar" | "7z" | "ino" | "ts" | "tsx"
+            | "js" | "py" | "rs" | "c" | "cpp" | "iss" | "ppam"
+    ) {
+        3
+    } else {
+        1
+    }
+}
+
+fn collect_file_mtimes_weighted(
+    dir: &PathBuf,
+    depth: usize,
+    buckets: &mut HashMap<(i32, u32), (u32, u64)>,
+    visited: &mut usize,
+) {
+    if depth > 2 || *visited > 200 {
+        return;
+    }
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut subdirs: Vec<PathBuf> = Vec::new();
+    for entry in read_dir.flatten() {
+        *visited += 1;
+        if *visited > 200 {
+            break;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if should_skip_archive_name(&name) || name == "__MACOSX" {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            if depth < 2 {
+                subdirs.push(path);
+            }
+            continue;
+        }
+        let ext = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let weight = deliverable_file_weight(&name, &ext);
+        if weight == 0 {
+            continue;
+        }
+        let Some(ms) = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+        else {
+            continue;
+        };
+        if let Some(dt) = Local.timestamp_millis_opt(ms as i64).single() {
+            let y = dt.year();
+            if (1995..=2099).contains(&y) {
+                let key = (y, dt.month());
+                let entry_bucket = buckets.entry(key).or_insert((0, 0));
+                entry_bucket.0 += weight;
+                if ms > entry_bucket.1 {
+                    entry_bucket.1 = ms;
+                }
+            }
+        }
+    }
+    for sub in subdirs {
+        collect_file_mtimes_weighted(&sub, depth + 1, buckets, visited);
+    }
+}
+
+/// Infers a project's true completion date from its inner files using weighted month-cluster consensus:
+/// - Weights creative/deliverable files 3x over generic files, ignores OS/temp junk.
+/// - Picks the (year, month) bucket with the highest total weight (immune to old reused templates and stray later touches).
+/// - Returns the latest file mtime inside that dominant work month.
+fn infer_project_real_date_ms(dir: &PathBuf) -> Option<u64> {
+    let mut buckets: HashMap<(i32, u32), (u32, u64)> = HashMap::new();
+    let mut visited = 0usize;
+    collect_file_mtimes_weighted(dir, 0, &mut buckets, &mut visited);
+
+    buckets
+        .into_iter()
+        .max_by(|(k1, (w1, max1)), (k2, (w2, max2))| {
+            w1.cmp(w2).then_with(|| k1.cmp(k2)).then_with(|| max1.cmp(max2))
+        })
+        .map(|(_, (_, latest_ms))| latest_ms)
 }
 
 fn parse_pure_year_folder(name: &str) -> Option<i32> {
@@ -539,14 +643,15 @@ fn scan_archive_recursive(
             }
 
             let is_project = !inside_project;
-            let (child_count, thumbnail_path) = if is_project {
+            let (child_count, thumbnail_path, real_date_ms) = if is_project {
                 let count = fs::read_dir(&path)
                     .map(|rd| rd.flatten().take(200).count())
                     .unwrap_or(0);
                 let thumb = find_project_thumbnail(&path);
-                (count, thumb)
+                let real_ms = infer_project_real_date_ms(&path);
+                (count, thumb, real_ms)
             } else {
-                (0, None)
+                (0, None, None)
             };
 
             out.push(ArchiveScanEntry {
@@ -563,6 +668,7 @@ fn scan_archive_recursive(
                 context_month: ctx_month,
                 child_count,
                 thumbnail_path,
+                real_date_ms,
             });
 
             // Also index up to 2 levels inside each project for Everything-style instant file search
@@ -604,6 +710,7 @@ fn scan_archive_recursive(
                 context_month: ctx_month,
                 child_count: 0,
                 thumbnail_path,
+                real_date_ms: if modified_ms > 0 { Some(modified_ms) } else { None },
             });
         }
     }

@@ -62,6 +62,7 @@ export function createDefaultWorkspace(): WorkspaceData {
         model: "gpt-4o-mini",
       },
       projectArchiveDirs: [],
+      projectDateMode: "name_first",
     },
   };
 }
@@ -106,6 +107,11 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
       projectArchiveDirs: Array.isArray(raw.settings?.projectArchiveDirs)
         ? raw.settings.projectArchiveDirs
         : [],
+      projectDateMode:
+        raw.settings?.projectDateMode === "files_first" ||
+        raw.settings?.projectDateMode === "name_only"
+          ? raw.settings.projectDateMode
+          : "name_first",
     },
   };
 }
