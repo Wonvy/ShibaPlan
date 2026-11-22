@@ -1547,7 +1547,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
               </button>
               <button
                 onClick={() => commitFocus(activeTask, true)}
-                className="rounded-md bg-shiba-500 px-2 py-1 text-[11px] font-semibold text-zinc-950 hover:bg-shiba-400"
+                className="rounded-md bg-shiba-500 px-2 py-1 text-xs font-semibold text-zinc-950 hover:bg-shiba-400"
               >
                 {t("kanban.finish")}
               </button>
@@ -1654,7 +1654,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           <p className="truncate text-sm text-zinc-400 line-through">
                             {task.title}
                           </p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                             {col && (
                               <span className="flex items-center gap-1">
                                 <span
@@ -1972,7 +1972,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           <div className="font-mono text-2xl font-semibold leading-none tabular-nums tracking-tight text-zinc-100">
                             {pendingCount}
                           </div>
-                          <div className="mt-1 text-[10px] text-zinc-500">
+                          <div className="mt-1 text-xs text-zinc-500">
                             待办
                           </div>
                         </div>
@@ -1983,7 +1983,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           <div className="font-mono text-lg font-medium leading-none tabular-nums text-zinc-400">
                             {colDoneCount}
                           </div>
-                          <div className="mt-1 text-[10px] text-zinc-500">
+                          <div className="mt-1 text-xs text-zinc-500">
                             完成
                           </div>
                         </div>
@@ -1994,7 +1994,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           <div className="font-mono text-sm font-medium leading-none tabular-nums text-zinc-300">
                             {(estMinutes / 60).toFixed(1)}h
                           </div>
-                          <div className="mt-1 text-[10px] text-zinc-500">
+                          <div className="mt-1 text-xs text-zinc-500">
                             预估
                           </div>
                         </div>
@@ -2048,7 +2048,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                       }`}
                     />
                     {resizingGap !== null && (
-                      <span className="pointer-events-none absolute top-2 rounded bg-[#1c1c21] px-1 py-0.5 font-mono text-[10px] text-shiba-400 shadow">
+                      <span className="pointer-events-none absolute top-2 rounded bg-[#1c1c21] px-1 py-0.5 font-mono text-xs text-shiba-400 shadow">
                         {activeColumnGap}
                       </span>
                     )}
@@ -2315,7 +2315,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   className="flex-1 space-y-1.5 overflow-y-auto pr-0.5"
                 >
                   {colTasks.length === 0 ? (
-                    <div className="flex h-20 items-center justify-center rounded-xl border border-dashed border-white/[0.05] text-[11px] text-zinc-600">
+                    <div className="flex h-20 items-center justify-center rounded-xl border border-dashed border-white/[0.05] text-xs text-zinc-600">
                       拖入卡片或点 + 新增
                     </div>
                   ) : (
@@ -2485,14 +2485,14 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
                                   {!collapsedCards[task.id] && (
                                     <>
-                                      <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-500">
+                                      <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">
                                         {task.folderPath}
                                       </p>
 
                                       {expandedFolders[task.id] && (
                                         <div className="mt-2 rounded-lg bg-[#111113] p-1.5 ring-1 ring-white/[0.06]">
                                           <div className="mb-1 flex items-center justify-between px-1">
-                                            <span className="text-[10px] text-zinc-500">
+                                            <span className="text-xs text-zinc-500">
                                               {`${(folderFiles[task.id] ?? task.cachedFiles ?? []).length} ${t("common.items")}`}
                                             </span>
                                             {isTauriRuntime() && (
@@ -2519,7 +2519,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                           </div>
 
                                           {loadingFolders[task.id] ? (
-                                            <p className="px-1 py-1.5 text-[11px] text-zinc-500">
+                                            <p className="px-1 py-1.5 text-xs text-zinc-500">
                                               {t("kanban.folderLoading")}
                                             </p>
                                           ) : (
@@ -2527,7 +2527,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                               task.cachedFiles ??
                                               []
                                             ).length === 0 ? (
-                                            <p className="px-1 py-1.5 text-[11px] text-zinc-500">
+                                            <p className="px-1 py-1.5 text-xs text-zinc-500">
                                               {t("kanban.folderEmpty")}
                                             </p>
                                           ) : (
@@ -2543,7 +2543,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                                   onClick={() =>
                                                     openPathInOs(entry.path)
                                                   }
-                                                  className="flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-[11px] text-zinc-300 transition hover:bg-white/[0.06] hover:text-zinc-100"
+                                                  className="flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-xs text-zinc-300 transition hover:bg-white/[0.06] hover:text-zinc-100"
                                                 >
                                                   {entry.is_dir ? (
                                                     <Folder className="h-3 w-3 shrink-0 text-shiba-400/80" />
@@ -2641,7 +2641,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                     <>
                                       {(col.display?.showNotes ?? true) &&
                                         task.notes && (
-                                          <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-zinc-500">
+                                          <p className="mt-1 line-clamp-2 text-xs leading-snug text-zinc-500">
                                             {task.notes}
                                           </p>
                                         )}
@@ -2675,7 +2675,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                 {(col.display?.showEffort ?? true) && (
                                   <button
                                     onClick={() => cycleEffort(task)}
-                                    className="rounded bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200"
+                                    className="rounded bg-white/[0.04] px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200"
                                     title="点击切换预估耗时"
                                   >
                                     {EFFORT_LABEL[task.effort]}
@@ -2685,7 +2685,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                   task.dueDate && (
                                     <button
                                       onClick={() => openTaskEditor(task)}
-                                      className="flex items-center gap-1 rounded bg-shiba-500/12 px-1.5 py-0.5 text-[10px] text-shiba-300 hover:bg-shiba-500/20"
+                                      className="flex items-center gap-1 rounded bg-shiba-500/12 px-1.5 py-0.5 text-xs text-shiba-300 hover:bg-shiba-500/20"
                                       title={t("kanban.schedule")}
                                     >
                                       <Calendar className="h-2.5 w-2.5" />
@@ -2699,7 +2699,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                   )}
                                 {(col.display?.showEffort ?? true) &&
                                   task.actualMinutes > 0 && (
-                                    <span className="text-[10px] text-zinc-500">
+                                    <span className="text-xs text-zinc-500">
                                       {task.actualMinutes}m
                                     </span>
                                   )}
@@ -2776,7 +2776,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     }`}
                   />
                   {resizingGap !== null && (
-                    <span className="pointer-events-none absolute top-2 rounded bg-[#1c1c21] px-1 py-0.5 font-mono text-[10px] text-shiba-400 shadow">
+                    <span className="pointer-events-none absolute top-2 rounded bg-[#1c1c21] px-1 py-0.5 font-mono text-xs text-shiba-400 shadow">
                       {activeColumnGap}
                     </span>
                   )}
@@ -2861,7 +2861,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
           {/* Floating Canvas Zoom & Tidy Controls */}
           {layoutMode === "canvas" && (
-            <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1 rounded-xl bg-popover/90 px-2 py-1 text-[11px] text-popover-foreground shadow-popover-soft backdrop-blur-md">
+            <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1 rounded-xl bg-popover/90 px-2 py-1 text-xs text-popover-foreground shadow-popover-soft backdrop-blur-md">
               <button
                 type="button"
                 onClick={tidyCanvasLayout}

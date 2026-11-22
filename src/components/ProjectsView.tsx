@@ -601,7 +601,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="快捷搜索项目与文件（空格=与  |=或  !=排除  ext:pdf  folder:  file:）"
-            className="h-8 w-full rounded-lg bg-card pl-8 pr-20 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring shadow-card-rest"
+            className="h-9 w-full rounded-lg bg-card pl-8 pr-20 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring shadow-card-rest"
           />
           <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
             {query && (
@@ -614,7 +614,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
               {matchedItems.length}
             </span>
           </div>
@@ -633,7 +633,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               key={s.id}
               type="button"
               onClick={() => setScope(s.id)}
-              className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
                 effectiveScope === s.id
                   ? "bg-card text-foreground font-medium shadow-card-rest"
                   : "text-muted-foreground hover:text-foreground"
@@ -673,7 +673,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               type="button"
               onClick={() => changeViewMode(m.id)}
               title={`${m.label}视图`}
-              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors ${
+              className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors ${
                 viewMode === m.id
                   ? "bg-card text-foreground font-medium shadow-card-rest"
                   : "text-muted-foreground hover:text-foreground"
@@ -693,7 +693,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             size="sm"
             disabled={indexing || enabledRootPaths.length === 0}
             onClick={() => runIndex(false)}
-            className="h-8 px-2.5 text-[11px]"
+            className="h-8 px-2.5 text-xs"
             title={
               lastIndexedAt
                 ? `${cacheRestored ? "已命中本地缓存" : "已完成扫描"} · 更新于 ${lastIndexedAt}`
@@ -719,12 +719,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             variant="secondary"
             size="sm"
             onClick={() => setDirsDialogOpen(true)}
-            className="h-8 px-2.5 text-[11px]"
+            className="h-8 px-2.5 text-xs"
           >
             <FolderPlus className="h-3.5 w-3.5 text-primary" />
             <span>项目目录</span>
             {archiveDirs.length > 0 && (
-              <span className="rounded bg-primary/15 px-1 font-mono text-[10px] text-primary">
+              <span className="rounded bg-primary/15 px-1 font-mono text-xs text-primary">
                 {archiveDirs.length}
               </span>
             )}
@@ -744,7 +744,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 <h3 className="text-sm font-semibold text-foreground">
                   添加过往项目归档目录
                 </h3>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   支持多目录自动索引、多种日期格式识别与 Everything 级秒搜
                 </p>
               </div>
@@ -785,7 +785,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               </Button>
             </form>
 
-            <div className="rounded-xl bg-muted/50 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+            <div className="rounded-xl bg-muted/50 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
               自动兼容 <span className="font-mono text-foreground">#2025/10月</span>、
               <span className="font-mono text-foreground">2025-10-10_名称</span>、
               <span className="font-mono text-foreground">25-02-19</span>、
@@ -801,7 +801,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             {/* Multi-Root Filter */}
             {archiveDirs.length > 1 && (
               <div className="space-y-1">
-                <div className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <div className="px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   项目目录
                 </div>
                 <button
@@ -818,7 +818,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   }`}
                 >
                   <span className="truncate">全部目录</span>
-                  <span className="font-mono text-[10px] opacity-80">
+                  <span className="font-mono text-xs opacity-80">
                     {archiveDirs.filter((d) => d.enabled !== false).length}
                   </span>
                 </button>
@@ -852,7 +852,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
             {/* Year / Month Timeline */}
             <div className="space-y-1">
-              <div className="px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              <div className="px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 时间归档
               </div>
               <button
@@ -871,7 +871,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   <Calendar className="h-3 w-3" />
                   全部年份
                 </span>
-                <span className="font-mono text-[10px] opacity-80">
+                <span className="font-mono text-xs opacity-80">
                   {timelineStats.totalProjects}
                 </span>
               </button>
@@ -906,7 +906,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         )}
                         {year}
                       </span>
-                      <span className="font-mono text-[10px] opacity-75">
+                      <span className="font-mono text-xs opacity-75">
                         {total}
                       </span>
                     </button>
@@ -922,14 +922,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               onClick={() =>
                                 setSelectedMonth(mActive ? "all" : mo)
                               }
-                              className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-[11px] transition-colors ${
+                              className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-xs transition-colors ${
                                 mActive
                                   ? "bg-primary text-primary-foreground font-medium"
                                   : "text-muted-foreground hover:bg-accent hover:text-foreground"
                               }`}
                             >
                               <span>{mo}月</span>
-                              <span className="font-mono text-[10px] opacity-75">
+                              <span className="font-mono text-xs opacity-75">
                                 {cnt}
                               </span>
                             </button>
@@ -955,7 +955,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   }`}
                 >
                   <span>未归类</span>
-                  <span className="font-mono text-[10px] opacity-75">
+                  <span className="font-mono text-xs opacity-75">
                     {timelineStats.unknownCount}
                   </span>
                 </button>
@@ -1024,12 +1024,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                           )}
                         </span>
                         {item.ext && (
-                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs uppercase text-muted-foreground">
                             {item.ext}
                           </span>
                         )}
                       </div>
-                      <div className="truncate font-mono text-[10px] text-muted-foreground">
+                      <div className="truncate font-mono text-xs text-muted-foreground">
                         {renderHighlightedText(
                           item.relative_path,
                           highlightTerms
@@ -1038,13 +1038,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     </div>
 
                     {item.dateLabel && (
-                      <span className="hidden sm:inline-block shrink-0 rounded-md bg-muted/70 px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      <span className="hidden sm:inline-block shrink-0 rounded-md bg-muted/70 px-2 py-0.5 font-mono text-xs text-muted-foreground">
                         {item.dateLabel}
                       </span>
                     )}
 
                     {!item.is_dir && item.size > 0 && (
-                      <span className="hidden md:inline-block w-16 text-right font-mono text-[10px] text-muted-foreground">
+                      <span className="hidden md:inline-block w-16 text-right font-mono text-xs text-muted-foreground">
                         {formatFileSize(item.size)}
                       </span>
                     )}
@@ -1086,10 +1086,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       <span className="absolute -left-[21px] sm:-left-[25px] flex h-3 w-3 items-center justify-center rounded-full bg-primary/20">
                         <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                       </span>
-                      <span className="text-xs font-semibold text-foreground">
+                      <span className="text-sm font-semibold text-foreground">
                         {groupLabel}
                       </span>
-                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
                         {groupItems.length}
                       </span>
                     </div>
@@ -1122,16 +1122,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                                   <div className="min-w-0 flex-1 space-y-1">
                                     <div className="flex flex-wrap items-center gap-1.5">
                                       {item.dateLabel && (
-                                        <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary">
+                                        <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-xs font-medium text-primary">
                                           {item.dateLabel}
                                         </span>
                                       )}
                                       {archiveDirs.length > 1 && rootTag && (
-                                        <span className="truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                        <span className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                                           {rootTag}
                                         </span>
                                       )}
-                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                      <span className="font-mono text-xs text-muted-foreground">
                                         {item.is_dir
                                           ? `${item.child_count} 个子项`
                                           : item.ext.toUpperCase() || "文件"}
@@ -1139,13 +1139,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                                     </div>
 
                                     <div
-                                      className="text-xs font-medium text-foreground"
+                                      className="text-sm font-medium text-foreground"
                                       title={item.name}
                                     >
                                       {item.displayTitle}
                                     </div>
 
-                                    <div className="truncate font-mono text-[10px] text-muted-foreground/80">
+                                    <div className="truncate font-mono text-xs text-muted-foreground/80">
                                       {item.relative_path}
                                     </div>
                                   </div>
@@ -1159,7 +1159,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                                             isExpanded ? null : item.path
                                           )
                                         }
-                                        className="inline-flex items-center gap-0.5 rounded-lg px-2 py-1 text-[10px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                                        className="inline-flex items-center gap-0.5 rounded-lg px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
                                       >
                                         {isExpanded ? (
                                           <ChevronDown className="h-3 w-3" />
@@ -1183,7 +1183,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                                 {isExpanded && (
                                   <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
                                     {expandedChildren.length === 0 ? (
-                                      <div className="text-[10px] text-muted-foreground">
+                                      <div className="text-xs text-muted-foreground">
                                         暂无可预览子文件
                                       </div>
                                     ) : (
@@ -1196,7 +1196,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                                             onClick={() =>
                                               openArchivePath(child.path)
                                             }
-                                            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                                            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
                                           >
                                             {child.is_dir ? (
                                               <Folder className="h-3 w-3 shrink-0 text-primary/80" />
@@ -1239,10 +1239,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 {groupedBrowse.map(([groupLabel, groupItems]) => (
                   <section key={groupLabel} className="space-y-2.5">
                     <div className="flex items-center gap-2 px-1">
-                      <span className="text-xs font-semibold text-foreground">
+                      <span className="text-sm font-semibold text-foreground">
                         {groupLabel}
                       </span>
-                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
                         {groupItems.length}
                       </span>
                     </div>
@@ -1270,18 +1270,18 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               <div className="min-w-0 flex-1 space-y-1">
                                 <div className="flex items-center gap-1.5">
                                   {item.dateLabel && (
-                                    <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary">
+                                    <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-xs font-medium text-primary">
                                       {item.dateLabel}
                                     </span>
                                   )}
                                   {archiveDirs.length > 1 && rootTag && (
-                                    <span className="truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                    <span className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                                       {rootTag}
                                     </span>
                                   )}
                                 </div>
                                 <div
-                                  className="truncate text-xs font-medium text-foreground"
+                                  className="truncate text-[13px] font-medium text-foreground"
                                   title={item.name}
                                 >
                                   {item.displayTitle}
@@ -1298,7 +1298,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               </button>
                             </div>
 
-                            <div className="mt-2.5 flex items-center justify-between text-[10px] text-muted-foreground">
+                            <div className="mt-2.5 flex items-center justify-between text-xs text-muted-foreground">
                               <span className="truncate font-mono opacity-80">
                                 {item.is_dir
                                   ? `${item.child_count} 个子项`
@@ -1327,7 +1327,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             {isExpanded && (
                               <div className="mt-2.5 space-y-1 border-t border-border/60 pt-2">
                                 {expandedChildren.length === 0 ? (
-                                  <div className="text-[10px] text-muted-foreground">
+                                  <div className="text-xs text-muted-foreground">
                                     暂无可预览子文件
                                   </div>
                                 ) : (
@@ -1336,7 +1336,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                                       key={child.path}
                                       type="button"
                                       onClick={() => openArchivePath(child.path)}
-                                      className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[11px] text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                                      className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
                                     >
                                       {child.is_dir ? (
                                         <Folder className="h-3 w-3 shrink-0 text-primary/80" />
@@ -1468,7 +1468,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 <span className="font-medium text-foreground">
                   已配置目录 ({archiveDirs.length})
                 </span>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   已索引 {allItems.length} 条记录
                 </span>
               </div>
@@ -1490,7 +1490,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                           <div className="truncate text-xs font-medium text-foreground">
                             {getFolderLabel(dir)}
                           </div>
-                          <div className="truncate font-mono text-[10px] text-muted-foreground">
+                          <div className="truncate font-mono text-xs text-muted-foreground">
                             {dir.path}
                           </div>
                         </div>

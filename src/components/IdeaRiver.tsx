@@ -981,10 +981,10 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
         )}
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs text-zinc-200">{idea.content}</p>
+          <p className="truncate text-[13px] text-zinc-200">{idea.content}</p>
         </div>
 
-        <span className="shrink-0 rounded-md bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-zinc-400">
+        <span className="shrink-0 rounded-md bg-white/[0.05] px-1.5 py-0.5 text-xs text-zinc-400">
           {idea.tag || "灵感"}
         </span>
       </div>
@@ -1042,7 +1042,7 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
           ) : (
             <List className="h-3.5 w-3.5 shrink-0 text-shiba-400" />
           )}
-          <span className="truncate text-xs font-medium text-zinc-200">
+          <span className="truncate text-[13px] font-medium text-zinc-200">
             {t("river.title")}
           </span>
         </div>
@@ -1309,10 +1309,10 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      <span className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] text-zinc-400">
+                      <span className="rounded bg-white/[0.05] px-1.5 py-0.5 text-xs text-zinc-400">
                         {idea.tag || "灵感"}
                       </span>
-                      <span className="text-[10px] text-zinc-500">
+                      <span className="text-xs text-zinc-500">
                         {new Date(idea.createdAt).toLocaleString("zh-CN", {
                           month: "2-digit",
                           day: "2-digit",
@@ -1337,7 +1337,7 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
 
               {/* Minimal Pagination Footer */}
               {totalPages > 1 && (
-                <div className="mt-1 flex items-center justify-center gap-2 text-[11px] text-zinc-500">
+                <div className="mt-1 flex items-center justify-center gap-2 text-xs text-zinc-500">
                   <button
                     onClick={() =>
                       setCurrentPage((p) => (p > 1 ? p - 1 : totalPages))
@@ -1582,7 +1582,7 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
           <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-100">
             {hoveredCard.idea.content}
           </p>
-          <div className="mt-2.5 flex items-center justify-between border-t border-white/[0.06] pt-2 text-[10px] text-zinc-500">
+          <div className="mt-2.5 flex items-center justify-between border-t border-white/[0.06] pt-2 text-xs text-zinc-500">
             <span>
               {hoveredCard.idea.tag || "灵感"} ·{" "}
               {new Date(hoveredCard.idea.createdAt).toLocaleString("zh-CN", {
@@ -1667,7 +1667,7 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
                 placeholder={t("river.tagPlaceholder")}
                 className="w-24"
               />
-              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <ImageIcon className="h-3.5 w-3.5" />
                 {t("river.pasteTip")}
               </span>
@@ -1806,7 +1806,7 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
                     </Button>
                   </div>
                 ) : (
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     {t("river.needColumnForIdea")}
                   </span>
                 )}
@@ -1901,7 +1901,7 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
                       <p className="line-clamp-2 text-xs text-foreground/85">
                         {item.content}
                       </p>
-                      <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                         <span
                           className={`rounded px-1.5 py-0.5 ${
                             item.reason === "used"

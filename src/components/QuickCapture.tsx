@@ -286,7 +286,7 @@ export const QuickCapture: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-zinc-500">
+          <span className="hidden sm:inline-flex items-center gap-1 text-xs text-zinc-500">
             <ImageIcon className="h-3 w-3" />
             Esc 关闭
           </span>

@@ -527,7 +527,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary pointer-events-none">
             <Layers className="h-3.5 w-3.5" />
           </div>
-          <span className="text-[13px] font-semibold tracking-tight text-foreground pointer-events-none">
+          <span className="text-[15px] font-semibold tracking-tight text-foreground pointer-events-none">
             ShibaPlan
           </span>
         </div>
@@ -536,7 +536,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
         <div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
           <button
             onClick={() => setView("projects")}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-all ${
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-[13px] font-medium transition-all ${
               view === "projects"
                 ? "bg-card text-foreground shadow-card-rest"
                 : "text-muted-foreground hover:text-foreground"
@@ -548,7 +548,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
 
           <button
             onClick={() => setView("kanban")}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-all ${
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-[13px] font-medium transition-all ${
               view === "kanban"
                 ? "bg-card text-foreground shadow-card-rest"
                 : "text-muted-foreground hover:text-foreground"
@@ -560,7 +560,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
 
           <button
             onClick={() => setView("calendar")}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-all ${
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-[13px] font-medium transition-all ${
               view === "calendar"
                 ? "bg-card text-foreground shadow-card-rest"
                 : "text-muted-foreground hover:text-foreground"
@@ -705,7 +705,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
       )}
 
       {/* Unified Bottom Status Bar */}
-      <footer className="flex h-7 shrink-0 items-center justify-between border-t border-border/60 bg-background px-3 sm:px-5 text-[11px] text-muted-foreground select-none">
+      <footer className="flex h-7 shrink-0 items-center justify-between border-t border-border/60 bg-background px-3 sm:px-5 text-xs text-muted-foreground select-none">
         <div className="flex items-center gap-2.5 overflow-hidden">
           {statusNotice ? (
             <span className="truncate font-medium text-primary">
@@ -739,7 +739,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
         <div className="flex shrink-0 items-center gap-3">
           <button
             onClick={() => setCommandOpen(true)}
-            className="hidden lg:inline font-mono text-[10px] opacity-75 hover:opacity-100 hover:text-foreground"
+            className="hidden lg:inline font-mono text-xs opacity-75 hover:opacity-100 hover:text-foreground"
             title="打开命令面板"
           >
             Ctrl+K · Ctrl+Z
@@ -780,7 +780,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                 runUpdateCheck(false);
               }
             }}
-            className={`flex items-center gap-1 font-mono text-[10px] transition ${
+            className={`flex items-center gap-1 font-mono text-xs transition ${
               updateInfo?.hasUpdate
                 ? "text-primary font-medium hover:opacity-80"
                 : "text-muted-foreground hover:text-foreground"
@@ -865,7 +865,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                   href={updateInfo.releaseUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-secondary px-2.5 text-[11px] font-medium text-secondary-foreground hover:bg-accent"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-secondary px-2.5 text-xs font-medium text-secondary-foreground hover:bg-accent"
                 >
                   <ExternalLink className="h-3 w-3" />
                   查看发布页
@@ -876,7 +876,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                   href={updateInfo.downloadUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-primary px-3 text-[11px] font-medium text-primary-foreground hover:opacity-90"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90"
                 >
                   <Download className="h-3 w-3" />
                   下载安装包

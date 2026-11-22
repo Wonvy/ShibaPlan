@@ -329,7 +329,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
           {/* Left Tab Navigation (Desktop) / Top Tab Strip (Mobile) */}
           <aside className="shrink-0 sm:w-44 bg-muted/40 p-3 sm:p-4 flex flex-col gap-3">
             <DialogHeader className="px-1.5 pt-0.5 text-left">
-              <DialogTitle className="text-sm font-semibold">
+              <DialogTitle className="text-base font-semibold">
                 {t("settings.title")}
               </DialogTitle>
             </DialogHeader>
@@ -342,7 +342,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`relative flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-xs transition-colors ${
+                    className={`relative flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${
                       active
                         ? "bg-primary text-primary-foreground font-medium shadow-sm"
                         : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -362,7 +362,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
               })}
             </nav>
 
-            <div className="mt-auto hidden sm:block px-2 pt-2 text-[10px] font-mono text-muted-foreground/75">
+            <div className="mt-auto hidden sm:block px-2 pt-2 text-xs font-mono text-muted-foreground/75">
               ShibaPlan v{appVersion}
             </div>
           </aside>
@@ -373,10 +373,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
             {activeTab === "appearance" && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">
+                  <h3 className="text-[15px] font-semibold text-foreground">
                     外观与主题
                   </h3>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     切换背景风格、自定义全局强调色与纸张纹理
                   </p>
                 </div>
@@ -426,7 +426,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                             {t(`theme.${item.id}`)}
                           </div>
                           <div
-                            className={`text-[10px] ${
+                            className={`text-xs ${
                               active
                                 ? "text-primary-foreground/80"
                                 : "text-muted-foreground"
@@ -449,7 +449,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       <div className="text-xs font-medium text-foreground">
                         主题强调色
                       </div>
-                      <div className="text-[10px] text-muted-foreground">
+                      <div className="text-xs text-muted-foreground">
                         选择预设色板或自由拾取任意 HEX 颜色，实时生效
                       </div>
                     </div>
@@ -459,7 +459,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={() => setAccentColor("")}
-                        className="h-7 px-2 text-[11px]"
+                        className="h-7 px-2 text-xs"
                       >
                         <RotateCcw className="h-3 w-3" />
                         恢复默认
@@ -481,7 +481,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                           key={preset.id}
                           type="button"
                           onClick={() => setAccentColor(preset.hex)}
-                          className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] transition-colors ${
+                          className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs transition-colors ${
                             isSelected
                               ? "bg-accent text-foreground font-medium shadow-sm"
                               : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -537,7 +537,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                         className="h-8 font-mono text-xs"
                       />
                     </div>
-                    <span className="hidden sm:inline text-[10px] text-muted-foreground pr-1">
+                    <span className="hidden sm:inline text-xs text-muted-foreground pr-1">
                       自定义取色器
                     </span>
                   </div>
@@ -551,7 +551,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     <div className="text-xs font-medium text-foreground">
                       细微纸张颗粒质感
                     </div>
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       在深色、浅色与纸张主题下叠加柔和哑光纤维颗粒
                     </div>
                   </div>
@@ -578,10 +578,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
             {activeTab === "ai" && (
               <form onSubmit={handleSaveAI} className="space-y-5">
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">
+                  <h3 className="text-[15px] font-semibold text-foreground">
                     AI 平台与模型配置
                   </h3>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     支持 OpenAI 兼容协议，支持一键获取服务端可用模型列表
                   </p>
                 </div>
@@ -606,7 +606,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                             setModelFetchError(null);
                             setAiTestMsg(null);
                           }}
-                          className={`rounded-lg px-2.5 py-1.5 text-[11px] transition-colors ${
+                          className={`rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
                             isSelected
                               ? "bg-primary text-primary-foreground font-medium shadow-sm"
                               : "bg-secondary text-secondary-foreground hover:bg-accent"
@@ -622,7 +622,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                 {/* Base URL & API Key */}
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <label className="text-[11px] font-medium text-muted-foreground">
+                    <label className="text-xs font-medium text-muted-foreground">
                       API Base URL
                     </label>
                     <Input
@@ -635,7 +635,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[11px] font-medium text-muted-foreground">
+                    <label className="text-xs font-medium text-muted-foreground">
                       API Key（本地 Ollama 可留空）
                     </label>
                     <div className="relative">
@@ -664,11 +664,11 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                   {/* Model Input + Auto Fetch Models */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-medium text-muted-foreground">
+                      <label className="text-xs font-medium text-muted-foreground">
                         模型名称
                       </label>
                       {fetchedModels.length > 0 && (
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           已加载 {fetchedModels.length} 个模型
                         </span>
                       )}
@@ -700,7 +700,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     </div>
 
                     {modelFetchError && (
-                      <div className="rounded-lg bg-destructive/12 px-3 py-2 text-[11px] text-destructive">
+                      <div className="rounded-lg bg-destructive/12 px-3 py-2 text-xs text-destructive">
                         {modelFetchError}
                       </div>
                     )}
@@ -716,13 +716,13 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                               value={modelSearch}
                               onChange={(e) => setModelSearch(e.target.value)}
                               placeholder="筛选模型名称..."
-                              className="h-7 pl-7 text-[11px]"
+                              className="h-7 pl-7 text-xs"
                             />
                           </div>
                         )}
                         <div className="max-h-36 overflow-y-auto flex flex-wrap gap-1.5 pr-0.5">
                           {filteredModels.length === 0 ? (
-                            <span className="py-2 text-[11px] text-muted-foreground">
+                            <span className="py-2 text-xs text-muted-foreground">
                               没有匹配的模型
                             </span>
                           ) : (
@@ -733,7 +733,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                                   key={modelId}
                                   type="button"
                                   onClick={() => setAiModel(modelId)}
-                                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[11px] transition-colors ${
+                                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs transition-colors ${
                                     active
                                       ? "bg-primary text-primary-foreground font-medium"
                                       : "bg-card text-foreground/85 hover:bg-accent"
@@ -770,7 +770,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     </Button>
                     {aiTestMsg && (
                       <span
-                        className={`truncate text-[11px] ${
+                        className={`truncate text-xs ${
                           aiTestMsg.ok ? "text-emerald-500" : "text-destructive"
                         }`}
                       >
@@ -798,10 +798,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
             {activeTab === "data" && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">
+                  <h3 className="text-[15px] font-semibold text-foreground">
                     语言与本地数据
                   </h3>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     管理多语言包、自定义本地同步目录以及整库备份恢复
                   </p>
                 </div>
@@ -954,10 +954,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className="text-[15px] font-semibold text-foreground">
                       运行与错误日志
                     </h3>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       自动记录前端异常、未捕获 Promise 错误与 Rust 崩溃信息
                     </p>
                   </div>
@@ -965,7 +965,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     <button
                       type="button"
                       onClick={() => setErrorsOnly(false)}
-                      className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+                      className={`rounded-md px-2 py-0.5 text-xs transition-colors ${
                         !errorsOnly
                           ? "bg-card text-foreground font-medium shadow-card-rest"
                           : "text-muted-foreground hover:text-foreground"
@@ -976,7 +976,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     <button
                       type="button"
                       onClick={() => setErrorsOnly(true)}
-                      className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+                      className={`rounded-md px-2 py-0.5 text-xs transition-colors ${
                         errorsOnly
                           ? "bg-card text-foreground font-medium shadow-card-rest"
                           : "text-muted-foreground hover:text-foreground"
@@ -988,7 +988,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                 </div>
 
                 {logPath && (
-                  <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/50 px-3 py-2 text-[11px]">
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/50 px-3 py-2 text-xs">
                     <span className="truncate font-mono text-muted-foreground select-text">
                       {logPath}
                     </span>
@@ -998,7 +998,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                         const dir = logPath.replace(/[\\/][^\\/]+$/, "");
                         openPathInOs(dir).catch(() => {});
                       }}
-                      className="shrink-0 inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[10px] text-secondary-foreground hover:bg-accent"
+                      className="shrink-0 inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground hover:bg-accent"
                     >
                       <FolderOpen className="h-3 w-3" />
                       打开目录
@@ -1006,7 +1006,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                   </div>
                 )}
 
-                <div className="h-64 overflow-y-auto rounded-xl bg-muted/50 p-3 font-mono text-[11px] leading-relaxed text-foreground/85 select-text">
+                <div className="h-64 overflow-y-auto rounded-xl bg-muted/50 p-3 font-mono text-xs leading-relaxed text-foreground/85 select-text">
                   {logLoading ? (
                     <div className="flex h-full items-center justify-center gap-2 text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1096,10 +1096,10 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
             {activeTab === "about" && (
               <div className="space-y-5">
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">
+                  <h3 className="text-[15px] font-semibold text-foreground">
                     关于与在线更新
                   </h3>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     ShibaPlan 桌面端与局域网跨端工作台
                   </p>
                 </div>
@@ -1138,7 +1138,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       <Button
                         type="button"
                         size="sm"
-                        className="h-7 px-2.5 text-[11px]"
+                        className="h-7 px-2.5 text-xs"
                         onClick={() => {
                           onOpenChange(false);
                           onOpenUpdateDialog();
@@ -1149,7 +1149,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       </Button>
                     </div>
                   ) : (
-                    <div className="text-[11px] text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       已连接 GitHub Releases，支持一键检测最新版本与下载安装包。
                     </div>
                   )}

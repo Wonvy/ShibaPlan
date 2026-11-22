@@ -181,7 +181,7 @@ export const LanShareDialog: React.FC<LanShareDialogProps> = ({
                 readOnly={inTauri}
                 onChange={(e) => setBrowserUrl(e.target.value)}
                 placeholder="http://192.168.x.x:1420"
-                className="font-mono text-[11px]"
+                className="font-mono text-xs"
               />
               <Button
                 type="button"
@@ -200,7 +200,7 @@ export const LanShareDialog: React.FC<LanShareDialogProps> = ({
             </div>
 
             {!inTauri && activeUrl.includes("localhost") && (
-              <p className="mt-2 text-center text-[10px] text-muted-foreground">
+              <p className="mt-2 text-center text-xs text-muted-foreground">
                 提示：当前为浏览器预览模式，手机扫码请将 localhost 改为电脑的局域网 IP（或在桌面端打开自动识别）
               </p>
             )}

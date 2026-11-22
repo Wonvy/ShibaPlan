@@ -250,7 +250,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             placeholder="搜索看板任务、文件夹、灵感、回收站或快捷命令..."
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
           />
-          <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             ESC
           </kbd>
         </div>
@@ -283,7 +283,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                         {item.title}
                       </div>
                       {item.subtitle && (
-                        <div className="truncate text-[10px] text-muted-foreground">
+                        <div className="truncate text-xs text-muted-foreground">
                           {item.subtitle}
                         </div>
                       )}

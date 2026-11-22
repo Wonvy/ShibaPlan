@@ -62,12 +62,12 @@ export class ErrorBoundary extends React.Component<
               </h2>
             </div>
 
-            <div className="max-h-48 overflow-y-auto rounded-xl bg-muted/60 p-3 font-mono text-[11px] leading-relaxed text-foreground/85 select-text">
+            <div className="max-h-48 overflow-y-auto rounded-xl bg-muted/60 p-3 font-mono text-xs leading-relaxed text-foreground/85 select-text">
               <div className="font-semibold text-destructive">
                 {this.state.errorMessage}
               </div>
               {this.state.errorStack && (
-                <pre className="mt-2 whitespace-pre-wrap text-[10px] text-muted-foreground">
+                <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
                   {this.state.errorStack}
                 </pre>
               )}

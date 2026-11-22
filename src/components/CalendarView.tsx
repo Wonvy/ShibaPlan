@@ -392,7 +392,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       {/* Minimal Calendar Header */}
       <div className="mb-2.5 flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-zinc-100">
+          <h2 className="text-base font-semibold text-zinc-100">
             {t("calendar.yearMonth", {
               year: cursor.getFullYear(),
               month: cursor.getMonth() + 1,
@@ -429,7 +429,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         {weekdays.map((day) => (
           <div
             key={day}
-            className="px-1 text-center text-[11px] font-medium text-zinc-500"
+            className="px-1 text-center text-xs font-medium text-zinc-500"
           >
             {t("calendar.weekdayPrefix")}
             {day}
@@ -479,7 +479,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             >
               <div className="flex items-center justify-between">
                 <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-md text-[11px] sm:text-xs font-medium ${
+                  className={`flex h-5 w-5 items-center justify-center rounded-md text-xs sm:text-xs font-medium ${
                     isToday
                       ? "bg-shiba-500 text-zinc-950 font-semibold"
                       : "text-zinc-300"
@@ -489,7 +489,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 </span>
 
                 {pendingDayCount > 0 && (
-                  <span className="hidden sm:inline text-[10px] text-zinc-500">
+                  <span className="hidden sm:inline text-xs text-zinc-500">
                     {pendingDayCount}
                   </span>
                 )}
@@ -528,7 +528,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         e.dataTransfer.effectAllowed = "move";
                         setHoveredDate(null);
                       }}
-                      className={`flex cursor-grab active:cursor-grabbing items-center gap-1.5 rounded bg-white/[0.04] px-1.5 py-0.5 text-[11px] ${
+                      className={`flex cursor-grab active:cursor-grabbing items-center gap-1.5 rounded bg-white/[0.04] px-1.5 py-0.5 text-xs ${
                         task.status === "done"
                           ? "text-zinc-500 line-through opacity-60"
                           : "text-zinc-200"
@@ -539,7 +539,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         style={{ backgroundColor: col?.color ?? "#94a3b8" }}
                       />
                       {task.startTime && (
-                        <span className="shrink-0 font-mono text-[10px] text-zinc-400">
+                        <span className="shrink-0 font-mono text-xs text-zinc-400">
                           {task.startTime}
                         </span>
                       )}
@@ -548,7 +548,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   );
                 })}
                 {dayTasks.length > 3 && (
-                  <div className="px-1 text-[10px] text-zinc-500">
+                  <div className="px-1 text-xs text-zinc-500">
                     +{dayTasks.length - 3} 更多
                   </div>
                 )}
@@ -569,7 +569,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               {hoveredDate}
               {hoveredDate === todayKey ? " · 今天" : ""}
             </span>
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-xs text-zinc-500">
               {hoveredTasks.length} 项任务
             </span>
           </div>
@@ -606,7 +606,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2 pl-3 text-[10px] text-zinc-500">
+                    <div className="flex items-center gap-2 pl-3 text-xs text-zinc-500">
                       <span>{col?.title ?? "看板"}</span>
                       {task.startTime && (
                         <span className="flex items-center gap-0.5 font-mono text-shiba-400/90">
@@ -679,7 +679,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         >
                           {task.title}
                         </div>
-                        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <span
                               className="h-1.5 w-1.5 rounded-full"
@@ -741,7 +741,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               </div>
             </form>
           ) : (
-            <p className="mt-4 border-t border-border/60 pt-3 text-center text-[11px] text-muted-foreground">
+            <p className="mt-4 border-t border-border/60 pt-3 text-center text-xs text-muted-foreground">
               {t("calendar.needColumnHint")}
             </p>
           )}
