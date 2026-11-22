@@ -1087,60 +1087,64 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Top Everything-style Search & Action Bar */}
-      <div className="flex flex-wrap items-center gap-2 px-3 sm:px-5 py-2.5 bg-surface/60 shrink-0">
-        {/* Everything Search Input */}
-        <div className="relative flex-1 min-w-[220px]">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="快捷搜索项目与文件（空格=与  |=或  !=排除  ext:pdf  folder:  file:）"
-            className="h-9 w-full rounded-lg bg-card pl-8 pr-20 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring shadow-card-rest"
-          />
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-            {query && (
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-2.5 bg-surface/60 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          {/* Compact Everything Search Input */}
+          <div className="relative w-64 sm:w-72 md:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索项目或文件（空格 / | / ! / ext:psd）"
+              title="支持 Everything 语法：空格=与，|=或，!=排除，ext:pdf，folder:，file:"
+              className="h-9 w-full rounded-lg bg-card pl-8 pr-16 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring shadow-card-rest"
+            />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  title="清空搜索"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                {matchedItems.length}
+              </span>
+            </div>
+          </div>
+
+          {/* Scope Segmented Pills */}
+          <div className="flex items-center rounded-lg bg-muted/70 p-0.5">
+            {(
+              [
+                { id: "projects", label: "项目" },
+                { id: "all", label: "全部" },
+                { id: "files", label: "文件" },
+              ] as const
+            ).map((s) => (
               <button
+                key={s.id}
                 type="button"
-                onClick={() => setQuery("")}
-                className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                title="清空搜索"
+                onClick={() => setScope(s.id)}
+                className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                  effectiveScope === s.id
+                    ? "bg-card text-foreground font-medium shadow-card-rest"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <X className="h-3.5 w-3.5" />
+                {s.label}
               </button>
-            )}
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-              {matchedItems.length}
-            </span>
+            ))}
           </div>
         </div>
 
-        {/* Scope Segmented Pills */}
-        <div className="flex items-center rounded-lg bg-muted/70 p-0.5">
-          {(
-            [
-              { id: "projects", label: "项目" },
-              { id: "all", label: "全部" },
-              { id: "files", label: "文件" },
-            ] as const
-          ).map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setScope(s.id)}
-              className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
-                effectiveScope === s.id
-                  ? "bg-card text-foreground font-medium shadow-card-rest"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        {/* View Mode Switcher: Grid / Timeline / List */}
+        <div className="flex flex-wrap items-center gap-2">
+        {/* View Mode Switcher: Grid / Timeline / List / Stats */}
         <div
           className="flex items-center rounded-lg bg-muted/70 p-0.5"
           title="切换项目视图"
@@ -1241,6 +1245,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           >
             <PanelRight className="h-3.5 w-3.5" />
           </Button>
+        </div>
         </div>
       </div>
 
