@@ -53,6 +53,9 @@ type SearchScope = "projects" | "all" | "files";
 type ProjectViewMode = "grid" | "timeline" | "list" | "stats";
 
 const VIEW_MODE_STORAGE_KEY = "shibaplan_projects_view_mode_v1";
+const LEFT_WIDTH_STORAGE_KEY = "shibaplan_projects_left_w_v1";
+const RIGHT_WIDTH_STORAGE_KEY = "shibaplan_projects_right_w_v1";
+const EXPLORER_VIEW_STORAGE_KEY = "shibaplan_projects_explorer_view_v1";
 
 function formatFileSize(bytes: number): string {
   if (bytes <= 0) return "";
@@ -298,6 +301,97 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
   // Right-side Embedded Project Explorer + Seer Spacebar Preview state
   const [explorerOpen, setExplorerOpen] = useState(true);
+  const [explorerViewMode, setExplorerViewMode] = useState<"list" | "icons">(
+    () => {
+      try {
+        return localStorage.getItem(EXPLORER_VIEW_STORAGE_KEY) === "icons"
+          ? "icons"
+          : "list";
+      } catch {
+        return "list";
+      }
+    }
+  );
+  const [leftWidth, setLeftWidth] = useState<number>(() => {
+    try {
+      const n = Number(localStorage.getItem(LEFT_WIDTH_STORAGE_KEY));
+      if (n >= 140 && n <= 340) return n;
+    } catch {
+      // ignore
+    }
+    return 184;
+  });
+  const [rightWidth, setRightWidth] = useState<number>(() => {
+    try {
+      const n = Number(localStorage.getItem(RIGHT_WIDTH_STORAGE_KEY));
+      if (n >= 240 && n <= 600) return n;
+    } catch {
+      // ignore
+    }
+    return 320;
+  });
+  const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(
+    null
+  );
+
+  const changeExplorerViewMode = (mode: "list" | "icons") => {
+    setExplorerViewMode(mode);
+    try {
+      localStorage.setItem(EXPLORER_VIEW_STORAGE_KEY, mode);
+    } catch {
+      // ignore
+    }
+  };
+
+  const startResizeLeft = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = leftWidth;
+    setResizingPane("left");
+    let latest = startW;
+
+    const onMove = (ev: MouseEvent) => {
+      latest = Math.max(140, Math.min(340, startW + (ev.clientX - startX)));
+      setLeftWidth(latest);
+    };
+    const onUp = () => {
+      setResizingPane(null);
+      try {
+        localStorage.setItem(LEFT_WIDTH_STORAGE_KEY, String(latest));
+      } catch {
+        // ignore
+      }
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const startResizeRight = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = rightWidth;
+    setResizingPane("right");
+    let latest = startW;
+
+    const onMove = (ev: MouseEvent) => {
+      latest = Math.max(240, Math.min(600, startW + (startX - ev.clientX)));
+      setRightWidth(latest);
+    };
+    const onUp = () => {
+      setResizingPane(null);
+      try {
+        localStorage.setItem(RIGHT_WIDTH_STORAGE_KEY, String(latest));
+      } catch {
+        // ignore
+      }
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
   const [selectedProject, setSelectedProject] =
     useState<IndexedArchiveItem | null>(null);
   const [explorerPath, setExplorerPath] = useState<string>("");
@@ -1134,7 +1228,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       ) : (
         <div className="flex flex-1 overflow-hidden">
           {/* Left Year / Month & Root Rail */}
-          <aside className="hidden sm:flex w-44 shrink-0 flex-col overflow-y-auto bg-surface/40 p-2.5 space-y-4">
+          <aside
+            style={{ width: leftWidth }}
+            className="hidden sm:flex shrink-0 flex-col overflow-y-auto bg-surface/40 p-2.5 space-y-4"
+          >
             {/* Multi-Root Filter */}
             {archiveDirs.length > 1 && (
               <div className="space-y-1">
@@ -1300,8 +1397,19 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             </div>
           </aside>
 
+          {/* Left-Middle Resize Handle */}
+          <div
+            onMouseDown={startResizeLeft}
+            title="拖动调整左侧栏宽度"
+            className={`hidden sm:block w-1 shrink-0 cursor-col-resize transition-colors ${
+              resizingPane === "left"
+                ? "bg-primary/60"
+                : "bg-border/40 hover:bg-primary/40"
+            }`}
+          />
+
           {/* Main Project Grid / Everything Results List */}
-          <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-3.5 space-y-4">
+          <div className="flex-1 min-w-0 overflow-y-auto px-3 sm:px-5 py-3.5 space-y-4">
             {indexError && (
               <div className="rounded-xl bg-destructive/12 px-3.5 py-2.5 text-xs text-destructive">
                 {indexError}
@@ -1948,156 +2056,265 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
           {/* Right Column: Embedded Project File Explorer + Seer Spacebar Preview */}
           {explorerOpen && (
-            <aside className="hidden lg:flex w-72 xl:w-80 shrink-0 flex-col border-l border-border/60 bg-surface/40 overflow-hidden">
-              {/* Explorer Header */}
-              <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5 shrink-0">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-semibold text-foreground">
-                    {selectedProject ? selectedProject.displayTitle : "项目资源管理器"}
+            <>
+              {/* Middle-Right Resize Handle */}
+              <div
+                onMouseDown={startResizeRight}
+                title="拖动调整右侧资源管理器宽度"
+                className={`hidden lg:block w-1 shrink-0 cursor-col-resize transition-colors ${
+                  resizingPane === "right"
+                    ? "bg-primary/60"
+                    : "bg-border/40 hover:bg-primary/40"
+                }`}
+              />
+              <aside
+                style={{ width: rightWidth }}
+                className="hidden lg:flex shrink-0 flex-col bg-surface/40 overflow-hidden"
+              >
+                {/* Explorer Header */}
+                <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5 shrink-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-semibold text-foreground">
+                      {selectedProject
+                        ? selectedProject.displayTitle
+                        : "项目资源管理器"}
+                    </div>
+                    <div
+                      className="truncate font-mono text-xs text-muted-foreground"
+                      title={explorerPath || ""}
+                    >
+                      {selectedProject
+                        ? explorerPath.replace(selectedProject.root_path, "") ||
+                          "\\"
+                        : "点击左侧项目查看内部文件"}
+                    </div>
                   </div>
-                  <div
-                    className="truncate font-mono text-xs text-muted-foreground"
-                    title={explorerPath || ""}
-                  >
-                    {selectedProject
-                      ? explorerPath.replace(selectedProject.root_path, "") || "\\"
-                      : "点击左侧项目查看内部文件"}
+
+                  <div className="flex shrink-0 items-center gap-1">
+                    {/* List / Icons View Switcher */}
+                    <div className="flex items-center rounded-md bg-muted/70 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => changeExplorerViewMode("list")}
+                        title="列表视图"
+                        className={`rounded p-1 transition-colors ${
+                          explorerViewMode === "list"
+                            ? "bg-card text-foreground shadow-card-rest"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <List className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => changeExplorerViewMode("icons")}
+                        title="图标视图"
+                        className={`rounded p-1 transition-colors ${
+                          explorerViewMode === "icons"
+                            ? "bg-card text-foreground shadow-card-rest"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <LayoutGrid className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {selectedProject && (
+                      <div className="flex items-center gap-0.5">
+                        {explorerPath.toLowerCase() !==
+                          (selectedProject.is_dir
+                            ? selectedProject.path
+                            : selectedProject.path.replace(/[\\/][^\\/]+$/, "")
+                          ).toLowerCase() && (
+                          <button
+                            type="button"
+                            onClick={handleExplorerGoUp}
+                            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                            title="返回上级目录 (Backspace)"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => loadExplorerDir(explorerPath)}
+                          className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                          title="刷新目录"
+                        >
+                          <RefreshCw
+                            className={`h-3.5 w-3.5 ${
+                              explorerLoading ? "animate-spin" : ""
+                            }`}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openArchivePath(explorerPath)}
+                          className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                          title="在系统资源管理器中打开"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {selectedProject && (
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    {explorerPath.toLowerCase() !==
-                      (selectedProject.is_dir
-                        ? selectedProject.path
-                        : selectedProject.path.replace(/[\\/][^\\/]+$/, "")
-                      ).toLowerCase() && (
-                      <button
-                        type="button"
-                        onClick={handleExplorerGoUp}
-                        className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                        title="返回上级目录 (Backspace)"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => loadExplorerDir(explorerPath)}
-                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                      title="刷新目录"
+                {/* Explorer Entries (List or Icons Grid) */}
+                <div className="flex-1 overflow-y-auto p-2">
+                  {!selectedProject ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
+                      <FolderOpen className="h-6 w-6 opacity-35" />
+                      <span>点击中间任意项目即可在此浏览文件条目</span>
+                      <span>选中文件后按空格键支持 Seer 预览</span>
+                    </div>
+                  ) : explorerLoading ? (
+                    <div className="flex h-32 items-center justify-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                      正在读取文件...
+                    </div>
+                  ) : explorerEntries.length === 0 ? (
+                    <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
+                      此文件夹为空
+                    </div>
+                  ) : explorerViewMode === "icons" ? (
+                    <div
+                      style={{
+                        gridTemplateColumns:
+                          "repeat(auto-fill, minmax(96px, 1fr))",
+                      }}
+                      className="grid gap-2"
                     >
-                      <RefreshCw
-                        className={`h-3.5 w-3.5 ${
-                          explorerLoading ? "animate-spin" : ""
-                        }`}
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openArchivePath(explorerPath)}
-                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                      title="在系统资源管理器中打开"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Explorer Entries List */}
-              <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-                {!selectedProject ? (
-                  <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
-                    <FolderOpen className="h-6 w-6 opacity-35" />
-                    <span>点击中间任意项目即可在此浏览文件条目</span>
-                    <span>选中文件后按空格键支持 Seer 预览</span>
-                  </div>
-                ) : explorerLoading ? (
-                  <div className="flex h-32 items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                    正在读取文件...
-                  </div>
-                ) : explorerEntries.length === 0 ? (
-                  <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
-                    此文件夹为空
-                  </div>
-                ) : (
-                  explorerEntries.map((entry) => {
-                    const active = selectedExplorerPath === entry.path;
-                    return (
-                      <div
-                        key={entry.path}
-                        onClick={() => setSelectedExplorerPath(entry.path)}
-                        onDoubleClick={() => {
-                          if (entry.is_dir) {
-                            setExplorerPath(entry.path);
-                            loadExplorerDir(entry.path);
-                          } else {
-                            openArchivePath(entry.path);
-                          }
-                        }}
-                        className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors cursor-pointer ${
-                          active
-                            ? "bg-primary/15 text-foreground font-medium"
-                            : "text-foreground/85 hover:bg-accent"
-                        }`}
-                      >
-                        {entry.is_dir ? (
-                          <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
-                        ) : isPreviewableImageExt(entry.ext) ? (
-                          <ImageIcon className="h-3.5 w-3.5 shrink-0 text-primary/80" />
-                        ) : (
-                          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        )}
-
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate" title={entry.name}>
-                            {entry.name}
-                          </div>
-                          {!entry.is_dir && entry.size > 0 && (
-                            <div className="font-mono text-xs text-muted-foreground">
-                              {formatFileSize(entry.size)}
+                      {explorerEntries.map((entry) => {
+                        const active = selectedExplorerPath === entry.path;
+                        const isImg =
+                          !entry.is_dir && isPreviewableImageExt(entry.ext);
+                        return (
+                          <div
+                            key={entry.path}
+                            onClick={() => setSelectedExplorerPath(entry.path)}
+                            onDoubleClick={() => {
+                              if (entry.is_dir) {
+                                setExplorerPath(entry.path);
+                                loadExplorerDir(entry.path);
+                              } else {
+                                openArchivePath(entry.path);
+                              }
+                            }}
+                            title={entry.name}
+                            className={`group relative flex flex-col items-center gap-1.5 rounded-xl p-2 text-center transition-all cursor-pointer ${
+                              active
+                                ? "bg-primary/15 ring-1 ring-primary/50"
+                                : "bg-card/60 hover:bg-card shadow-card-rest"
+                            }`}
+                          >
+                            <div className="flex h-16 w-full items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1">
+                              {isImg ? (
+                                <ProjectThumbnail
+                                  thumbPath={entry.path}
+                                  alt={entry.name}
+                                  variant="compact"
+                                />
+                              ) : entry.is_dir ? (
+                                <Folder className="h-8 w-8 text-primary" />
+                              ) : (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <FileText className="h-6 w-6 text-muted-foreground" />
+                                  {entry.ext && (
+                                    <span className="rounded bg-muted px-1 font-mono text-xs font-semibold uppercase text-foreground/80">
+                                      {entry.ext.slice(0, 5)}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
 
-                        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedExplorerPath(entry.path);
-                              handleTriggerPreview(entry);
+                            <div className="w-full line-clamp-2 break-all text-xs leading-tight text-foreground">
+                              {entry.name}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {explorerEntries.map((entry) => {
+                        const active = selectedExplorerPath === entry.path;
+                        return (
+                          <div
+                            key={entry.path}
+                            onClick={() => setSelectedExplorerPath(entry.path)}
+                            onDoubleClick={() => {
+                              if (entry.is_dir) {
+                                setExplorerPath(entry.path);
+                                loadExplorerDir(entry.path);
+                              } else {
+                                openArchivePath(entry.path);
+                              }
                             }}
-                            className="rounded p-1 text-muted-foreground hover:bg-card hover:text-foreground"
-                            title="Seer / 快速预览 (Space)"
+                            className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors cursor-pointer ${
+                              active
+                                ? "bg-primary/15 text-foreground font-medium"
+                                : "text-foreground/85 hover:bg-accent"
+                            }`}
                           >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openArchivePath(entry.path);
-                            }}
-                            className="rounded p-1 text-muted-foreground hover:bg-card hover:text-foreground"
-                            title="打开"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                            {entry.is_dir ? (
+                              <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
+                            ) : isPreviewableImageExt(entry.ext) ? (
+                              <ImageIcon className="h-3.5 w-3.5 shrink-0 text-primary/80" />
+                            ) : (
+                              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            )}
 
-              {/* Explorer Footer Hint */}
-              <div className="border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground shrink-0">
-                空格键 Seer / 快速预览 · 双击进入或打开
-              </div>
-            </aside>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate" title={entry.name}>
+                                {entry.name}
+                              </div>
+                              {!entry.is_dir && entry.size > 0 && (
+                                <div className="font-mono text-xs text-muted-foreground">
+                                  {formatFileSize(entry.size)}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedExplorerPath(entry.path);
+                                  handleTriggerPreview(entry);
+                                }}
+                                className="rounded p-1 text-muted-foreground hover:bg-card hover:text-foreground"
+                                title="Seer / 快速预览 (Space)"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openArchivePath(entry.path);
+                                }}
+                                className="rounded p-1 text-muted-foreground hover:bg-card hover:text-foreground"
+                                title="打开"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Explorer Footer Hint */}
+                <div className="border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground shrink-0">
+                  空格键 Seer / 快速预览 · 双击进入或打开
+                </div>
+              </aside>
+            </>
           )}
         </div>
       )}
