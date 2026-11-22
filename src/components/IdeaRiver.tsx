@@ -6,6 +6,12 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Cloud,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
   Copy,
   FileDown,
   Gauge,
@@ -14,12 +20,14 @@ import {
   Image as ImageIcon,
   List,
   Loader2,
+  Moon,
   Pause,
   Pencil,
   Play,
   Plus,
   RotateCcw,
   Sparkles,
+  Sun,
   Trash2,
   Wand2,
   Waves,
@@ -30,10 +38,19 @@ import {
   COLUMN_COLORS,
   EFFORT_MINUTES,
   IdeaItem,
+  IdeaWeather,
   TaskItem,
+  ThemeMode,
   TrashedIdeaItem,
+  WeatherKind,
   WorkspaceData,
 } from "../types";
+import {
+  fetchCurrentWeather,
+  getCachedWeatherSync,
+  getHourAtmosphere,
+  getWeatherClassName,
+} from "../lib/atmosphere";
 import {
   exportIdeaToMarkdown,
   generateAISpec,
@@ -87,6 +104,37 @@ function computeCardWidth(idea: IdeaItem): number {
   return Math.round(Math.max(176, Math.min(390, base + jitter)));
 }
 
+const renderWeatherIcon = (
+  kind?: WeatherKind,
+  isNight?: boolean,
+  className = "h-3.5 w-3.5 shrink-0"
+) => {
+  switch (kind) {
+    case "rain":
+      return <CloudRain className={className} />;
+    case "storm":
+      return <CloudLightning className={className} />;
+    case "snow":
+      return <CloudSnow className={className} />;
+    case "fog":
+      return <CloudFog className={className} />;
+    case "cloudy":
+      return <Cloud className={className} />;
+    case "clear":
+      return isNight ? (
+        <Moon className={className} />
+      ) : (
+        <Sun className={className} />
+      );
+    default:
+      return isNight ? (
+        <Moon className={className} />
+      ) : (
+        <Sun className={className} />
+      );
+  }
+};
+
 export const IdeaRiver: React.FC<IdeaRiverProps> = ({
   workspace,
   onUpdate,
@@ -94,6 +142,31 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
   const { t } = useI18n();
   // Dock layout: collapsible + resizable height
   const [collapsed, setCollapsed] = useState(false);
+  const [liveWeather, setLiveWeather] = useState<IdeaWeather | null>(() =>
+    getCachedWeatherSync()
+  );
+  const riverAtmosphere = workspace.settings.riverAtmosphere ?? true;
+  const currentTheme: ThemeMode = workspace.settings.theme || "dark";
+
+  useEffect(() => {
+    let active = true;
+    fetchCurrentWeather().then((w) => {
+      if (active && w) setLiveWeather(w);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleRiverAtmosphere = () => {
+    onUpdate({
+      ...workspace,
+      settings: {
+        ...workspace.settings,
+        riverAtmosphere: !riverAtmosphere,
+      },
+    });
+  };
   const [height, setHeight] = useState(() =>
     typeof window !== "undefined" && window.innerWidth < 640 ? 176 : 236
   );
@@ -691,6 +764,7 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
       lane: inlineComposer.lane,
       imagePreview: inlineComposer.imagePreview || undefined,
       imagePath: savedPath,
+      weather: liveWeather ?? getCachedWeatherSync() ?? undefined,
       createdAt: new Date().toISOString(),
     };
     onUpdate({
@@ -826,6 +900,7 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
         tag: draftTag.trim() || "灵感",
         imagePreview: draftImage || undefined,
         imagePath: savedPath,
+        weather: liveWeather ?? getCachedWeatherSync() ?? undefined,
         createdAt: new Date().toISOString(),
       };
       onUpdate({
@@ -953,14 +1028,35 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
   };
 
   const renderPill = (idea: IdeaItem, key: string) => {
-    const width = computeCardWidth(idea);
+    const width = computeCardWidth(idea) + (riverAtmosphere ? 16 : 0);
+    const atmo = riverAtmosphere
+      ? getHourAtmosphere(idea.createdAt, currentTheme)
+      : null;
+    const effectiveWeather = idea.weather ?? (riverAtmosphere ? liveWeather : null);
+    const weatherCls =
+      riverAtmosphere && atmo
+        ? getWeatherClassName(effectiveWeather?.kind, atmo.isNight)
+        : "";
+    const tailFill = atmo
+      ? atmo.background.match(/#[0-9a-fA-F]{6}/)?.[0] ?? "#1a1a1f"
+      : currentTheme === "dark"
+        ? "#1a1a1f"
+        : currentTheme === "paper"
+          ? "#faf6ee"
+          : "#ffffff";
+
     return (
       <div
         key={key}
         data-idea-pill="true"
         draggable
         onDragStart={(e) => handleDragStartIdea(e, idea)}
-        style={{ width }}
+        style={{
+          width,
+          ...(atmo
+            ? { background: atmo.background, color: atmo.textColor }
+            : {}),
+        }}
         onMouseEnter={(e) => handleCardEnter(idea, e)}
         onMouseLeave={() => setHoveredCard(null)}
         onClick={() => {
@@ -970,21 +1066,73 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
         onContextMenu={(e) =>
           openRiverMenu(e, { kind: "idea", ideaId: idea.id })
         }
-        className="group flex h-11 shrink-0 cursor-grab active:cursor-grabbing items-center gap-2.5 rounded-2xl bg-[#1a1a1f] px-3.5 shadow-[0_2px_8px_rgba(0,0,0,0.24)] transition-all duration-200 hover:-translate-y-[1px] hover:bg-[#24242c] hover:shadow-[0_6px_18px_rgba(0,0,0,0.38)]"
+        className={`idea-speech-bubble group relative flex h-11 shrink-0 cursor-grab active:cursor-grabbing items-center gap-2.5 px-3.5 shadow-[0_2px_10px_rgba(0,0,0,0.24)] transition-all duration-200 hover:-translate-y-[1px] hover:shadow-[0_6px_18px_rgba(0,0,0,0.38)] ${
+          atmo ? "" : "bg-[#1a1a1f] hover:bg-[#24242c]"
+        }`}
       >
+        {/* Speech-bubble curved corner tail */}
+        <svg
+          viewBox="0 0 12 12"
+          className="pointer-events-none absolute -left-[6px] bottom-0 h-3 w-3"
+          aria-hidden="true"
+        >
+          <path d="M12 0 V12 H0 C5 12 9 8 12 0 Z" fill={tailFill} />
+        </svg>
+
+        {/* Animated Weather Overlay Layer (clipped to bubble interior) */}
+        {weatherCls && (
+          <div
+            className={`pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit] ${weatherCls}`}
+          />
+        )}
+
         {idea.imagePreview && (
           <img
             src={idea.imagePreview}
             alt="thumbnail"
-            className="h-8 w-8 shrink-0 rounded-lg object-cover ring-1 ring-white/[0.1]"
+            className="relative z-10 h-8 w-8 shrink-0 rounded-lg object-cover ring-1 ring-white/[0.12]"
           />
         )}
 
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] text-zinc-200">{idea.content}</p>
+        <div className="relative z-10 min-w-0 flex-1">
+          <p
+            style={atmo ? { color: atmo.textColor } : undefined}
+            className={`truncate text-[13px] ${atmo ? "" : "text-zinc-200"}`}
+          >
+            {idea.content}
+          </p>
         </div>
 
-        <span className="shrink-0 rounded-md bg-white/[0.05] px-1.5 py-0.5 text-xs text-zinc-400">
+        {riverAtmosphere && atmo && (
+          <span
+            style={{ color: atmo.mutedColor }}
+            title={`${atmo.periodLabel}${
+              effectiveWeather?.label ? ` · ${effectiveWeather.label}` : ""
+            }${
+              typeof effectiveWeather?.tempC === "number"
+                ? ` ${effectiveWeather.tempC}°C`
+                : ""
+            }`}
+            className="relative z-10 flex shrink-0 items-center"
+          >
+            {renderWeatherIcon(
+              effectiveWeather?.kind,
+              atmo.isNight,
+              "h-3.5 w-3.5"
+            )}
+          </span>
+        )}
+
+        <span
+          style={
+            atmo
+              ? { backgroundColor: atmo.badgeBg, color: atmo.mutedColor }
+              : undefined
+          }
+          className={`relative z-10 shrink-0 rounded-md px-1.5 py-0.5 text-xs ${
+            atmo ? "" : "bg-white/[0.05] text-zinc-400"
+          }`}
+        >
           {idea.tag || "灵感"}
         </span>
       </div>
@@ -1045,11 +1193,45 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
           <span className="truncate text-[13px] font-medium text-zinc-200">
             {t("river.title")}
           </span>
+          {riverAtmosphere && liveWeather && (
+            <span
+              className="hidden sm:inline-flex items-center gap-1 rounded-md bg-white/[0.05] px-1.5 py-0.5 text-xs text-zinc-400"
+              title="当前自动获取的本地天气"
+            >
+              {renderWeatherIcon(
+                liveWeather.kind,
+                new Date().getHours() >= 20 || new Date().getHours() <= 4,
+                "h-3 w-3 text-shiba-400"
+              )}
+              <span>
+                {liveWeather.label}
+                {typeof liveWeather.tempC === "number"
+                  ? ` ${liveWeather.tempC}°C`
+                  : ""}
+              </span>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
           {!collapsed && (
             <>
+              <button
+                type="button"
+                onClick={toggleRiverAtmosphere}
+                className={`rounded-lg p-1.5 transition ${
+                  riverAtmosphere
+                    ? "bg-shiba-500/15 text-shiba-300"
+                    : "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+                }`}
+                title={
+                  riverAtmosphere
+                    ? "已开启 24 小时与天气氛围主题（点击关闭）"
+                    : "开启 24 小时与天气氛围主题"
+                }
+              >
+                <CloudSun className="h-3.5 w-3.5" />
+              </button>
               <div className="flex items-center rounded-lg bg-white/[0.04] p-0.5 ring-1 ring-white/[0.05]">
                 <button
                   onClick={() => setViewMode("river")}

@@ -54,6 +54,20 @@ export interface TaskItem {
   sourceIdeaId?: string;
 }
 
+export type WeatherKind =
+  | "clear"
+  | "cloudy"
+  | "rain"
+  | "snow"
+  | "fog"
+  | "storm";
+
+export interface IdeaWeather {
+  kind: WeatherKind;
+  tempC?: number;
+  label?: string;
+}
+
 export interface IdeaItem {
   id: string;
   content: string;
@@ -65,6 +79,7 @@ export interface IdeaItem {
   imagePath?: string;
   exportedMdPath?: string;
   convertedTaskId?: string;
+  weather?: IdeaWeather;
   createdAt: string;
 }
 
@@ -108,6 +123,7 @@ export interface AppSettings {
   customLocales: CustomLocalePack[];
   theme: ThemeMode;
   paperGrain?: boolean;
+  riverAtmosphere?: boolean;
   accentColor?: string;
   enterToSave: boolean;
   columnGap?: number;

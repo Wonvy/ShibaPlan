@@ -109,6 +109,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   // Appearance state
   const currentTheme: ThemeMode = workspace.settings.theme || "dark";
   const paperGrain = workspace.settings.paperGrain ?? true;
+  const riverAtmosphere = workspace.settings.riverAtmosphere ?? true;
   const currentAccent = workspace.settings.accentColor || "";
   const [hexInput, setHexInput] = useState(currentAccent || "#f59e0b");
 
@@ -283,6 +284,13 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     onUpdate({
       ...workspace,
       settings: { ...workspace.settings, paperGrain: !paperGrain },
+    });
+  };
+
+  const toggleRiverAtmosphere = () => {
+    onUpdate({
+      ...workspace,
+      settings: { ...workspace.settings, riverAtmosphere: !riverAtmosphere },
     });
   };
 
@@ -673,6 +681,33 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     <span
                       className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow transition-transform ${
                         paperGrain ? "translate-x-4" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Idea River 24h & Weather Atmosphere Switch */}
+                <div className="flex items-center justify-between rounded-xl bg-muted/50 px-3.5 py-3">
+                  <div>
+                    <div className="text-xs font-medium text-foreground">
+                      灵感流 24 小时与天气氛围主题
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      按发布时间呈现 24 种天色，并自动获取天气叠加雨/雪/雾/星空动态质感
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={riverAtmosphere}
+                    onClick={toggleRiverAtmosphere}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                      riverAtmosphere ? "bg-primary" : "bg-input"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-background shadow transition-transform ${
+                        riverAtmosphere ? "translate-x-4" : "translate-x-1"
                       }`}
                     />
                   </button>

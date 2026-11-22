@@ -6,6 +6,7 @@ import {
   TaskItem,
   WorkspaceData,
 } from "../types";
+import { getCachedWeatherSync } from "../lib/atmosphere";
 import {
   hideCaptureWindow,
   isTauriRuntime,
@@ -156,6 +157,7 @@ export const QuickCapture: React.FC = () => {
         imagePreview: imagePreview || undefined,
         imagePath: savedImagePath,
         convertedTaskId,
+        weather: getCachedWeatherSync() ?? undefined,
         createdAt: now,
       };
 

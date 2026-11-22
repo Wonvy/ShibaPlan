@@ -53,6 +53,7 @@ export function createDefaultWorkspace(): WorkspaceData {
       customLocales: [],
       theme: "dark",
       paperGrain: true,
+      riverAtmosphere: true,
       accentColor: undefined,
       enterToSave: true,
       columnGap: 16,
@@ -89,6 +90,7 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
           ? raw.settings.theme
           : "dark",
       paperGrain: raw.settings?.paperGrain ?? true,
+      riverAtmosphere: raw.settings?.riverAtmosphere ?? true,
       accentColor:
         typeof raw.settings?.accentColor === "string" &&
         raw.settings.accentColor.trim()
