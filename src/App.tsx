@@ -294,8 +294,14 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
     if (!isTauriRuntime()) return;
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const win = getCurrentWindow();
-    await win.toggleMaximize();
-    setIsMaximized(await win.isMaximized());
+    const currentlyMax = await win.isMaximized();
+    if (currentlyMax) {
+      await win.unmaximize();
+      setIsMaximized(false);
+    } else {
+      await win.maximize();
+      setIsMaximized(true);
+    }
   }, []);
 
   const handleWindowClose = useCallback(async () => {
@@ -305,16 +311,44 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   }, []);
 
   const handleHeaderMouseDown = useCallback(
-    async (e: React.MouseEvent<HTMLElement>) => {
+    (e: React.MouseEvent<HTMLElement>) => {
       if (!isTauriRuntime() || e.button !== 0) return;
       const target = e.target as HTMLElement;
       if (target.closest("button, a, input, [role='button']")) return;
-      if (e.detail === 2) {
-        await handleWindowToggleMaximize();
-        return;
-      }
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().startDragging();
+      if (e.detail >= 2) return;
+
+      const startX = e.screenX;
+      const startY = e.screenY;
+
+      const onMove = (ev: MouseEvent) => {
+        if (
+          Math.abs(ev.screenX - startX) > 4 ||
+          Math.abs(ev.screenY - startY) > 4
+        ) {
+          cleanup();
+          import("@tauri-apps/api/window")
+            .then(({ getCurrentWindow }) => getCurrentWindow().startDragging())
+            .catch(() => {});
+        }
+      };
+
+      const cleanup = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", cleanup);
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", cleanup);
+    },
+    []
+  );
+
+  const handleHeaderDoubleClick = useCallback(
+    async (e: React.MouseEvent<HTMLElement>) => {
+      if (!isTauriRuntime()) return;
+      const target = e.target as HTMLElement;
+      if (target.closest("button, a, input, [role='button']")) return;
+      await handleWindowToggleMaximize();
     },
     [handleWindowToggleMaximize]
   );
@@ -516,14 +550,11 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
     <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground touch-manipulation">
       {/* Frameless Custom Titlebar + Minimal Header */}
       <header
-        data-tauri-drag-region
         onMouseDown={handleHeaderMouseDown}
+        onDoubleClick={handleHeaderDoubleClick}
         className="flex h-11 shrink-0 items-center justify-between border-b border-border/60 bg-background/85 pl-3 sm:pl-4 pr-2 backdrop-blur-md"
       >
-        <div
-          data-tauri-drag-region
-          className="flex items-center gap-2"
-        >
+        <div className="flex items-center gap-2">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary pointer-events-none">
             <Layers className="h-3.5 w-3.5" />
           </div>
