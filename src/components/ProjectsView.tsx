@@ -56,6 +56,7 @@ const VIEW_MODE_STORAGE_KEY = "shibaplan_projects_view_mode_v1";
 const LEFT_WIDTH_STORAGE_KEY = "shibaplan_projects_left_w_v1";
 const RIGHT_WIDTH_STORAGE_KEY = "shibaplan_projects_right_w_v1";
 const EXPLORER_VIEW_STORAGE_KEY = "shibaplan_projects_explorer_view_v1";
+const CARD_WIDTH_STORAGE_KEY = "shibaplan_projects_card_w_v1";
 
 function formatFileSize(bytes: number): string {
   if (bytes <= 0) return "";
@@ -100,8 +101,17 @@ const ProjectThumbnail: React.FC<{
   thumbPath: string | null;
   alt: string;
   variant?: "card" | "timeline" | "compact";
+  fixedHeight?: number;
+  showPlaceholder?: boolean;
   onPreview?: (src: string, title: string) => void;
-}> = ({ thumbPath, alt, variant = "card", onPreview }) => {
+}> = ({
+  thumbPath,
+  alt,
+  variant = "card",
+  fixedHeight = 128,
+  showPlaceholder = false,
+  onPreview,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
@@ -138,7 +148,19 @@ const ProjectThumbnail: React.FC<{
     };
   }, [visible, thumbPath]);
 
-  if (!thumbPath || failed) return null;
+  if (!thumbPath || failed) {
+    if (variant === "card" && showPlaceholder) {
+      return (
+        <div
+          style={{ height: fixedHeight }}
+          className="mb-2.5 flex w-full items-center justify-center rounded-lg bg-muted/35 text-muted-foreground/30"
+        >
+          <Folder className="h-7 w-7" />
+        </div>
+      );
+    }
+    return null;
+  }
 
   const handleClick = (e: React.MouseEvent) => {
     if (!src || !onPreview) return;
@@ -202,6 +224,7 @@ const ProjectThumbnail: React.FC<{
     <div
       ref={containerRef}
       onClick={handleClick}
+      style={{ height: fixedHeight }}
       className={`mb-2.5 flex w-full items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5 ${
         src && onPreview ? "cursor-zoom-in" : ""
       }`}
@@ -213,10 +236,10 @@ const ProjectThumbnail: React.FC<{
           alt={alt}
           loading="lazy"
           onError={() => setFailed(true)}
-          className="max-h-52 w-full h-auto object-contain rounded transition-transform duration-300 group-hover:scale-[1.02]"
+          className="max-h-full max-w-full object-contain rounded transition-transform duration-300 group-hover:scale-[1.02]"
         />
       ) : (
-        <div className="flex h-28 w-full items-center justify-center text-muted-foreground/35">
+        <div className="flex h-full w-full items-center justify-center text-muted-foreground/35">
           <ImageIcon className="h-5 w-5" />
         </div>
       )}
@@ -330,6 +353,38 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     }
     return 320;
   });
+  const [cardWidth, setCardWidth] = useState<number>(() => {
+    try {
+      const n = Number(localStorage.getItem(CARD_WIDTH_STORAGE_KEY));
+      if (n >= 160 && n <= 320) return n;
+    } catch {
+      // ignore
+    }
+    return 220;
+  });
+  const middlePaneRef = useRef<HTMLDivElement>(null);
+
+  // Ctrl/Cmd + Mouse Wheel zoom for project card size
+  useEffect(() => {
+    const el = middlePaneRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 16 : -16;
+      setCardWidth((prev) => {
+        const next = Math.max(160, Math.min(320, prev + delta));
+        try {
+          localStorage.setItem(CARD_WIDTH_STORAGE_KEY, String(next));
+        } catch {
+          // ignore
+        }
+        return next;
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [archiveDirs.length]);
   const [resizingPane, setResizingPane] = useState<"left" | "right" | null>(
     null
   );
@@ -1409,7 +1464,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           />
 
           {/* Main Project Grid / Everything Results List */}
-          <div className="flex-1 min-w-0 overflow-y-auto px-3 sm:px-5 py-3.5 space-y-4">
+          <div
+            ref={middlePaneRef}
+            className="flex-1 min-w-0 overflow-y-auto px-3 sm:px-5 py-3.5 space-y-4"
+          >
             {indexError && (
               <div className="rounded-xl bg-destructive/12 px-3.5 py-2.5 text-xs text-destructive">
                 {indexError}
@@ -1923,11 +1981,20 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 items-start">
+                    <div
+                      style={{
+                        gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, ${Math.min(
+                          cardWidth + 36,
+                          340
+                        )}px))`,
+                      }}
+                      className="grid gap-2.5 items-stretch"
+                    >
                       {groupItems.map((item) => {
                         const isExpanded = expandedProjectPath === item.path;
                         const isSelected = selectedProject?.path === item.path;
                         const rootTag = rootLabelMap.get(item.root_path);
+                        const thumbH = Math.round(cardWidth * 0.58);
                         return (
                           <div
                             key={item.path}
@@ -1941,6 +2008,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               thumbPath={item.thumbnail_path}
                               alt={item.displayTitle}
                               variant="card"
+                              fixedHeight={thumbH}
+                              showPlaceholder
                               onPreview={(src, title) =>
                                 setLightbox({ src, title })
                               }
