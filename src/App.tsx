@@ -15,6 +15,7 @@ import {
   Loader2,
   Moon,
   Palette,
+  QrCode,
   Redo2,
   RefreshCw,
   Search,
@@ -50,6 +51,7 @@ import { KanbanBoard } from "./components/KanbanBoard";
 import { CalendarView } from "./components/CalendarView";
 import { IdeaRiver } from "./components/IdeaRiver";
 import { CommandPalette } from "./components/CommandPalette";
+import { LanShareDialog } from "./components/LanShareDialog";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Separator } from "./components/ui/separator";
@@ -112,6 +114,7 @@ const WorkspaceShell: React.FC = () => {
     });
 
     let unlisten: (() => void) | undefined;
+    let pollTimer: number | undefined;
     if (isTauriRuntime()) {
       import("@tauri-apps/api/event").then(({ listen }) => {
         listen<string>("workspace-updated", (event) => {
@@ -125,10 +128,31 @@ const WorkspaceShell: React.FC = () => {
           unlisten = fn;
         });
       });
+    } else {
+      pollTimer = window.setInterval(() => {
+        if (document.visibilityState !== "visible") return;
+        const active = document.activeElement as HTMLElement | null;
+        if (
+          active &&
+          (active.tagName === "INPUT" ||
+            active.tagName === "TEXTAREA" ||
+            active.isContentEditable)
+        ) {
+          return;
+        }
+        loadWorkspace()
+          .then((remote) => {
+            setWorkspace((prev) =>
+              JSON.stringify(prev) === JSON.stringify(remote) ? prev : remote
+            );
+          })
+          .catch(() => {});
+      }, 4000);
     }
 
     return () => {
       if (unlisten) unlisten();
+      if (pollTimer !== undefined) window.clearInterval(pollTimer);
     };
   }, []);
 
@@ -250,6 +274,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   const [view, setView] = useState<TopView>("kanban");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [lanShareOpen, setLanShareOpen] = useState(false);
 
   // AI Today Plan Dialog state
   const [aiPlanOpen, setAiPlanOpen] = useState(false);
@@ -596,6 +621,15 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
           <Button
             variant="ghost"
             size="icon"
+            onClick={() => setLanShareOpen(true)}
+            title="局域网访问与手机扫码"
+          >
+            <QrCode className="h-3.5 w-3.5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setSettingsOpen(true)}
             title={t("nav.settings")}
           >
@@ -719,6 +753,13 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
           </button>
         </div>
       </footer>
+
+      {/* LAN Access & Mobile QR Share Dialog */}
+      <LanShareDialog
+        open={lanShareOpen}
+        onOpenChange={setLanShareOpen}
+        customDataDir={workspace.settings.customDataDir}
+      />
 
       {/* Global Command Palette (Ctrl + K) */}
       <CommandPalette

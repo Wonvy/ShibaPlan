@@ -107,6 +107,37 @@ export async function getDefaultDataDir(): Promise<string> {
   return "~/Documents/ShibaPlan";
 }
 
+export interface LanServerInfo {
+  running: boolean;
+  ip: string;
+  port: number;
+  url: string;
+}
+
+let lanApiAvailable: boolean | null = null;
+
+export async function getLanServerInfo(): Promise<LanServerInfo | null> {
+  if (!isTauriRuntime()) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<LanServerInfo>("get_lan_server_info");
+}
+
+export async function startLanServer(
+  port?: number,
+  customDir?: string
+): Promise<LanServerInfo> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<LanServerInfo>("start_lan_server", {
+    port: port ?? null,
+    customDir: customDir || null,
+  });
+}
+
+export async function stopLanServer(): Promise<LanServerInfo> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<LanServerInfo>("stop_lan_server");
+}
+
 export async function loadWorkspace(customDir?: string): Promise<WorkspaceData> {
   if (isTauriRuntime()) {
     try {
@@ -121,6 +152,25 @@ export async function loadWorkspace(customDir?: string): Promise<WorkspaceData> 
       console.error("Failed to load from Tauri:", err);
     }
   } else {
+    // Try LAN API first when opened from mobile browser via ShibaPlan LAN server
+    if (lanApiAvailable !== false) {
+      try {
+        const res = await fetch("/api/workspace", { cache: "no-store" });
+        const ct = res.headers.get("content-type") || "";
+        if (res.ok && ct.includes("application/json")) {
+          lanApiAvailable = true;
+          const parsed = await res.json();
+          if (parsed && typeof parsed === "object") {
+            return normalizeWorkspace(parsed);
+          }
+        } else {
+          lanApiAvailable = false;
+        }
+      } catch {
+        lanApiAvailable = false;
+      }
+    }
+
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (raw) {
       try {
@@ -143,6 +193,13 @@ export async function saveWorkspace(data: WorkspaceData): Promise<void> {
     });
   } else {
     localStorage.setItem(LOCAL_STORAGE_KEY, json);
+    if (lanApiAvailable) {
+      await fetch("/api/workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: json,
+      }).catch(() => {});
+    }
   }
 }
 

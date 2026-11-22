@@ -2,8 +2,14 @@ use base64::Engine;
 use chrono::Local;
 use serde::Serialize;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -273,6 +279,286 @@ fn open_path_in_os(target_path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize, Clone)]
+struct LanServerInfo {
+    running: bool,
+    ip: String,
+    port: u16,
+    url: String,
+}
+
+struct LanServerState {
+    running: Arc<AtomicBool>,
+    port: Mutex<u16>,
+    custom_dir: Mutex<Option<String>>,
+}
+
+impl Default for LanServerState {
+    fn default() -> Self {
+        Self {
+            running: Arc::new(AtomicBool::new(false)),
+            port: Mutex::new(18420),
+            custom_dir: Mutex::new(None),
+        }
+    }
+}
+
+fn detect_lan_ip() -> String {
+    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                return addr.ip().to_string();
+            }
+        }
+    }
+    "127.0.0.1".to_string()
+}
+
+fn guess_mime(path: &str) -> &'static str {
+    if path.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else if path.ends_with(".js") || path.ends_with(".mjs") {
+        "application/javascript; charset=utf-8"
+    } else if path.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".ico") {
+        "image/x-icon"
+    } else if path.ends_with(".json") {
+        "application/json; charset=utf-8"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+fn send_http_response(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &[u8],
+) {
+    let header = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n",
+        status,
+        content_type,
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body);
+    let _ = stream.flush();
+}
+
+fn handle_lan_client(mut stream: TcpStream, app: AppHandle, custom_dir: Option<String>) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let mut header_end = None;
+    let mut content_length: usize = 0;
+
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if header_end.is_none() {
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        header_end = Some(pos + 4);
+                        let headers_str = String::from_utf8_lossy(&buf[..pos]);
+                        for line in headers_str.lines() {
+                            if let Some((k, v)) = line.split_once(':') {
+                                if k.trim().eq_ignore_ascii_case("content-length") {
+                                    content_length = v.trim().parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(end) = header_end {
+                    if buf.len() >= end + content_length {
+                        break;
+                    }
+                }
+                if buf.len() > 20 * 1024 * 1024 {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    let Some(end) = header_end else {
+        return;
+    };
+    let head_str = String::from_utf8_lossy(&buf[..end]);
+    let first_line = head_str.lines().next().unwrap_or("");
+    let mut parts = first_line.split_whitespace();
+    let method = parts.next().unwrap_or("GET");
+    let raw_target = parts.next().unwrap_or("/");
+    let path_only = raw_target.split('?').next().unwrap_or("/");
+
+    if method == "OPTIONS" {
+        send_http_response(&mut stream, "204 No Content", "text/plain", b"");
+        return;
+    }
+
+    if path_only == "/api/workspace" {
+        let dir = resolve_data_dir(custom_dir);
+        let file_path = dir.join("shibaplan-data.json");
+
+        if method == "GET" {
+            match fs::read(&file_path) {
+                Ok(bytes) => {
+                    send_http_response(&mut stream, "200 OK", "application/json; charset=utf-8", &bytes);
+                }
+                Err(_) => {
+                    send_http_response(&mut stream, "200 OK", "application/json; charset=utf-8", b"null");
+                }
+            }
+            return;
+        }
+
+        if method == "POST" {
+            let body_bytes = &buf[end..buf.len().min(end + content_length)];
+            if let Ok(body_str) = std::str::from_utf8(body_bytes) {
+                let _ = fs::create_dir_all(&dir);
+                if fs::write(&file_path, body_str).is_ok() {
+                    let _ = app.emit("workspace-updated", body_str);
+                    send_http_response(
+                        &mut stream,
+                        "200 OK",
+                        "application/json; charset=utf-8",
+                        b"{\"ok\":true}",
+                    );
+                    return;
+                }
+            }
+            send_http_response(&mut stream, "500 Internal Server Error", "text/plain", b"save failed");
+            return;
+        }
+    }
+
+    // Serve static frontend assets (bundled Tauri assets first, then ../dist fallback for dev)
+    let clean_rel = if path_only == "/" {
+        "index.html"
+    } else {
+        path_only.trim_start_matches('/')
+    };
+
+    if let Some(asset) = app.asset_resolver().get(clean_rel.to_string()) {
+        send_http_response(&mut stream, "200 OK", &asset.mime_type, &asset.bytes);
+        return;
+    }
+
+    // Fallback: serve from ../dist when running under `tauri dev`
+    let dev_dist = PathBuf::from("../dist").join(clean_rel);
+    if dev_dist.is_file() {
+        if let Ok(bytes) = fs::read(&dev_dist) {
+            send_http_response(&mut stream, "200 OK", guess_mime(clean_rel), &bytes);
+            return;
+        }
+    }
+
+    // SPA fallback to index.html
+    if let Some(asset) = app.asset_resolver().get("index.html".to_string()) {
+        send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", &asset.bytes);
+        return;
+    }
+    let dev_index = PathBuf::from("../dist/index.html");
+    if let Ok(bytes) = fs::read(&dev_index) {
+        send_http_response(&mut stream, "200 OK", "text/html; charset=utf-8", &bytes);
+        return;
+    }
+
+    send_http_response(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"Not Found");
+}
+
+#[tauri::command]
+fn get_lan_server_info(state: tauri::State<'_, LanServerState>) -> LanServerInfo {
+    let running = state.running.load(Ordering::SeqCst);
+    let port = *state.port.lock().unwrap();
+    let ip = detect_lan_ip();
+    LanServerInfo {
+        running,
+        url: format!("http://{}:{}", ip, port),
+        ip,
+        port,
+    }
+}
+
+#[tauri::command]
+fn start_lan_server(
+    app: AppHandle,
+    state: tauri::State<'_, LanServerState>,
+    port: Option<u16>,
+    custom_dir: Option<String>,
+) -> Result<LanServerInfo, String> {
+    let target_port = port.unwrap_or(18420);
+    *state.custom_dir.lock().unwrap() = custom_dir.clone();
+
+    if state.running.load(Ordering::SeqCst) {
+        let cur_port = *state.port.lock().unwrap();
+        let ip = detect_lan_ip();
+        return Ok(LanServerInfo {
+            running: true,
+            url: format!("http://{}:{}", ip, cur_port),
+            ip,
+            port: cur_port,
+        });
+    }
+
+    let listener = TcpListener::bind(("0.0.0.0", target_port))
+        .map_err(|e| format!("启动局域网服务失败（端口 {}）: {}", target_port, e))?;
+    let _ = listener.set_nonblocking(true);
+
+    *state.port.lock().unwrap() = target_port;
+    state.running.store(true, Ordering::SeqCst);
+
+    let running_flag = state.running.clone();
+    let app_clone = app.clone();
+
+    thread::spawn(move || {
+        while running_flag.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let app_inner = app_clone.clone();
+                    let dir_inner = custom_dir.clone();
+                    thread::spawn(move || {
+                        handle_lan_client(stream, app_inner, dir_inner);
+                    });
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(60));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let ip = detect_lan_ip();
+    Ok(LanServerInfo {
+        running: true,
+        url: format!("http://{}:{}", ip, target_port),
+        ip,
+        port: target_port,
+    })
+}
+
+#[tauri::command]
+fn stop_lan_server(state: tauri::State<'_, LanServerState>) -> Result<LanServerInfo, String> {
+    state.running.store(false, Ordering::SeqCst);
+    let port = *state.port.lock().unwrap();
+    let ip = detect_lan_ip();
+    Ok(LanServerInfo {
+        running: false,
+        url: format!("http://{}:{}", ip, port),
+        ip,
+        port,
+    })
+}
+
 #[tauri::command]
 fn hide_capture_window(app: AppHandle) {
     if let Some(win) = app.get_webview_window("capture") {
@@ -288,6 +574,7 @@ fn open_capture_window(app: AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(LanServerState::default())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -410,6 +697,9 @@ pub fn run() {
             inspect_path,
             list_folder_entries,
             open_path_in_os,
+            get_lan_server_info,
+            start_lan_server,
+            stop_lan_server,
             hide_capture_window,
             open_capture_window,
         ])
