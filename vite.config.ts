@@ -263,6 +263,56 @@ function devArchivePlugin(): Plugin {
         }
       });
 
+      server.middlewares.use("/api/ai-proxy", (req, res, next) => {
+        if (req.method !== "POST") return next();
+        let rawBody = "";
+        req.on("data", (chunk) => (rawBody += chunk));
+        req.on("end", async () => {
+          try {
+            const payload = JSON.parse(rawBody || "{}") as {
+              url?: string;
+              method?: string;
+              headers?: Record<string, string>;
+              body?: string;
+            };
+            const targetUrl = (payload.url || "").trim();
+            if (
+              !targetUrl.startsWith("http://") &&
+              !targetUrl.startsWith("https://")
+            ) {
+              res.statusCode = 400;
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: false, status: 400, error: "Invalid target URL" }));
+              return;
+            }
+            const method = payload.method === "GET" ? "GET" : "POST";
+            const upstream = await fetch(targetUrl, {
+              method,
+              headers: payload.headers || {},
+              body: method === "POST" ? payload.body : undefined,
+            });
+            const text = await upstream.text();
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            res.end(
+              JSON.stringify({
+                ok: upstream.ok,
+                status: upstream.status,
+                body: text,
+              })
+            );
+          } catch (err) {
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            res.end(
+              JSON.stringify({
+                ok: false,
+                status: 0,
+                error: err instanceof Error ? err.message : String(err),
+              })
+            );
+          }
+        });
+      });
+
       server.middlewares.use("/api/dev-archive/open", (req, res, next) => {
         if (req.method !== "POST") return next();
         let body = "";

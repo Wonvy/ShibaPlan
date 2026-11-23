@@ -101,10 +101,18 @@ import type { CustomLocalePack } from "./lib/i18n";
 
 export type ThemeMode = "dark" | "light" | "paper";
 
-export interface AIConfig {
+export interface AIProviderProfile {
   baseUrl: string;
   apiKey: string;
   model: string;
+}
+
+export interface AIConfig {
+  providerId?: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  profiles?: Record<string, AIProviderProfile>;
 }
 
 export interface ProjectArchiveDir {

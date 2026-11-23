@@ -28,6 +28,7 @@ import {
   Upload,
 } from "lucide-react";
 import {
+  AIProviderProfile,
   ProjectArchiveDir,
   ProjectDateMode,
   ThemeMode,
@@ -37,6 +38,7 @@ import {
   AI_PROVIDER_PRESETS,
   detectProviderFromApiKey,
   fetchAvailableModels,
+  getProviderIdForUrl,
   resolveEffectiveAIConfig,
   testAIConnection,
 } from "../lib/ai";
@@ -122,10 +124,26 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   const currentAccent = workspace.settings.accentColor || "";
   const [hexInput, setHexInput] = useState(currentAccent || "#f59e0b");
 
-  // AI form state
-  const [aiBaseUrl, setAiBaseUrl] = useState(
-    workspace.settings.ai?.baseUrl ?? "https://open.bigmodel.cn/api/paas/v4"
-  );
+  // AI form state (each platform keeps its own independent API Key & model)
+  const initialBaseUrl =
+    workspace.settings.ai?.baseUrl ?? "https://open.bigmodel.cn/api/paas/v4";
+  const initialProviderId =
+    workspace.settings.ai?.providerId || getProviderIdForUrl(initialBaseUrl);
+  const [aiProviderId, setAiProviderId] = useState<string>(initialProviderId);
+  const [aiProfiles, setAiProfiles] = useState<
+    Record<string, AIProviderProfile>
+  >(() => {
+    const saved = { ...(workspace.settings.ai?.profiles ?? {}) };
+    if (!saved[initialProviderId]) {
+      saved[initialProviderId] = {
+        baseUrl: initialBaseUrl,
+        apiKey: workspace.settings.ai?.apiKey ?? "",
+        model: workspace.settings.ai?.model ?? "glm-4-flash",
+      };
+    }
+    return saved;
+  });
+  const [aiBaseUrl, setAiBaseUrl] = useState(initialBaseUrl);
   const [aiApiKey, setAiApiKey] = useState(workspace.settings.ai?.apiKey ?? "");
   const [aiModel, setAiModel] = useState(
     workspace.settings.ai?.model ?? "glm-4-flash"
@@ -286,11 +304,25 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
   useEffect(() => {
     setDirInput(workspace.settings.customDataDir);
-    setAiBaseUrl(
-      workspace.settings.ai?.baseUrl ?? "https://open.bigmodel.cn/api/paas/v4"
-    );
-    setAiApiKey(workspace.settings.ai?.apiKey ?? "");
-    setAiModel(workspace.settings.ai?.model ?? "glm-4-flash");
+    const nextUrl =
+      workspace.settings.ai?.baseUrl ?? "https://open.bigmodel.cn/api/paas/v4";
+    const nextKey = workspace.settings.ai?.apiKey ?? "";
+    const nextModel = workspace.settings.ai?.model ?? "glm-4-flash";
+    const nextId =
+      workspace.settings.ai?.providerId || getProviderIdForUrl(nextUrl);
+    setAiProviderId(nextId);
+    setAiBaseUrl(nextUrl);
+    setAiApiKey(nextKey);
+    setAiModel(nextModel);
+    setAiProfiles(() => {
+      const merged = { ...(workspace.settings.ai?.profiles ?? {}) };
+      merged[nextId] = {
+        baseUrl: nextUrl,
+        apiKey: nextKey,
+        model: nextModel,
+      };
+      return merged;
+    });
     setHexInput(workspace.settings.accentColor || "#f59e0b");
   }, [workspace.settings]);
 
@@ -324,37 +356,111 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     if (clean) setHexInput(clean);
   };
 
+  const handleProviderChange = (nextId: string) => {
+    // Save current platform's credentials before switching
+    const nextProfiles: Record<string, AIProviderProfile> = {
+      ...aiProfiles,
+      [aiProviderId]: {
+        baseUrl: aiBaseUrl.trim(),
+        apiKey: aiApiKey.trim(),
+        model: aiModel.trim(),
+      },
+    };
+    const preset = AI_PROVIDER_PRESETS.find((p) => p.id === nextId);
+    const saved = nextProfiles[nextId];
+
+    setAiProfiles(nextProfiles);
+    setAiProviderId(nextId);
+    setAiBaseUrl(saved?.baseUrl || preset?.baseUrl || "");
+    setAiApiKey(saved?.apiKey || "");
+    setAiModel(saved?.model || preset?.defaultModel || "");
+    setFetchedModels([]);
+    setModelFetchError(null);
+    setAiTestMsg(null);
+    setCustomModelMode(false);
+    setAutoDetectedNotice(null);
+  };
+
   const handleApiKeyChange = (nextKey: string) => {
-    setAiApiKey(nextKey);
     const detected = detectProviderFromApiKey(nextKey);
-    const normalizedUrl = aiBaseUrl.trim().replace(/\/+$/, "");
-    if (detected && normalizedUrl !== detected.baseUrl) {
+    if (detected && detected.id !== aiProviderId) {
+      // Preserve old platform's existing key, switch cleanly to detected platform
+      const existingTarget = aiProfiles[detected.id];
+      const nextModel = existingTarget?.model || detected.defaultModel;
+      setAiProfiles((prev) => ({
+        ...prev,
+        [aiProviderId]: {
+          baseUrl: aiBaseUrl.trim(),
+          apiKey: aiApiKey.trim(),
+          model: aiModel.trim(),
+        },
+        [detected.id]: {
+          baseUrl: detected.baseUrl,
+          apiKey: nextKey.trim(),
+          model: nextModel,
+        },
+      }));
+      setAiProviderId(detected.id);
       setAiBaseUrl(detected.baseUrl);
-      setAiModel(detected.defaultModel);
+      setAiApiKey(nextKey);
+      setAiModel(nextModel);
       setFetchedModels([]);
       setModelFetchError(null);
       setAiTestMsg(null);
       setCustomModelMode(false);
       setAutoDetectedNotice(`已根据 Key 格式自动切换至 ${detected.label}`);
-    } else if (!nextKey.trim()) {
+      return;
+    }
+
+    setAiApiKey(nextKey);
+    setAiProfiles((prev) => ({
+      ...prev,
+      [aiProviderId]: {
+        baseUrl: aiBaseUrl.trim(),
+        apiKey: nextKey.trim(),
+        model: aiModel.trim(),
+      },
+    }));
+    if (!nextKey.trim()) {
       setAutoDetectedNotice(null);
     }
   };
 
-  const handleSaveAI = (e: React.FormEvent) => {
-    e.preventDefault();
+  const buildResolvedAiPayload = () => {
     const resolved = resolveEffectiveAIConfig({
+      providerId: aiProviderId,
       baseUrl: aiBaseUrl,
       apiKey: aiApiKey,
       model: aiModel,
     });
-    setAiBaseUrl(resolved.baseUrl);
-    setAiModel(resolved.model);
+    const finalId = resolved.providerId || getProviderIdForUrl(resolved.baseUrl);
+    const nextProfiles: Record<string, AIProviderProfile> = {
+      ...aiProfiles,
+      [finalId]: {
+        baseUrl: resolved.baseUrl,
+        apiKey: resolved.apiKey,
+        model: resolved.model,
+      },
+    };
+    return {
+      ...resolved,
+      providerId: finalId,
+      profiles: nextProfiles,
+    };
+  };
+
+  const handleSaveAI = (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = buildResolvedAiPayload();
+    setAiProviderId(payload.providerId);
+    setAiBaseUrl(payload.baseUrl);
+    setAiModel(payload.model);
+    setAiProfiles(payload.profiles);
     onUpdate({
       ...workspace,
       settings: {
         ...workspace.settings,
-        ai: resolved,
+        ai: payload,
       },
     });
     setAiSaved(true);
@@ -367,17 +473,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setModelFetchError(null);
     setAiTestMsg(null);
     try {
-      const resolved = resolveEffectiveAIConfig({
-        baseUrl: aiBaseUrl,
-        apiKey: aiApiKey,
-        model: aiModel,
-      });
-      if (resolved.baseUrl && resolved.baseUrl !== aiBaseUrl.trim()) {
-        setAiBaseUrl(resolved.baseUrl);
+      const payload = buildResolvedAiPayload();
+      if (payload.baseUrl && payload.baseUrl !== aiBaseUrl.trim()) {
+        setAiBaseUrl(payload.baseUrl);
+        setAiProviderId(payload.providerId);
       }
       const models = await fetchAvailableModels({
-        baseUrl: resolved.baseUrl,
-        apiKey: resolved.apiKey,
+        baseUrl: payload.baseUrl,
+        apiKey: payload.apiKey,
       });
       setFetchedModels(models);
       setCustomModelMode(false);
@@ -398,13 +501,11 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setAiTesting(true);
     setAiTestMsg(null);
     try {
-      const nextAi = resolveEffectiveAIConfig({
-        baseUrl: aiBaseUrl,
-        apiKey: aiApiKey,
-        model: aiModel,
-      });
+      const nextAi = buildResolvedAiPayload();
+      setAiProviderId(nextAi.providerId);
       setAiBaseUrl(nextAi.baseUrl);
       setAiModel(nextAi.model);
+      setAiProfiles(nextAi.profiles);
       await testAIConnection(nextAi);
       onUpdate({
         ...workspace,
@@ -994,45 +1095,40 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
                 {/* Provider Dropdown */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    AI 平台
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      AI 平台（各平台 API Key 独立保存）
+                    </label>
+                  </div>
                   <div className="relative">
                     <select
-                      value={matchedProvider ? matchedProvider.id : "custom"}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        const preset = AI_PROVIDER_PRESETS.find(
-                          (p) => p.id === id
-                        );
-                        if (preset) {
-                          setAiBaseUrl(preset.baseUrl);
-                          setAiModel(preset.defaultModel);
-                          setFetchedModels([]);
-                          setModelFetchError(null);
-                          setAiTestMsg(null);
-                          setCustomModelMode(false);
-                          setAutoDetectedNotice(null);
-                        } else {
-                          setAutoDetectedNotice(null);
-                        }
-                      }}
+                      value={aiProviderId}
+                      onChange={(e) => handleProviderChange(e.target.value)}
                       className="flex h-9 w-full appearance-none rounded-lg border border-input bg-background px-3 pr-8 text-xs text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      {AI_PROVIDER_PRESETS.map((preset) => (
-                        <option
-                          key={preset.id}
-                          value={preset.id}
-                          className="bg-popover text-popover-foreground"
-                        >
-                          {preset.label}
-                        </option>
-                      ))}
+                      {AI_PROVIDER_PRESETS.map((preset) => {
+                        const hasKey = Boolean(
+                          aiProfiles[preset.id]?.apiKey?.trim()
+                        );
+                        return (
+                          <option
+                            key={preset.id}
+                            value={preset.id}
+                            className="bg-popover text-popover-foreground"
+                          >
+                            {preset.label}
+                            {hasKey ? "（已配置 Key）" : ""}
+                          </option>
+                        );
+                      })}
                       <option
                         value="custom"
                         className="bg-popover text-popover-foreground"
                       >
                         自定义平台（OpenAI 兼容）
+                        {aiProfiles["custom"]?.apiKey?.trim()
+                          ? "（已配置 Key）"
+                          : ""}
                       </option>
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />

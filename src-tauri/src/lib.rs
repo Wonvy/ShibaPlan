@@ -1694,6 +1694,115 @@ fn stop_lan_server(state: tauri::State<'_, LanServerState>) -> Result<LanServerI
     })
 }
 
+#[derive(Serialize)]
+struct AiHttpResponse {
+    ok: bool,
+    status: u16,
+    body: String,
+    error: Option<String>,
+}
+
+#[tauri::command]
+fn ai_http_request(
+    url: String,
+    method: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
+) -> Result<AiHttpResponse, String> {
+    let trimmed = url.trim();
+    if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        return Err("无效的接口 URL".to_string());
+    }
+
+    let curl_bin = if cfg!(target_os = "windows") {
+        "curl.exe"
+    } else {
+        "curl"
+    };
+
+    let mut cmd = std::process::Command::new(curl_bin);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let http_method = if method.eq_ignore_ascii_case("GET") {
+        "GET"
+    } else {
+        "POST"
+    };
+
+    cmd.arg("-sS")
+        .arg("--max-time")
+        .arg("60")
+        .arg("-X")
+        .arg(http_method);
+
+    for (k, v) in headers {
+        cmd.arg("-H").arg(format!("{}: {}", k, v));
+    }
+
+    let has_body = http_method == "POST" && body.as_ref().map(|b| !b.is_empty()).unwrap_or(false);
+    if has_body {
+        cmd.arg("--data-binary").arg("@-");
+    }
+
+    cmd.arg("-w")
+        .arg("\n__SHIBA_HTTP_STATUS__%{http_code}")
+        .arg(trimmed)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("无法启动 HTTP 请求客户端: {}", e))?;
+
+    if has_body {
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            let _ = stdin.write_all(body.unwrap_or_default().as_bytes());
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("等待网络响应失败: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Ok(AiHttpResponse {
+            ok: false,
+            status: 0,
+            body: String::new(),
+            error: Some(if stderr.is_empty() {
+                "网络连接失败".to_string()
+            } else {
+                stderr
+            }),
+        });
+    }
+
+    let raw_out = String::from_utf8_lossy(&output.stdout).to_string();
+    let marker = "\n__SHIBA_HTTP_STATUS__";
+    let (resp_body, status_code) = if let Some(idx) = raw_out.rfind(marker) {
+        let b = raw_out[..idx].to_string();
+        let code_str = raw_out[idx + marker.len()..].trim();
+        let code = code_str.parse::<u16>().unwrap_or(0);
+        (b, code)
+    } else {
+        (raw_out, 0)
+    };
+
+    Ok(AiHttpResponse {
+        ok: (200..300).contains(&status_code),
+        status: status_code,
+        body: resp_body,
+        error: None,
+    })
+}
+
 #[tauri::command]
 fn hide_capture_window(app: AppHandle) {
     if let Some(win) = app.get_webview_window("capture") {
@@ -1876,6 +1985,7 @@ pub fn run() {
             get_lan_server_info,
             start_lan_server,
             stop_lan_server,
+            ai_http_request,
             hide_capture_window,
             open_capture_window,
         ])

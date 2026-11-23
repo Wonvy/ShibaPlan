@@ -58,9 +58,11 @@ export function createDefaultWorkspace(): WorkspaceData {
       enterToSave: true,
       columnGap: 16,
       ai: {
+        providerId: "zhipu",
         baseUrl: "https://open.bigmodel.cn/api/paas/v4",
         apiKey: "",
         model: "glm-4-flash",
+        profiles: {},
       },
       projectArchiveDirs: [],
       projectDateMode: "name_first",
@@ -103,10 +105,16 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
           ? raw.settings.columnGap
           : 16,
       ai: {
+        providerId: raw.settings?.ai?.providerId,
         baseUrl:
           raw.settings?.ai?.baseUrl ?? "https://open.bigmodel.cn/api/paas/v4",
         apiKey: raw.settings?.ai?.apiKey ?? "",
         model: raw.settings?.ai?.model ?? "glm-4-flash",
+        profiles:
+          raw.settings?.ai?.profiles &&
+          typeof raw.settings.ai.profiles === "object"
+            ? raw.settings.ai.profiles
+            : {},
       },
       projectArchiveDirs: Array.isArray(raw.settings?.projectArchiveDirs)
         ? raw.settings.projectArchiveDirs

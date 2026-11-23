@@ -1,4 +1,5 @@
 import { AIConfig, BoardColumn, EffortSize, IdeaItem, TaskItem } from "../types";
+import { isTauriRuntime } from "./storage";
 
 export interface AIProviderPreset {
   id: string;
@@ -130,6 +131,12 @@ export function detectProviderFromApiKey(
   return null;
 }
 
+export function getProviderIdForUrl(baseUrl: string): string {
+  const normalized = (baseUrl || "").trim().replace(/\/+$/, "");
+  const matched = AI_PROVIDER_PRESETS.find((p) => p.baseUrl === normalized);
+  return matched ? matched.id : "custom";
+}
+
 export function resolveEffectiveAIConfig(config: AIConfig): AIConfig {
   let baseUrl = (config.baseUrl || "").trim().replace(/\/+$/, "");
   let model = (config.model || "").trim();
@@ -146,7 +153,105 @@ export function resolveEffectiveAIConfig(config: AIConfig): AIConfig {
     }
   }
 
-  return { baseUrl, apiKey, model };
+  return {
+    ...config,
+    providerId: config.providerId || getProviderIdForUrl(baseUrl),
+    baseUrl,
+    apiKey,
+    model,
+  };
+}
+
+interface AiHttpResult {
+  ok: boolean;
+  status: number;
+  body: string;
+  error?: string;
+}
+
+/**
+ * Performs HTTP requests for AI endpoints while bypassing browser / WebView2 CORS:
+ * 1. In Tauri desktop: invokes Rust `ai_http_request` command.
+ * 2. In browser (Vite dev / LAN): routes through same-origin `POST /api/ai-proxy`.
+ * 3. Falls back to native `fetch` if proxy is unavailable.
+ */
+async function aiHttpRequest(
+  url: string,
+  options: {
+    method: "GET" | "POST";
+    headers: Record<string, string>;
+    body?: string;
+  }
+): Promise<AiHttpResult> {
+  if (isTauriRuntime()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const res = await invoke<AiHttpResult>("ai_http_request", {
+        url,
+        method: options.method,
+        headers: options.headers,
+        body: options.body ?? null,
+      });
+      if (res && typeof res.status === "number") {
+        if (res.status === 0 && res.error) {
+          throw new Error(res.error);
+        }
+        return res;
+      }
+    } catch (err) {
+      // If command not registered in older binary, fall through to fetch
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.toLowerCase().includes("command ai_http_request not found")) {
+        // Real network error from Rust side
+        if (msg && !msg.includes("unknown command")) {
+          throw new Error(msg);
+        }
+      }
+    }
+  } else {
+    // Browser / Vite dev mode: use same-origin proxy to avoid CORS `Failed to fetch`
+    try {
+      const proxyRes = await fetch("/api/ai-proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          method: options.method,
+          headers: options.headers,
+          body: options.body,
+        }),
+      });
+      if (proxyRes.ok) {
+        const ct = proxyRes.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          const data = (await proxyRes.json()) as AiHttpResult;
+          if (data.status === 0 && data.error) {
+            throw new Error(data.error);
+          }
+          return {
+            ok: Boolean(data.ok),
+            status: data.status,
+            body: typeof data.body === "string" ? data.body : "",
+          };
+        }
+      }
+    } catch (err) {
+      // Only rethrow if the proxy itself returned a real upstream network error
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg && !msg.includes("Failed to fetch")) {
+        throw err;
+      }
+    }
+  }
+
+  // Fallback direct fetch
+  const res = await fetch(url, {
+    method: options.method,
+    headers: options.headers,
+    body: options.method === "POST" ? options.body : undefined,
+  });
+  const text = await res.text().catch(() => "");
+  return { ok: res.ok, status: res.status, body: text };
 }
 
 export interface AIBreakdownTask {
@@ -191,21 +296,32 @@ async function callChatCompletion(
     headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model,
-      temperature: 0.4,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
+  let res: AiHttpResult;
+  try {
+    res = await aiHttpRequest(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        temperature: 0.4,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+  } catch (err) {
+    let hostLabel = baseUrl;
+    try {
+      hostLabel = new URL(baseUrl).host;
+    } catch {
+      // ignore
+    }
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`无法连接到 ${hostLabel} (${detail})`);
+  }
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => "");
     let hostLabel = baseUrl;
     try {
       hostLabel = new URL(baseUrl).host;
@@ -213,11 +329,11 @@ async function callChatCompletion(
       // ignore
     }
     throw new Error(
-      `AI 请求失败 (${res.status} @ ${hostLabel}): ${errText.slice(0, 140)}`
+      `AI 请求失败 (${res.status} @ ${hostLabel}): ${res.body.slice(0, 140)}`
     );
   }
 
-  const data = await res.json();
+  const data = JSON.parse(res.body);
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) {
     throw new Error("AI 返回内容为空");
@@ -366,13 +482,12 @@ export async function fetchAvailableModels(
   let lastError = "未能获取到可用模型列表";
   for (const url of candidates) {
     try {
-      const res = await fetch(url, { method: "GET", headers });
+      const res = await aiHttpRequest(url, { method: "GET", headers });
       if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        lastError = `获取模型失败 (${res.status}): ${errText.slice(0, 120)}`;
+        lastError = `获取模型失败 (${res.status}): ${res.body.slice(0, 120)}`;
         continue;
       }
-      const data = await res.json();
+      const data = JSON.parse(res.body);
       const models = extractModelIds(data);
       if (models.length > 0) {
         return models;
