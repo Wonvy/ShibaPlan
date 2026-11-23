@@ -365,12 +365,20 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setAiTesting(true);
     setAiTestMsg(null);
     try {
-      await testAIConnection({
-        baseUrl: aiBaseUrl,
-        apiKey: aiApiKey,
-        model: aiModel,
+      const nextAi = {
+        baseUrl: aiBaseUrl.trim(),
+        apiKey: aiApiKey.trim(),
+        model: aiModel.trim(),
+      };
+      await testAIConnection(nextAi);
+      onUpdate({
+        ...workspace,
+        settings: {
+          ...workspace.settings,
+          ai: nextAi,
+        },
       });
-      setAiTestMsg({ ok: true, text: "连接成功，接口可用" });
+      setAiTestMsg({ ok: true, text: "连接成功，已自动保存配置" });
     } catch (err) {
       setAiTestMsg({
         ok: false,

@@ -123,7 +123,15 @@ async function callChatCompletion(
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new Error(`AI 请求失败 (${res.status}): ${errText.slice(0, 140)}`);
+    let hostLabel = baseUrl;
+    try {
+      hostLabel = new URL(baseUrl).host;
+    } catch {
+      // ignore
+    }
+    throw new Error(
+      `AI 请求失败 (${res.status} @ ${hostLabel}): ${errText.slice(0, 140)}`
+    );
   }
 
   const data = await res.json();
