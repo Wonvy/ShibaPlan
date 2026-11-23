@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowUp,
   BarChart3,
-  Calendar,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -307,6 +306,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     number | "all" | "unknown" | "starred"
   >("all");
   const [selectedMonth, setSelectedMonth] = useState<number | "all">("all");
+  const [expandedYears, setExpandedYears] = useState<Set<number>>(
+    () => new Set()
+  );
   const [renderLimit, setRenderLimit] = useState(160);
   const [expandedProjectPath, setExpandedProjectPath] = useState<string | null>(
     null
@@ -1471,32 +1473,37 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               </div>
             )}
 
-            {/* Year / Month Timeline */}
-            <div className="space-y-1">
-              <div className="px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                时间归档
-              </div>
+            {/* Minimalist Right-Aligned Ruler Timeline */}
+            <div className="relative border-r border-border/50 pr-0">
+              {/* All Years */}
               <button
                 type="button"
                 onClick={() => {
                   setSelectedYear("all");
                   setSelectedMonth("all");
                 }}
-                className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors ${
+                className={`group flex w-full items-center justify-between py-1.5 pl-2 text-right transition-colors ${
                   selectedYear === "all"
-                    ? "bg-primary text-primary-foreground font-medium"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    ? "text-foreground font-medium"
+                    : "text-muted-foreground/75 hover:text-foreground"
                 }`}
               >
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="h-3 w-3" />
-                  全部年份
-                </span>
-                <span className="font-mono text-xs opacity-80">
+                <span className="font-mono text-xs tabular-nums opacity-45 group-hover:opacity-80">
                   {timelineStats.totalProjects}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-xs tracking-wide">全部</span>
+                  <span
+                    className={`block transition-all ${
+                      selectedYear === "all"
+                        ? "h-[1.5px] w-3.5 bg-primary"
+                        : "h-px w-2 bg-border group-hover:w-3 group-hover:bg-foreground/45"
+                    }`}
+                  />
                 </span>
               </button>
 
+              {/* Starred */}
               {starredSet.size > 0 && (
                 <button
                   type="button"
@@ -1504,87 +1511,139 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     setSelectedYear("starred");
                     setSelectedMonth("all");
                   }}
-                  className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors ${
+                  className={`group flex w-full items-center justify-between py-1.5 pl-2 text-right transition-colors ${
                     selectedYear === "starred"
-                      ? "bg-primary text-primary-foreground font-medium"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                      ? "text-primary font-medium"
+                      : "text-muted-foreground/75 hover:text-foreground"
                   }`}
                 >
-                  <span className="flex items-center gap-1.5">
-                    <Star className="h-3 w-3 fill-current" />
-                    已收藏
-                  </span>
-                  <span className="font-mono text-xs opacity-80">
+                  <span className="font-mono text-xs tabular-nums opacity-45 group-hover:opacity-80">
                     {projectsByRoot.filter((p) => starredSet.has(p.path)).length}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-xs tracking-wide">
+                      <Star className="h-3 w-3 fill-current" />
+                      收藏
+                    </span>
+                    <span
+                      className={`block transition-all ${
+                        selectedYear === "starred"
+                          ? "h-[1.5px] w-3.5 bg-primary"
+                          : "h-px w-2 bg-border group-hover:w-3 group-hover:bg-foreground/45"
+                      }`}
+                    />
                   </span>
                 </button>
               )}
 
-              {timelineStats.years.map(({ year, total, months }) => {
-                const yearActive = selectedYear === year;
-                return (
-                  <div key={year} className="space-y-0.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (yearActive && selectedMonth === "all") {
-                          setSelectedYear("all");
-                        } else {
+              {/* Years & Collapsible Months */}
+              <div className="mt-1.5 space-y-0.5">
+                {timelineStats.years.map(({ year, total, months }) => {
+                  const yearActive = selectedYear === year;
+                  const isExpanded = expandedYears.has(year);
+                  return (
+                    <div key={year}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedYears((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(year)) {
+                              next.delete(year);
+                            } else {
+                              next.add(year);
+                            }
+                            return next;
+                          });
                           setSelectedYear(year);
                           setSelectedMonth("all");
-                        }
-                      }}
-                      className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors ${
-                        yearActive && selectedMonth === "all"
-                          ? "bg-primary text-primary-foreground font-medium"
-                          : yearActive
-                            ? "bg-accent text-foreground font-medium"
-                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                      }`}
-                    >
-                      <span className="flex items-center gap-1 font-mono">
-                        {yearActive ? (
-                          <ChevronDown className="h-3 w-3" />
-                        ) : (
-                          <ChevronRight className="h-3 w-3 opacity-60" />
-                        )}
-                        {year}
-                      </span>
-                      <span className="font-mono text-xs opacity-75">
-                        {total}
-                      </span>
-                    </button>
+                        }}
+                        title={isExpanded ? "单击折叠月份" : "单击展开月份"}
+                        className={`group flex w-full items-center justify-between py-2 pl-2 text-right transition-colors ${
+                          yearActive
+                            ? "text-foreground"
+                            : "text-muted-foreground/65 hover:text-foreground"
+                        }`}
+                      >
+                        <span
+                          className={`font-mono text-xs tabular-nums transition-opacity ${
+                            yearActive
+                              ? "opacity-65"
+                              : "opacity-35 group-hover:opacity-70"
+                          }`}
+                        >
+                          {total}
+                        </span>
+                        <span className="flex items-center gap-2.5">
+                          <span
+                            className={`font-mono text-[19px] leading-none tracking-tight tabular-nums transition-colors ${
+                              yearActive
+                                ? "font-semibold text-primary"
+                                : "font-medium"
+                            }`}
+                          >
+                            {year}
+                          </span>
+                          <span
+                            className={`block transition-all ${
+                              yearActive
+                                ? "h-[2px] w-4 bg-primary"
+                                : "h-px w-2.5 bg-border group-hover:w-3.5 group-hover:bg-foreground/50"
+                            }`}
+                          />
+                        </span>
+                      </button>
 
-                    {yearActive && months.length > 0 && (
-                      <div className="ml-3.5 space-y-0.5 border-l border-border/60 pl-2 py-0.5">
-                        {months.map(([mo, cnt]) => {
-                          const mActive = selectedMonth === mo;
-                          return (
-                            <button
-                              key={mo}
-                              type="button"
-                              onClick={() =>
-                                setSelectedMonth(mActive ? "all" : mo)
-                              }
-                              className={`flex w-full items-center justify-between rounded-md px-2 py-1 text-xs transition-colors ${
-                                mActive
-                                  ? "bg-primary text-primary-foreground font-medium"
-                                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                              }`}
-                            >
-                              <span>{mo}月</span>
-                              <span className="font-mono text-xs opacity-75">
-                                {cnt}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                      {isExpanded && months.length > 0 && (
+                        <div className="mb-1.5 space-y-0.5">
+                          {months.map(([mo, cnt]) => {
+                            const mActive = yearActive && selectedMonth === mo;
+                            return (
+                              <button
+                                key={mo}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedYear(year);
+                                  setSelectedMonth(mActive ? "all" : mo);
+                                }}
+                                className={`group flex w-full items-center justify-between py-1 pl-3 text-right transition-colors ${
+                                  mActive
+                                    ? "text-primary font-medium"
+                                    : "text-muted-foreground/65 hover:text-foreground"
+                                }`}
+                              >
+                                <span
+                                  className={`font-mono text-xs tabular-nums transition-opacity ${
+                                    mActive
+                                      ? "opacity-75"
+                                      : "opacity-30 group-hover:opacity-65"
+                                  }`}
+                                >
+                                  {cnt}
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  <span className="font-mono text-xs tabular-nums">
+                                    {String(mo).padStart(2, "0")}月
+                                  </span>
+                                  <span
+                                    className={`block transition-all ${
+                                      mActive
+                                        ? "h-[1.5px] w-3 bg-primary"
+                                        : "h-px w-1.5 bg-border/75 group-hover:w-2.5 group-hover:bg-foreground/45"
+                                    }`}
+                                  />
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
+              {/* Unknown Year */}
               {timelineStats.unknownCount > 0 && (
                 <button
                   type="button"
@@ -1592,15 +1651,24 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     setSelectedYear("unknown");
                     setSelectedMonth("all");
                   }}
-                  className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors ${
+                  className={`group mt-1 flex w-full items-center justify-between py-1.5 pl-2 text-right transition-colors ${
                     selectedYear === "unknown"
-                      ? "bg-primary text-primary-foreground font-medium"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                      ? "text-primary font-medium"
+                      : "text-muted-foreground/65 hover:text-foreground"
                   }`}
                 >
-                  <span>未归类</span>
-                  <span className="font-mono text-xs opacity-75">
+                  <span className="font-mono text-xs tabular-nums opacity-40 group-hover:opacity-75">
                     {timelineStats.unknownCount}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs">未归类</span>
+                    <span
+                      className={`block transition-all ${
+                        selectedYear === "unknown"
+                          ? "h-[1.5px] w-3 bg-primary"
+                          : "h-px w-1.5 bg-border/75 group-hover:w-2.5 group-hover:bg-foreground/45"
+                      }`}
+                    />
                   </span>
                 </button>
               )}
