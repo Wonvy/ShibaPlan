@@ -222,9 +222,9 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
     setAiBreakingDown(true);
     try {
       const cfg = workspace.settings.ai ?? {
-        baseUrl: "https://api.openai.com/v1",
+        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
         apiKey: "",
-        model: "gpt-4o-mini",
+        model: "glm-4-flash",
       };
       const items = await breakdownIdeaWithAI(idea, cfg);
       const now = new Date().toISOString();

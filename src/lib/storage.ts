@@ -58,9 +58,9 @@ export function createDefaultWorkspace(): WorkspaceData {
       enterToSave: true,
       columnGap: 16,
       ai: {
-        baseUrl: "https://api.openai.com/v1",
+        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
         apiKey: "",
-        model: "gpt-4o-mini",
+        model: "glm-4-flash",
       },
       projectArchiveDirs: [],
       projectDateMode: "name_first",
@@ -103,9 +103,10 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
           ? raw.settings.columnGap
           : 16,
       ai: {
-        baseUrl: raw.settings?.ai?.baseUrl ?? "https://api.openai.com/v1",
+        baseUrl:
+          raw.settings?.ai?.baseUrl ?? "https://open.bigmodel.cn/api/paas/v4",
         apiKey: raw.settings?.ai?.apiKey ?? "",
-        model: raw.settings?.ai?.model ?? "gpt-4o-mini",
+        model: raw.settings?.ai?.model ?? "glm-4-flash",
       },
       projectArchiveDirs: Array.isArray(raw.settings?.projectArchiveDirs)
         ? raw.settings.projectArchiveDirs

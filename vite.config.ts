@@ -301,14 +301,14 @@ export default defineConfig(async () => ({
   plugins: [react(), devArchivePlugin()],
   clearScreen: false,
   server: {
-    port: 1420,
+    port: 5173,
     strictPort: true,
     host: host || "0.0.0.0",
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1421,
+          port: 5174,
         }
       : undefined,
     watch: {

@@ -4,6 +4,7 @@ import {
   BookOpen,
   Bot,
   Check,
+  ChevronDown,
   Copy,
   DatabaseBackup,
   Download,
@@ -21,7 +22,6 @@ import {
   RefreshCw,
   RotateCcw,
   ScrollText,
-  Search,
   Sparkles,
   Sun,
   Trash2,
@@ -35,7 +35,9 @@ import {
 } from "../types";
 import {
   AI_PROVIDER_PRESETS,
+  detectProviderFromApiKey,
   fetchAvailableModels,
+  resolveEffectiveAIConfig,
   testAIConnection,
 } from "../lib/ai";
 import { pickArchiveFolder } from "../lib/archive";
@@ -136,11 +138,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   } | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
 
-  // Auto-fetched models state
+  // Auto-fetched models & dropdown state
   const [fetchingModels, setFetchingModels] = useState(false);
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
-  const [modelSearch, setModelSearch] = useState("");
   const [modelFetchError, setModelFetchError] = useState<string | null>(null);
+  const [customModelMode, setCustomModelMode] = useState(false);
+  const [autoDetectedNotice, setAutoDetectedNotice] = useState<string | null>(
+    null
+  );
 
   // Data & Language state
   const [dirInput, setDirInput] = useState(workspace.settings.customDataDir);
@@ -319,17 +324,37 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     if (clean) setHexInput(clean);
   };
 
+  const handleApiKeyChange = (nextKey: string) => {
+    setAiApiKey(nextKey);
+    const detected = detectProviderFromApiKey(nextKey);
+    const normalizedUrl = aiBaseUrl.trim().replace(/\/+$/, "");
+    if (detected && normalizedUrl !== detected.baseUrl) {
+      setAiBaseUrl(detected.baseUrl);
+      setAiModel(detected.defaultModel);
+      setFetchedModels([]);
+      setModelFetchError(null);
+      setAiTestMsg(null);
+      setCustomModelMode(false);
+      setAutoDetectedNotice(`已根据 Key 格式自动切换至 ${detected.label}`);
+    } else if (!nextKey.trim()) {
+      setAutoDetectedNotice(null);
+    }
+  };
+
   const handleSaveAI = (e: React.FormEvent) => {
     e.preventDefault();
+    const resolved = resolveEffectiveAIConfig({
+      baseUrl: aiBaseUrl,
+      apiKey: aiApiKey,
+      model: aiModel,
+    });
+    setAiBaseUrl(resolved.baseUrl);
+    setAiModel(resolved.model);
     onUpdate({
       ...workspace,
       settings: {
         ...workspace.settings,
-        ai: {
-          baseUrl: aiBaseUrl.trim(),
-          apiKey: aiApiKey.trim(),
-          model: aiModel.trim(),
-        },
+        ai: resolved,
       },
     });
     setAiSaved(true);
@@ -342,13 +367,21 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setModelFetchError(null);
     setAiTestMsg(null);
     try {
-      const models = await fetchAvailableModels({
+      const resolved = resolveEffectiveAIConfig({
         baseUrl: aiBaseUrl,
         apiKey: aiApiKey,
+        model: aiModel,
+      });
+      if (resolved.baseUrl && resolved.baseUrl !== aiBaseUrl.trim()) {
+        setAiBaseUrl(resolved.baseUrl);
+      }
+      const models = await fetchAvailableModels({
+        baseUrl: resolved.baseUrl,
+        apiKey: resolved.apiKey,
       });
       setFetchedModels(models);
-      setModelSearch("");
-      if (models.length > 0 && !aiModel.trim()) {
+      setCustomModelMode(false);
+      if (models.length > 0 && (!aiModel.trim() || !models.includes(aiModel.trim()))) {
         setAiModel(models[0]);
       }
       onNotify(`已获取 ${models.length} 个可用模型`);
@@ -365,11 +398,13 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setAiTesting(true);
     setAiTestMsg(null);
     try {
-      const nextAi = {
-        baseUrl: aiBaseUrl.trim(),
-        apiKey: aiApiKey.trim(),
-        model: aiModel.trim(),
-      };
+      const nextAi = resolveEffectiveAIConfig({
+        baseUrl: aiBaseUrl,
+        apiKey: aiApiKey,
+        model: aiModel,
+      });
+      setAiBaseUrl(nextAi.baseUrl);
+      setAiModel(nextAi.model);
       await testAIConnection(nextAi);
       onUpdate({
         ...workspace,
@@ -415,11 +450,27 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setTimeout(() => setLangNotice(null), 3500);
   };
 
-  const filteredModels = useMemo(() => {
-    const q = modelSearch.trim().toLowerCase();
-    if (!q) return fetchedModels;
-    return fetchedModels.filter((m) => m.toLowerCase().includes(q));
-  }, [fetchedModels, modelSearch]);
+  const matchedProvider = useMemo(() => {
+    const normalized = aiBaseUrl.trim().replace(/\/+$/, "");
+    return AI_PROVIDER_PRESETS.find((p) => p.baseUrl === normalized) ?? null;
+  }, [aiBaseUrl]);
+
+  const modelDropdownOptions = useMemo(() => {
+    const source =
+      fetchedModels.length > 0
+        ? fetchedModels
+        : matchedProvider?.models ?? [];
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const m of source) {
+      const clean = m.trim();
+      if (clean && !seen.has(clean)) {
+        seen.add(clean);
+        list.push(clean);
+      }
+    }
+    return list;
+  }, [fetchedModels, matchedProvider]);
 
   const tabs: {
     id: SettingsTabId;
@@ -941,36 +992,50 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                   </p>
                 </div>
 
-                {/* Provider Presets */}
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-foreground">
-                    快速选择平台
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                    {AI_PROVIDER_PRESETS.map((preset) => {
-                      const isSelected =
-                        aiBaseUrl.trim().replace(/\/+$/, "") === preset.baseUrl;
-                      return (
-                        <button
+                {/* Provider Dropdown */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    AI 平台
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={matchedProvider ? matchedProvider.id : "custom"}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        const preset = AI_PROVIDER_PRESETS.find(
+                          (p) => p.id === id
+                        );
+                        if (preset) {
+                          setAiBaseUrl(preset.baseUrl);
+                          setAiModel(preset.defaultModel);
+                          setFetchedModels([]);
+                          setModelFetchError(null);
+                          setAiTestMsg(null);
+                          setCustomModelMode(false);
+                          setAutoDetectedNotice(null);
+                        } else {
+                          setAutoDetectedNotice(null);
+                        }
+                      }}
+                      className="flex h-9 w-full appearance-none rounded-lg border border-input bg-background px-3 pr-8 text-xs text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {AI_PROVIDER_PRESETS.map((preset) => (
+                        <option
                           key={preset.id}
-                          type="button"
-                          onClick={() => {
-                            setAiBaseUrl(preset.baseUrl);
-                            setAiModel(preset.defaultModel);
-                            setFetchedModels([]);
-                            setModelFetchError(null);
-                            setAiTestMsg(null);
-                          }}
-                          className={`rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
-                            isSelected
-                              ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                              : "bg-secondary text-secondary-foreground hover:bg-accent"
-                          }`}
+                          value={preset.id}
+                          className="bg-popover text-popover-foreground"
                         >
                           {preset.label}
-                        </button>
-                      );
-                    })}
+                        </option>
+                      ))}
+                      <option
+                        value="custom"
+                        className="bg-popover text-popover-foreground"
+                      >
+                        自定义平台（OpenAI 兼容）
+                      </option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                   </div>
                 </div>
 
@@ -983,22 +1048,32 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     <Input
                       type="text"
                       value={aiBaseUrl}
-                      onChange={(e) => setAiBaseUrl(e.target.value)}
+                      onChange={(e) => {
+                        setAiBaseUrl(e.target.value);
+                        setAutoDetectedNotice(null);
+                      }}
                       placeholder="https://open.bigmodel.cn/api/paas/v4"
                       className="font-mono text-xs"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      API Key（本地 Ollama 可留空）
-                    </label>
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        API Key（本地 Ollama 可留空）
+                      </label>
+                      {autoDetectedNotice && (
+                        <span className="text-xs text-emerald-500">
+                          {autoDetectedNotice}
+                        </span>
+                      )}
+                    </div>
                     <div className="relative">
                       <Input
                         type={showApiKey ? "text" : "password"}
                         value={aiApiKey}
-                        onChange={(e) => setAiApiKey(e.target.value)}
-                        placeholder="sk-..."
+                        onChange={(e) => handleApiKeyChange(e.target.value)}
+                        placeholder="粘贴对应平台的 API Key..."
                         className="pr-9 font-mono text-xs"
                       />
                       <button
@@ -1016,7 +1091,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     </div>
                   </div>
 
-                  {/* Model Input + Auto Fetch Models */}
+                  {/* Model Dropdown + Auto Fetch Models */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-medium text-muted-foreground">
@@ -1030,13 +1105,44 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Input
-                        type="text"
-                        value={aiModel}
-                        onChange={(e) => setAiModel(e.target.value)}
-                        placeholder="glm-4-flash"
-                        className="flex-1 font-mono text-xs"
-                      />
+                      <div className="relative flex-1">
+                        <select
+                          value={
+                            customModelMode ||
+                            (aiModel.trim() !== "" &&
+                              !modelDropdownOptions.includes(aiModel.trim()))
+                              ? "__custom__"
+                              : aiModel.trim() || modelDropdownOptions[0] || "__custom__"
+                          }
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === "__custom__") {
+                              setCustomModelMode(true);
+                            } else {
+                              setCustomModelMode(false);
+                              setAiModel(val);
+                            }
+                          }}
+                          className="flex h-9 w-full appearance-none rounded-lg border border-input bg-background px-3 pr-8 font-mono text-xs text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {modelDropdownOptions.map((modelId) => (
+                            <option
+                              key={modelId}
+                              value={modelId}
+                              className="bg-popover text-popover-foreground"
+                            >
+                              {modelId}
+                            </option>
+                          ))}
+                          <option
+                            value="__custom__"
+                            className="bg-popover text-popover-foreground"
+                          >
+                            自定义模型名称...
+                          </option>
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      </div>
                       <Button
                         type="button"
                         variant="secondary"
@@ -1054,53 +1160,21 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       </Button>
                     </div>
 
+                    {(customModelMode ||
+                      (aiModel.trim() !== "" &&
+                        !modelDropdownOptions.includes(aiModel.trim()))) && (
+                      <Input
+                        type="text"
+                        value={aiModel}
+                        onChange={(e) => setAiModel(e.target.value)}
+                        placeholder="输入自定义模型 ID，如 glm-4-flash"
+                        className="font-mono text-xs"
+                      />
+                    )}
+
                     {modelFetchError && (
                       <div className="rounded-lg bg-destructive/12 px-3 py-2 text-xs text-destructive">
                         {modelFetchError}
-                      </div>
-                    )}
-
-                    {/* Fetched Model Picker */}
-                    {fetchedModels.length > 0 && (
-                      <div className="rounded-xl bg-muted/50 p-2.5 space-y-2">
-                        {fetchedModels.length > 6 && (
-                          <div className="relative">
-                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                              type="text"
-                              value={modelSearch}
-                              onChange={(e) => setModelSearch(e.target.value)}
-                              placeholder="筛选模型名称..."
-                              className="h-7 pl-7 text-xs"
-                            />
-                          </div>
-                        )}
-                        <div className="max-h-36 overflow-y-auto flex flex-wrap gap-1.5 pr-0.5">
-                          {filteredModels.length === 0 ? (
-                            <span className="py-2 text-xs text-muted-foreground">
-                              没有匹配的模型
-                            </span>
-                          ) : (
-                            filteredModels.map((modelId) => {
-                              const active = aiModel.trim() === modelId;
-                              return (
-                                <button
-                                  key={modelId}
-                                  type="button"
-                                  onClick={() => setAiModel(modelId)}
-                                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs transition-colors ${
-                                    active
-                                      ? "bg-primary text-primary-foreground font-medium"
-                                      : "bg-card text-foreground/85 hover:bg-accent"
-                                  }`}
-                                >
-                                  {active && <Check className="h-2.5 w-2.5" />}
-                                  <span>{modelId}</span>
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
                       </div>
                     )}
                   </div>

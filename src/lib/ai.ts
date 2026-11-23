@@ -5,6 +5,7 @@ export interface AIProviderPreset {
   label: string;
   baseUrl: string;
   defaultModel: string;
+  models: string[];
   needsKey: boolean;
 }
 
@@ -14,6 +15,15 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     label: "智谱 GLM",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     defaultModel: "glm-4-flash",
+    models: [
+      "glm-4-flash",
+      "glm-4-plus",
+      "glm-4-air",
+      "glm-4-airx",
+      "glm-4-long",
+      "glm-4v-flash",
+      "glm-z1-flash",
+    ],
     needsKey: true,
   },
   {
@@ -21,6 +31,7 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     label: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
     defaultModel: "deepseek-chat",
+    models: ["deepseek-chat", "deepseek-reasoner"],
     needsKey: true,
   },
   {
@@ -28,6 +39,13 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     label: "通义千问",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     defaultModel: "qwen-plus",
+    models: [
+      "qwen-plus",
+      "qwen-turbo",
+      "qwen-max",
+      "qwen-long",
+      "qwen2.5-72b-instruct",
+    ],
     needsKey: true,
   },
   {
@@ -35,6 +53,7 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     label: "Kimi",
     baseUrl: "https://api.moonshot.cn/v1",
     defaultModel: "moonshot-v1-8k",
+    models: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
     needsKey: true,
   },
   {
@@ -42,6 +61,12 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     label: "Gemini",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     defaultModel: "gemini-2.0-flash",
+    models: [
+      "gemini-2.0-flash",
+      "gemini-2.5-flash",
+      "gemini-2.5-pro",
+      "gemini-1.5-flash",
+    ],
     needsKey: true,
   },
   {
@@ -49,6 +74,7 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     label: "OpenAI",
     baseUrl: "https://api.openai.com/v1",
     defaultModel: "gpt-4o-mini",
+    models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1", "o3-mini"],
     needsKey: true,
   },
   {
@@ -56,6 +82,12 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     label: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",
     defaultModel: "anthropic/claude-3.5-sonnet",
+    models: [
+      "anthropic/claude-3.5-sonnet",
+      "openai/gpt-4o-mini",
+      "google/gemini-2.0-flash-001",
+      "deepseek/deepseek-chat",
+    ],
     needsKey: true,
   },
   {
@@ -63,9 +95,59 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     label: "Ollama 本地",
     baseUrl: "http://localhost:11434/v1",
     defaultModel: "qwen2.5:7b",
+    models: ["qwen2.5:7b", "deepseek-r1:8b", "llama3.2:latest", "gemma2:9b"],
     needsKey: false,
   },
 ];
+
+export const DEFAULT_AI_CONFIG: AIConfig = {
+  baseUrl: AI_PROVIDER_PRESETS[0].baseUrl,
+  apiKey: "",
+  model: AI_PROVIDER_PRESETS[0].defaultModel,
+};
+
+/**
+ * Detect provider from unmistakable API key signatures so pasting a Zhipu /
+ * Gemini / OpenRouter key never accidentally routes to OpenAI.
+ */
+export function detectProviderFromApiKey(
+  apiKey: string
+): AIProviderPreset | null {
+  const trimmed = apiKey.trim();
+  if (!trimmed) return null;
+  // Zhipu GLM keys have the format: <hex_id>.<secret> (e.g. 32 hex chars + '.' + 16 chars)
+  if (/^[0-9a-f]{24,64}\.[A-Za-z0-9_-]{8,}$/i.test(trimmed)) {
+    return AI_PROVIDER_PRESETS.find((p) => p.id === "zhipu") ?? null;
+  }
+  // Google Gemini API keys start with AIza
+  if (/^AIza[0-9A-Za-z_-]{20,}$/.test(trimmed)) {
+    return AI_PROVIDER_PRESETS.find((p) => p.id === "gemini") ?? null;
+  }
+  // OpenRouter keys start with sk-or-v1-
+  if (/^sk-or-v1-[0-9a-f]{24,}$/i.test(trimmed)) {
+    return AI_PROVIDER_PRESETS.find((p) => p.id === "openrouter") ?? null;
+  }
+  return null;
+}
+
+export function resolveEffectiveAIConfig(config: AIConfig): AIConfig {
+  let baseUrl = (config.baseUrl || "").trim().replace(/\/+$/, "");
+  let model = (config.model || "").trim();
+  const apiKey = (config.apiKey || "").trim();
+
+  const detected = detectProviderFromApiKey(apiKey);
+  if (
+    detected &&
+    (!baseUrl || baseUrl.toLowerCase().includes("api.openai.com"))
+  ) {
+    baseUrl = detected.baseUrl;
+    if (!model || /^gpt-|^o[13]-/i.test(model)) {
+      model = detected.defaultModel;
+    }
+  }
+
+  return { baseUrl, apiKey, model };
+}
 
 export interface AIBreakdownTask {
   title: string;
@@ -89,9 +171,10 @@ async function callChatCompletion(
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
-  const baseUrl = (config.baseUrl || "").trim().replace(/\/+$/, "");
-  const model = (config.model || "").trim();
-  const apiKey = (config.apiKey || "").trim();
+  const resolved = resolveEffectiveAIConfig(config);
+  const baseUrl = resolved.baseUrl;
+  const model = resolved.model;
+  const apiKey = resolved.apiKey;
   if (!baseUrl || !model) {
     throw new Error("请先在「设置 → AI 模型」中配置接口地址与模型名称");
   }
@@ -253,8 +336,13 @@ function extractModelIds(payload: unknown): string[] {
 export async function fetchAvailableModels(
   config: Pick<AIConfig, "baseUrl" | "apiKey">
 ): Promise<string[]> {
-  const baseUrl = (config.baseUrl || "").trim().replace(/\/+$/, "");
-  const apiKey = (config.apiKey || "").trim();
+  const resolved = resolveEffectiveAIConfig({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    model: "",
+  });
+  const baseUrl = resolved.baseUrl;
+  const apiKey = resolved.apiKey;
   if (!baseUrl) {
     throw new Error("请先填写 Base URL");
   }
