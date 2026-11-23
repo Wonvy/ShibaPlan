@@ -1,6 +1,6 @@
 [package]
 name = "shibaplan"
-version = "0.1.0"
+version = "0.2.0"
 description = "ShibaPlan - Cross-platform workspace for Design, Dev, Eval & AI-ready Idea Capture"
 authors = ["ShibaPlan"]
 edition = "2021"
@@ -22,3 +22,4 @@ serde_json = "1"
 dirs = "5"
 base64 = "0.22"
 chrono = "0.4"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif"] }

@@ -143,6 +143,46 @@ fn load_workspace_data(custom_dir: Option<String>) -> Result<Option<String>, Str
         .map_err(|e| format!("读取数据失败: {}", e))
 }
 
+#[derive(Serialize)]
+struct WorkspaceSnapshotInfo {
+    name: String,
+    date: String,
+    size: u64,
+    path: String,
+}
+
+fn save_daily_snapshot_if_needed(dir: &PathBuf, data_json: &str) {
+    let backups_dir = dir.join("backups");
+    if fs::create_dir_all(&backups_dir).is_err() {
+        return;
+    }
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let snap_path = backups_dir.join(format!("workspace-{}.json", today));
+    // Write today's snapshot once per day (or if empty)
+    if !snap_path.is_file() {
+        let _ = fs::write(&snap_path, data_json);
+    }
+    // Prune older snapshots, retaining the latest 7
+    if let Ok(rd) = fs::read_dir(&backups_dir) {
+        let mut files: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("workspace-") && n.ends_with(".json"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        files.sort();
+        if files.len() > 7 {
+            for old in &files[..files.len() - 7] {
+                let _ = fs::remove_file(old);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn save_workspace_data(
     app: AppHandle,
@@ -153,8 +193,51 @@ fn save_workspace_data(
     fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录失败: {}", e))?;
     let file_path = dir.join("shibaplan-data.json");
     fs::write(&file_path, &data_json).map_err(|e| format!("保存数据失败: {}", e))?;
+    save_daily_snapshot_if_needed(&dir, &data_json);
     let _ = app.emit("workspace-updated", &data_json);
     Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn list_workspace_snapshots(
+    custom_dir: Option<String>,
+) -> Result<Vec<WorkspaceSnapshotInfo>, String> {
+    let backups_dir = resolve_data_dir(custom_dir).join("backups");
+    if !backups_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut items: Vec<WorkspaceSnapshotInfo> = Vec::new();
+    if let Ok(rd) = fs::read_dir(&backups_dir) {
+        for entry in rd.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with("workspace-") || !name.ends_with(".json") {
+                continue;
+            }
+            let date = name
+                .trim_start_matches("workspace-")
+                .trim_end_matches(".json")
+                .to_string();
+            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            items.push(WorkspaceSnapshotInfo {
+                name,
+                date,
+                size,
+                path: path.to_string_lossy().to_string(),
+            });
+        }
+    }
+    items.sort_by(|a, b| b.date.cmp(&a.date));
+    Ok(items)
+}
+
+#[tauri::command]
+fn restore_workspace_snapshot(snapshot_path: String) -> Result<String, String> {
+    let p = PathBuf::from(snapshot_path.trim());
+    if !p.is_file() {
+        return Err("快照文件不存在".to_string());
+    }
+    fs::read_to_string(&p).map_err(|e| format!("读取快照失败: {}", e))
 }
 
 #[tauri::command]
@@ -813,21 +896,84 @@ async fn pick_folder_path(app: AppHandle) -> Result<Option<String>, String> {
     Ok(picked.and_then(|fp| fp.into_path().ok()).map(|p| p.to_string_lossy().to_string()))
 }
 
+fn hash_thumb_key(path: &str, mtime_ms: u64) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    path.hash(&mut h);
+    mtime_ms.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
 #[tauri::command]
-fn read_archive_thumbnail(path: String) -> Result<String, String> {
+fn read_archive_thumbnail(path: String, custom_dir: Option<String>) -> Result<String, String> {
     let p = PathBuf::from(path.trim());
     if !p.is_file() {
         return Err("缩略图文件不存在".to_string());
     }
     let meta = fs::metadata(&p).map_err(|e| e.to_string())?;
-    if meta.len() > 15_000_000 {
+    if meta.len() > 20_000_000 {
         return Err("图片过大".to_string());
     }
-    let bytes = fs::read(&p).map_err(|e| e.to_string())?;
     let ext = p
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
+
+    // SVG and small images (< 80 KB) are already fast without transcoding
+    if ext == "svg" || meta.len() <= 80_000 {
+        let bytes = fs::read(&p).map_err(|e| e.to_string())?;
+        let mime = match ext.as_str() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "webp" => "image/webp",
+            "gif" => "image/gif",
+            "bmp" => "image/bmp",
+            "svg" => "image/svg+xml",
+            "avif" => "image/avif",
+            _ => "application/octet-stream",
+        };
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        return Ok(format!("data:{};base64,{}", mime, encoded));
+    }
+
+    // Disk-cached compressed 360px JPEG thumbnail for fast cold startup & low RAM
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let thumbs_dir = resolve_data_dir(custom_dir).join("thumbs");
+    let cache_file = thumbs_dir.join(format!("{}.jpg", hash_thumb_key(path.trim(), mtime_ms)));
+
+    if cache_file.is_file() {
+        if let Ok(cached_bytes) = fs::read(&cache_file) {
+            let encoded = base64::engine::general_purpose::STANDARD.encode(cached_bytes);
+            return Ok(format!("data:image/jpeg;base64,{}", encoded));
+        }
+    }
+
+    // Generate & save 360px JPEG thumbnail on first miss
+    if let Ok(img) = image::open(&p) {
+        let thumb = img.thumbnail(360, 360);
+        let mut out_bytes: Vec<u8> = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut out_bytes);
+        if thumb
+            .to_rgb8()
+            .write_to(&mut cursor, image::ImageFormat::Jpeg)
+            .is_ok()
+        {
+            if fs::create_dir_all(&thumbs_dir).is_ok() {
+                let _ = fs::write(&cache_file, &out_bytes);
+            }
+            let encoded = base64::engine::general_purpose::STANDARD.encode(out_bytes);
+            return Ok(format!("data:image/jpeg;base64,{}", encoded));
+        }
+    }
+
+    // Fallback to raw bytes if image decoding fails (e.g. unsupported avif variant)
+    let bytes = fs::read(&p).map_err(|e| e.to_string())?;
     let mime = match ext.as_str() {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
@@ -1066,6 +1212,41 @@ fn trigger_seer_preview(target_path: String) -> Result<String, String> {
     }
 
     Ok("builtin".to_string())
+}
+
+#[tauri::command]
+fn reveal_path_in_os(target_path: String) -> Result<(), String> {
+    let p = PathBuf::from(target_path.trim());
+    if !p.exists() {
+        return Err("目标路径不存在".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(format!("/select,{}", p.to_string_lossy()))
+            .spawn()
+            .map_err(|e| format!("定位文件失败: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", &p.to_string_lossy()])
+            .spawn()
+            .map_err(|e| format!("定位文件失败: {}", e))?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let parent = p.parent().unwrap_or(&p);
+        Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {}", e))?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -1673,6 +1854,8 @@ pub fn run() {
             get_default_data_dir,
             load_workspace_data,
             save_workspace_data,
+            list_workspace_snapshots,
+            restore_workspace_snapshot,
             save_pasted_image,
             export_idea_markdown,
             inspect_path,
@@ -1688,6 +1871,7 @@ pub fn run() {
             read_app_logs,
             clear_app_logs,
             get_log_file_path,
+            reveal_path_in_os,
             open_path_in_os,
             get_lan_server_info,
             start_lan_server,

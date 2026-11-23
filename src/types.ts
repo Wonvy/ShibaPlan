@@ -130,6 +130,7 @@ export interface AppSettings {
   ai?: AIConfig;
   projectArchiveDirs?: ProjectArchiveDir[];
   projectDateMode?: ProjectDateMode;
+  starredProjects?: string[];
 }
 
 export interface WorkspaceData {

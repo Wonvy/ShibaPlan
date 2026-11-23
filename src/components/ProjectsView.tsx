@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Copy,
   ExternalLink,
   Eye,
   File,
@@ -15,6 +16,7 @@ import {
   FolderPlus,
   HardDrive,
   Image as ImageIcon,
+  Kanban,
   LayoutGrid,
   List,
   Loader2,
@@ -22,9 +24,17 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Star,
   X,
 } from "lucide-react";
-import { ProjectArchiveDir, WorkspaceData } from "../types";
+import {
+  COLUMN_COLORS,
+  EFFORT_MINUTES,
+  ProjectArchiveDir,
+  TaskItem,
+  WorkspaceData,
+} from "../types";
+import { revealPathInOs, uid } from "../lib/storage";
 import {
   ExplorerEntry,
   getMemoryArchiveCache,
@@ -45,6 +55,7 @@ import { Button } from "./ui/button";
 
 interface ProjectsViewProps {
   workspace: WorkspaceData;
+  onUpdate: (next: WorkspaceData) => void;
   onOpenProjectSettings: () => void;
   onStatusChange?: (text: string | null) => void;
   onNotify: (msg: string) => void;
@@ -230,6 +241,7 @@ const ProjectThumbnail: React.FC<{
 
 export const ProjectsView: React.FC<ProjectsViewProps> = ({
   workspace,
+  onUpdate,
   onOpenProjectSettings,
   onStatusChange,
   onNotify,
@@ -291,14 +303,91 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       // ignore
     }
   };
-  const [selectedYear, setSelectedYear] = useState<number | "all" | "unknown">(
-    "all"
-  );
+  const [selectedYear, setSelectedYear] = useState<
+    number | "all" | "unknown" | "starred"
+  >("all");
   const [selectedMonth, setSelectedMonth] = useState<number | "all">("all");
   const [renderLimit, setRenderLimit] = useState(160);
   const [expandedProjectPath, setExpandedProjectPath] = useState<string | null>(
     null
   );
+  const [explorerMenu, setExplorerMenu] = useState<{
+    entry: ExplorerEntry;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const starredSet = useMemo(
+    () => new Set(workspace.settings.starredProjects ?? []),
+    [workspace.settings.starredProjects]
+  );
+
+  const toggleStarProject = useCallback(
+    (projectPath: string) => {
+      const current = workspace.settings.starredProjects ?? [];
+      const exists = current.includes(projectPath);
+      const next = exists
+        ? current.filter((p) => p !== projectPath)
+        : [projectPath, ...current];
+      onUpdate({
+        ...workspace,
+        settings: {
+          ...workspace.settings,
+          starredProjects: next,
+        },
+      });
+    },
+    [workspace, onUpdate]
+  );
+
+  const sendEntryToKanban = useCallback(
+    (entry: ExplorerEntry) => {
+      let columns = workspace.columns;
+      let targetColId = columns[0]?.id;
+      if (!targetColId) {
+        targetColId = uid("col");
+        columns = [
+          {
+            id: targetColId,
+            title: "待办",
+            color: COLUMN_COLORS[0],
+          },
+        ];
+      }
+      const newTask: TaskItem = {
+        id: uid("task"),
+        title: entry.name,
+        notes: entry.path,
+        columnId: targetColId,
+        importance: 2,
+        effort: "S",
+        estimatedMinutes: EFFORT_MINUTES.S,
+        actualMinutes: 0,
+        status: "todo",
+        folderPath: entry.is_dir ? entry.path : undefined,
+        filePath: entry.is_dir ? undefined : entry.path,
+        createdAt: new Date().toISOString(),
+      };
+      onUpdate({
+        ...workspace,
+        columns,
+        tasks: [newTask, ...workspace.tasks],
+      });
+      onNotify(`已发送到看板：${entry.name}`);
+    },
+    [workspace, onUpdate, onNotify]
+  );
+
+  useEffect(() => {
+    if (!explorerMenu) return;
+    const close = () => setExplorerMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("contextmenu", close);
+    };
+  }, [explorerMenu]);
 
   // Right-side Embedded Project Explorer + Seer Spacebar Preview state
   const [explorerOpen, setExplorerOpen] = useState(true);
@@ -767,6 +856,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       if (effectiveScope === "projects" && !item.is_project) return false;
       if (effectiveScope === "files" && item.is_dir) return false;
       if (selectedRoot !== "all" && item.root_path !== selectedRoot) return false;
+      if (selectedYear === "starred" && !starredSet.has(item.path)) return false;
       if (selectedYear === "unknown" && item.year !== null) return false;
       if (typeof selectedYear === "number" && item.year !== selectedYear)
         return false;
@@ -774,7 +864,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         return false;
       return true;
     });
-  }, [effectiveItems, effectiveScope, selectedRoot, selectedYear, selectedMonth]);
+  }, [
+    effectiveItems,
+    effectiveScope,
+    selectedRoot,
+    selectedYear,
+    selectedMonth,
+    starredSet,
+  ]);
 
   // Everything-style search
   const { items: matchedItems, highlightTerms } = useMemo(
@@ -1399,6 +1496,29 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   {timelineStats.totalProjects}
                 </span>
               </button>
+
+              {starredSet.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedYear("starred");
+                    setSelectedMonth("all");
+                  }}
+                  className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors ${
+                    selectedYear === "starred"
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Star className="h-3 w-3 fill-current" />
+                    已收藏
+                  </span>
+                  <span className="font-mono text-xs opacity-80">
+                    {projectsByRoot.filter((p) => starredSet.has(p.path)).length}
+                  </span>
+                </button>
+              )}
 
               {timelineStats.years.map(({ year, total, months }) => {
                 const yearActive = selectedYear === year;
@@ -2049,17 +2169,44 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               >
                                 {item.displayTitle}
                               </div>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openArchivePath(item.path);
-                                }}
-                                className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
-                                title="打开项目文件夹"
-                              >
-                                <FolderOpen className="h-3.5 w-3.5" />
-                              </button>
+                              <div className="flex shrink-0 items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleStarProject(item.path);
+                                  }}
+                                  className={`rounded-md p-1 transition hover:bg-accent ${
+                                    starredSet.has(item.path)
+                                      ? "text-primary opacity-100"
+                                      : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground"
+                                  }`}
+                                  title={
+                                    starredSet.has(item.path)
+                                      ? "取消收藏"
+                                      : "收藏项目"
+                                  }
+                                >
+                                  <Star
+                                    className={`h-3.5 w-3.5 ${
+                                      starredSet.has(item.path)
+                                        ? "fill-current"
+                                        : ""
+                                    }`}
+                                  />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openArchivePath(item.path);
+                                  }}
+                                  className="rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                                  title="打开项目文件夹"
+                                >
+                                  <FolderOpen className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </div>
 
                             <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -2243,6 +2390,17 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                               setSelectedExplorerPath(entry.path);
                               setSelectionFocus("explorer");
                             }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedExplorerPath(entry.path);
+                              setSelectionFocus("explorer");
+                              setExplorerMenu({
+                                entry,
+                                x: Math.min(e.clientX, window.innerWidth - 210),
+                                y: Math.min(e.clientY, window.innerHeight - 190),
+                              });
+                            }}
                             onDoubleClick={() => {
                               if (entry.is_dir) {
                                 setExplorerPath(entry.path);
@@ -2296,6 +2454,17 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             onClick={() => {
                               setSelectedExplorerPath(entry.path);
                               setSelectionFocus("explorer");
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedExplorerPath(entry.path);
+                              setSelectionFocus("explorer");
+                              setExplorerMenu({
+                                entry,
+                                x: Math.min(e.clientX, window.innerWidth - 210),
+                                y: Math.min(e.clientY, window.innerHeight - 190),
+                              });
                             }}
                             onDoubleClick={() => {
                               if (entry.is_dir) {
@@ -2364,6 +2533,78 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               </aside>
             </>
           )}
+        </div>
+      )}
+
+      {/* Right Explorer File Context Menu */}
+      {explorerMenu && (
+        <div
+          style={{ left: explorerMenu.x, top: explorerMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-50 w-48 rounded-xl bg-popover p-1.5 text-xs text-popover-foreground shadow-popover-soft"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              const ent = explorerMenu.entry;
+              setExplorerMenu(null);
+              handleTriggerPreview(ent);
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-accent"
+          >
+            <Eye className="h-3.5 w-3.5 text-primary" />
+            <span>Seer / 快速预览</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const ent = explorerMenu.entry;
+              setExplorerMenu(null);
+              openArchivePath(ent.path);
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-accent"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            <span>用默认程序打开</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const ent = explorerMenu.entry;
+              setExplorerMenu(null);
+              revealPathInOs(ent.path).catch(() => {});
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-accent"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>在资源管理器中定位</span>
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const ent = explorerMenu.entry;
+              setExplorerMenu(null);
+              await navigator.clipboard.writeText(ent.path).catch(() => {});
+              onNotify("已复制完整路径");
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-accent"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            <span>复制完整路径</span>
+          </button>
+          <div className="my-1 h-px bg-border/60" />
+          <button
+            type="button"
+            onClick={() => {
+              const ent = explorerMenu.entry;
+              setExplorerMenu(null);
+              sendEntryToKanban(ent);
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-primary hover:bg-accent"
+          >
+            <Kanban className="h-3.5 w-3.5" />
+            <span>发送到看板作为任务</span>
+          </button>
         </div>
       )}
 

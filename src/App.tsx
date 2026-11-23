@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowDownToLine,
   BookOpen,
@@ -40,12 +47,8 @@ import {
 import { CustomLocalePack, I18nProvider, useI18n } from "./lib/i18n";
 import { QuickCapture } from "./components/QuickCapture";
 import { KanbanBoard } from "./components/KanbanBoard";
-import { CalendarView } from "./components/CalendarView";
-import { ProjectsView } from "./components/ProjectsView";
 import { IdeaRiver } from "./components/IdeaRiver";
-import { CommandPalette } from "./components/CommandPalette";
-import { LanShareDialog } from "./components/LanShareDialog";
-import { SettingsDialog, SettingsTabId } from "./components/SettingsDialog";
+import type { SettingsTabId } from "./components/SettingsDialog";
 import { Button } from "./components/ui/button";
 import { Separator } from "./components/ui/separator";
 import {
@@ -54,6 +57,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./components/ui/dialog";
+
+const CalendarView = lazy(() =>
+  import("./components/CalendarView").then((m) => ({ default: m.CalendarView }))
+);
+const ProjectsView = lazy(() =>
+  import("./components/ProjectsView").then((m) => ({ default: m.ProjectsView }))
+);
+const CommandPalette = lazy(() =>
+  import("./components/CommandPalette").then((m) => ({
+    default: m.CommandPalette,
+  }))
+);
+const LanShareDialog = lazy(() =>
+  import("./components/LanShareDialog").then((m) => ({
+    default: m.LanShareDialog,
+  }))
+);
+const SettingsDialog = lazy(() =>
+  import("./components/SettingsDialog").then((m) => ({
+    default: m.SettingsDialog,
+  }))
+);
 
 type TopView = "projects" | "kanban" | "calendar";
 
@@ -359,7 +384,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   const [aiPlanError, setAiPlanError] = useState<string | null>(null);
 
   // Version & Online Update state
-  const [appVersion, setAppVersion] = useState("0.1.0");
+  const [appVersion, setAppVersion] = useState("0.2.0");
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
@@ -729,21 +754,30 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
       ) : (
         <div className="flex flex-1 flex-col overflow-hidden">
           <main className="flex-1 overflow-hidden">
-            {view === "projects" ? (
-              <ProjectsView
-                workspace={workspace}
-                onOpenProjectSettings={() => {
-                  setSettingsTab("projects");
-                  setSettingsOpen(true);
-                }}
-                onStatusChange={setProjectStatusText}
-                onNotify={onNotify}
-              />
-            ) : view === "kanban" ? (
-              <KanbanBoard workspace={workspace} onUpdate={onUpdate} />
-            ) : (
-              <CalendarView workspace={workspace} onUpdate={onUpdate} />
-            )}
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                  {t("common.loading")}
+                </div>
+              }
+            >
+              {view === "projects" ? (
+                <ProjectsView
+                  workspace={workspace}
+                  onUpdate={onUpdate}
+                  onOpenProjectSettings={() => {
+                    setSettingsTab("projects");
+                    setSettingsOpen(true);
+                  }}
+                  onStatusChange={setProjectStatusText}
+                  onNotify={onNotify}
+                />
+              ) : view === "kanban" ? (
+                <KanbanBoard workspace={workspace} onUpdate={onUpdate} />
+              ) : (
+                <CalendarView workspace={workspace} onUpdate={onUpdate} />
+              )}
+            </Suspense>
           </main>
           {view !== "projects" && (
             <IdeaRiver workspace={workspace} onUpdate={onUpdate} />
@@ -856,24 +890,29 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
         </div>
       </footer>
 
-      {/* LAN Access & Mobile QR Share Dialog */}
-      <LanShareDialog
-        open={lanShareOpen}
-        onOpenChange={setLanShareOpen}
-        customDataDir={workspace.settings.customDataDir}
-      />
+      {/* Lazy-Loaded Modal Dialogs */}
+      <Suspense fallback={null}>
+        {lanShareOpen && (
+          <LanShareDialog
+            open={lanShareOpen}
+            onOpenChange={setLanShareOpen}
+            customDataDir={workspace.settings.customDataDir}
+          />
+        )}
 
-      {/* Global Command Palette (Ctrl + K) */}
-      <CommandPalette
-        open={commandOpen}
-        onOpenChange={setCommandOpen}
-        workspace={workspace}
-        onUpdate={onUpdate}
-        onSwitchView={setView}
-        onOpenAiPlan={handleOpenAiPlan}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onNotify={onNotify}
-      />
+        {commandOpen && (
+          <CommandPalette
+            open={commandOpen}
+            onOpenChange={setCommandOpen}
+            workspace={workspace}
+            onUpdate={onUpdate}
+            onSwitchView={setView}
+            onOpenAiPlan={handleOpenAiPlan}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onNotify={onNotify}
+          />
+        )}
+      </Suspense>
 
       {/* Online Update Dialog */}
       <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
@@ -997,22 +1036,26 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
       </Dialog>
 
       {/* Tabbed Settings Dialog */}
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        initialTab={settingsTab}
-        workspace={workspace}
-        onUpdate={onUpdate}
-        defaultDir={defaultDir}
-        appVersion={appVersion}
-        updateInfo={updateInfo}
-        checkingUpdate={checkingUpdate}
-        onCheckUpdate={() => runUpdateCheck(false)}
-        onOpenUpdateDialog={() => setUpdateDialogOpen(true)}
-        onExportBackup={handleExportWorkspaceBackup}
-        onImportBackup={handleImportWorkspaceBackup}
-        onNotify={onNotify}
-      />
+      <Suspense fallback={null}>
+        {settingsOpen && (
+          <SettingsDialog
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            initialTab={settingsTab}
+            workspace={workspace}
+            onUpdate={onUpdate}
+            defaultDir={defaultDir}
+            appVersion={appVersion}
+            updateInfo={updateInfo}
+            checkingUpdate={checkingUpdate}
+            onCheckUpdate={() => runUpdateCheck(false)}
+            onOpenUpdateDialog={() => setUpdateDialogOpen(true)}
+            onExportBackup={handleExportWorkspaceBackup}
+            onImportBackup={handleImportWorkspaceBackup}
+            onNotify={onNotify}
+          />
+        )}
+      </Suspense>
     </div>
   );
 };

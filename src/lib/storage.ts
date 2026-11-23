@@ -64,6 +64,7 @@ export function createDefaultWorkspace(): WorkspaceData {
       },
       projectArchiveDirs: [],
       projectDateMode: "name_first",
+      starredProjects: [],
     },
   };
 }
@@ -114,6 +115,9 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
         raw.settings?.projectDateMode === "name_only"
           ? raw.settings.projectDateMode
           : "name_first",
+      starredProjects: Array.isArray(raw.settings?.starredProjects)
+        ? raw.settings.starredProjects
+        : [],
     },
   };
 }
@@ -124,6 +128,43 @@ export async function getDefaultDataDir(): Promise<string> {
     return await invoke<string>("get_default_data_dir");
   }
   return "~/Documents/ShibaPlan";
+}
+
+export interface WorkspaceSnapshotInfo {
+  name: string;
+  date: string;
+  size: number;
+  path: string;
+}
+
+export async function listWorkspaceSnapshots(
+  customDataDir?: string
+): Promise<WorkspaceSnapshotInfo[]> {
+  if (!isTauriRuntime()) return [];
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<WorkspaceSnapshotInfo[]>("list_workspace_snapshots", {
+      customDir: customDataDir?.trim() || null,
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function restoreWorkspaceSnapshot(
+  snapshotPath: string
+): Promise<WorkspaceData> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const raw = await invoke<string>("restore_workspace_snapshot", {
+    snapshotPath,
+  });
+  return normalizeWorkspace(JSON.parse(raw) as Partial<WorkspaceData>);
+}
+
+export async function revealPathInOs(targetPath: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("reveal_path_in_os", { targetPath });
 }
 
 export interface LanInterface {

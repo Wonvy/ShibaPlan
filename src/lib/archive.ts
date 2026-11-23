@@ -609,7 +609,8 @@ function releaseThumbSlot(): void {
 }
 
 export async function loadArchiveThumbnail(
-  filePath: string
+  filePath: string,
+  customDataDir?: string
 ): Promise<string | null> {
   if (!filePath) return null;
   if (thumbnailCache.has(filePath)) {
@@ -625,6 +626,7 @@ export async function loadArchiveThumbnail(
         const { invoke } = await import("@tauri-apps/api/core");
         const dataUrl = await invoke<string>("read_archive_thumbnail", {
           path: filePath,
+          customDir: customDataDir?.trim() || null,
         });
         thumbnailCache.set(filePath, dataUrl);
         return dataUrl;

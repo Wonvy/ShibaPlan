@@ -45,7 +45,14 @@ import {
   getLogFilePath,
   readAppLogs,
 } from "../lib/logger";
-import { isTauriRuntime, openPathInOs, uid } from "../lib/storage";
+import {
+  isTauriRuntime,
+  listWorkspaceSnapshots,
+  openPathInOs,
+  restoreWorkspaceSnapshot,
+  uid,
+  WorkspaceSnapshotInfo,
+} from "../lib/storage";
 import { UpdateCheckResult } from "../lib/updater";
 import { useI18n } from "../lib/i18n";
 import { Button } from "./ui/button";
@@ -144,6 +151,15 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
+  const [snapshots, setSnapshots] = useState<WorkspaceSnapshotInfo[]>([]);
+
+  useEffect(() => {
+    if (open && activeTab === "data" && isTauriRuntime()) {
+      listWorkspaceSnapshots(workspace.settings.customDataDir).then(
+        setSnapshots
+      );
+    }
+  }, [open, activeTab, workspace.settings.customDataDir]);
 
   // Project Archive Folders state
   const archiveDirs = workspace.settings.projectArchiveDirs ?? [];
@@ -1276,6 +1292,53 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       className="hidden"
                     />
                   </div>
+
+                  {/* Automatic Daily Snapshots (Last 7 Days) */}
+                  {isTauriRuntime() && snapshots.length > 0 && (
+                    <div className="pt-2 space-y-1.5">
+                      <div className="text-xs font-medium text-muted-foreground">
+                        每日自动快照（自动保留近 7 天）
+                      </div>
+                      <div className="max-h-36 space-y-1 overflow-y-auto">
+                        {snapshots.map((snap) => (
+                          <div
+                            key={snap.path}
+                            className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-1.5 text-xs"
+                          >
+                            <span className="font-mono text-foreground">
+                              {snap.date}
+                            </span>
+                            <span className="font-mono text-muted-foreground">
+                              {(snap.size / 1024).toFixed(1)} KB
+                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  const restored =
+                                    await restoreWorkspaceSnapshot(snap.path);
+                                  onUpdate(restored);
+                                  onNotify(`已恢复 ${snap.date} 快照`);
+                                  onOpenChange(false);
+                                } catch (err) {
+                                  onNotify(
+                                    err instanceof Error
+                                      ? err.message
+                                      : "恢复快照失败"
+                                  );
+                                }
+                              }}
+                              className="h-6 px-2 text-xs text-primary"
+                            >
+                              恢复
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
