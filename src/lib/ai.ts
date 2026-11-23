@@ -73,6 +73,17 @@ export interface AIBreakdownTask {
   effort: EffortSize;
 }
 
+function isLocalEndpoint(baseUrl: string): boolean {
+  const lower = baseUrl.toLowerCase();
+  return (
+    lower.includes("localhost") ||
+    lower.includes("127.0.0.1") ||
+    lower.includes("0.0.0.0") ||
+    lower.includes("192.168.") ||
+    lower.includes("10.")
+  );
+}
+
 async function callChatCompletion(
   config: AIConfig,
   systemPrompt: string,
@@ -80,15 +91,21 @@ async function callChatCompletion(
 ): Promise<string> {
   const baseUrl = (config.baseUrl || "").trim().replace(/\/+$/, "");
   const model = (config.model || "").trim();
+  const apiKey = (config.apiKey || "").trim();
   if (!baseUrl || !model) {
-    throw new Error("请先在设置中配置 AI 接口地址与模型名称");
+    throw new Error("请先在「设置 → AI 模型」中配置接口地址与模型名称");
+  }
+  if (!apiKey && !isLocalEndpoint(baseUrl)) {
+    throw new Error(
+      "尚未填写 API Key，请前往「设置 → AI 模型」选择平台（如智谱 GLM / DeepSeek）并填写 API Key 后保存"
+    );
   }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (config.apiKey?.trim()) {
-    headers["Authorization"] = `Bearer ${config.apiKey.trim()}`;
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -229,15 +246,19 @@ export async function fetchAvailableModels(
   config: Pick<AIConfig, "baseUrl" | "apiKey">
 ): Promise<string[]> {
   const baseUrl = (config.baseUrl || "").trim().replace(/\/+$/, "");
+  const apiKey = (config.apiKey || "").trim();
   if (!baseUrl) {
     throw new Error("请先填写 Base URL");
+  }
+  if (!apiKey && !isLocalEndpoint(baseUrl)) {
+    throw new Error("请先填写该平台的 API Key 后再自动获取模型列表");
   }
 
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
-  if (config.apiKey?.trim()) {
-    headers["Authorization"] = `Bearer ${config.apiKey.trim()}`;
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
   const candidates = [`${baseUrl}/models`];
