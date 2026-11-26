@@ -1,6 +1,6 @@
 [package]
 name = "shibaplan"
-version = "0.2.3"
+version = "0.2.4"
 description = "ShibaPlan - Cross-platform workspace for Design, Dev, Eval & AI-ready Idea Capture"
 authors = ["ShibaPlan"]
 edition = "2021"
@@ -17,6 +17,8 @@ tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "5"

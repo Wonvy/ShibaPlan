@@ -2521,6 +2521,44 @@ fn open_capture_window(app: AppHandle) {
     toggle_capture(&app);
 }
 
+#[tauri::command]
+async fn open_external_url(url: String) -> Result<(), String> {
+    run_blocking(move || open_external_url_impl(url)).await
+}
+
+fn open_external_url_impl(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
+        return Err("仅支持打开 http/https 链接".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", trimmed])
+            .spawn()
+            .map_err(|e| format!("打开外部链接失败: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|e| format!("打开外部链接失败: {}", e))?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|e| format!("打开外部链接失败: {}", e))?;
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Capture any unexpected native Rust panic into logs/shibaplan.log
@@ -2537,6 +2575,8 @@ pub fn run() {
             show_main(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(LanServerState::default())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -2692,6 +2732,7 @@ pub fn run() {
             get_log_file_path,
             reveal_path_in_os,
             open_path_in_os,
+            open_external_url,
             get_lan_server_info,
             start_lan_server,
             stop_lan_server,

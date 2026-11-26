@@ -46,7 +46,10 @@ import { setLoggerCustomDataDir } from "./lib/logger";
 import {
   checkForUpdates,
   getCurrentAppVersion,
-  UpdateCheckResult,
+  installPendingUpdate,
+  openExternalUrl,
+  type UpdateCheckResult,
+  type UpdateDownloadProgress,
 } from "./lib/updater";
 import { CustomLocalePack, I18nProvider, useI18n } from "./lib/i18n";
 import type { SettingsTabId } from "./components/SettingsDialog";
@@ -426,6 +429,26 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [updatingApp, setUpdatingApp] = useState(false);
+  const [updateProgress, setUpdateProgress] =
+    useState<UpdateDownloadProgress | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  const handleInstallUpdate = useCallback(async () => {
+    setUpdatingApp(true);
+    setUpdateError(null);
+    setUpdateProgress({ phase: "downloading", downloadedBytes: 0, percent: 0 });
+    try {
+      await installPendingUpdate((progress) => {
+        setUpdateProgress(progress);
+      });
+    } catch (err) {
+      setUpdateError(
+        err instanceof Error ? err.message : "自动更新失败，请尝试手动下载安装包"
+      );
+      setUpdatingApp(false);
+    }
+  }, []);
 
   const runUpdateCheck = useCallback(
     async (silent = false) => {
@@ -982,7 +1005,18 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
       </Suspense>
 
       {/* Online Update Dialog */}
-      <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
+      <Dialog
+        open={updateDialogOpen}
+        onOpenChange={(open) => {
+          if (!updatingApp) {
+            setUpdateDialogOpen(open);
+            if (!open) {
+              setUpdateError(null);
+              setUpdateProgress(null);
+            }
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1009,35 +1043,91 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
               </div>
             )}
 
+            {updatingApp && updateProgress && (
+              <div className="space-y-1.5 rounded-xl bg-primary/8 px-3 py-2.5">
+                <div className="flex items-center justify-between text-[11px] font-medium text-primary">
+                  <span>
+                    {updateProgress.phase === "downloading"
+                      ? "正在下载更新包..."
+                      : updateProgress.phase === "installing"
+                        ? "正在安装更新..."
+                        : "更新完成，正在重启应用..."}
+                  </span>
+                  {typeof updateProgress.percent === "number" && (
+                    <span className="font-mono">{updateProgress.percent}%</span>
+                  )}
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-200"
+                    style={{
+                      width: `${updateProgress.percent ?? 35}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {updateError && (
+              <div className="rounded-xl bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+                {updateError}
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-2 pt-2">
               <Button
                 variant="ghost"
                 size="sm"
+                disabled={updatingApp}
                 onClick={() => setUpdateDialogOpen(false)}
               >
                 稍后提醒
               </Button>
               {updateInfo?.releaseUrl && (
-                <a
-                  href={updateInfo.releaseUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-secondary px-2.5 text-xs font-medium text-secondary-foreground hover:bg-accent"
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={updatingApp}
+                  onClick={() => {
+                    openExternalUrl(updateInfo.releaseUrl).catch((err) => {
+                      onNotify(
+                        err instanceof Error ? err.message : "无法打开外部链接"
+                      );
+                    });
+                  }}
                 >
                   <ExternalLink className="h-3 w-3" />
                   查看发布页
-                </a>
+                </Button>
               )}
-              {updateInfo?.downloadUrl && (
-                <a
-                  href={updateInfo.downloadUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90"
+              {updateInfo?.canAutoUpdate ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={updatingApp}
+                  onClick={handleInstallUpdate}
                 >
                   <Download className="h-3 w-3" />
-                  下载安装包
-                </a>
+                  {updatingApp ? "更新中..." : "立即更新并重启"}
+                </Button>
+              ) : (
+                updateInfo?.downloadUrl && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      openExternalUrl(updateInfo.downloadUrl!).catch((err) => {
+                        onNotify(
+                          err instanceof Error ? err.message : "无法打开下载链接"
+                        );
+                      });
+                    }}
+                  >
+                    <Download className="h-3 w-3" />
+                    下载安装包
+                  </Button>
+                )
               )}
             </div>
           </div>
