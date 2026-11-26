@@ -1,6 +1,7 @@
 import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
@@ -108,9 +109,107 @@ function findDevThumbnail(dir: string): string | null {
 }
 
 function devArchivePlugin(): Plugin {
+  const defaultWorkspaceFile = path.join(
+    os.homedir(),
+    "Documents",
+    "ShibaPlan",
+    "shibaplan-data.json"
+  );
+
   return {
     name: "shibaplan-dev-archive",
     configureServer(server) {
+      server.middlewares.use("/api/workspace", (req, res, next) => {
+        if (req.method === "GET") {
+          try {
+            if (fs.existsSync(defaultWorkspaceFile)) {
+              const raw = fs.readFileSync(defaultWorkspaceFile, "utf-8");
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(raw);
+              return;
+            }
+          } catch {
+            // fall through
+          }
+          res.statusCode = 404;
+          res.end();
+          return;
+        }
+        if (req.method === "POST") {
+          let body = "";
+          req.on("data", (chunk) => (body += chunk));
+          req.on("end", () => {
+            try {
+              fs.mkdirSync(path.dirname(defaultWorkspaceFile), { recursive: true });
+              fs.writeFileSync(defaultWorkspaceFile, body, "utf-8");
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: true }));
+            } catch (err) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ ok: false, error: String(err) }));
+            }
+          });
+          return;
+        }
+        return next();
+      });
+
+      server.middlewares.use("/api/dev-archive/explorer", (req, res, next) => {
+        if (req.method !== "POST") return next();
+        let body = "";
+        req.on("data", (chunk) => (body += chunk));
+        req.on("end", () => {
+          try {
+            const { folderPath } = JSON.parse(body || "{}") as { folderPath?: string };
+            const clean = (folderPath || "").trim();
+            if (!clean || !fs.existsSync(clean)) {
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(JSON.stringify([]));
+              return;
+            }
+            const items = fs.readdirSync(clean, { withFileTypes: true });
+            const out: {
+              name: string;
+              path: string;
+              is_dir: boolean;
+              ext: string;
+              size: number;
+              modified_ms: number;
+            }[] = [];
+            for (const it of items) {
+              if (SKIP_NAMES.has(it.name)) continue;
+              const full = path.join(clean, it.name);
+              try {
+                const st = fs.statSync(full);
+                const isDir = st.isDirectory();
+                out.push({
+                  name: it.name,
+                  path: full,
+                  is_dir: isDir,
+                  ext: isDir ? "" : path.extname(it.name).replace(/^\./, "").toLowerCase(),
+                  size: isDir ? 0 : st.size,
+                  modified_ms: Math.floor(st.mtimeMs),
+                });
+              } catch {
+                // skip
+              }
+            }
+            out.sort((a, b) =>
+              a.is_dir !== b.is_dir
+                ? a.is_dir
+                  ? -1
+                  : 1
+                : a.name.localeCompare(b.name)
+            );
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            res.end(JSON.stringify(out.slice(0, 300)));
+          } catch {
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            res.end(JSON.stringify([]));
+          }
+        });
+      });
+
       server.middlewares.use("/api/dev-archive/scan", (req, res, next) => {
         if (req.method !== "POST") return next();
         let body = "";
@@ -349,6 +448,7 @@ function devArchivePlugin(): Plugin {
 
 export default defineConfig(async () => ({
   plugins: [react(), devArchivePlugin()],
+  cacheDir: "node_modules/.vite-v2",
   clearScreen: false,
   server: {
     port: 5173,

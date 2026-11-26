@@ -4,103 +4,103 @@
 
 @layer base {
   /* ========================================================================
-     SHADCN/UI DESIGN TOKENS — DARK (Default Refined Zinc)
+     LINEAR DESIGN TOKENS — DARK (Precision Obsidian & Hairline Indigo)
      ======================================================================== */
   :root,
   [data-theme="dark"] {
-    --background: 240 10% 4.5%;
-    --foreground: 240 5% 94%;
-    --surface: 240 8% 7.2%;
-    --surface-elevated: 240 7% 10.5%;
-    --surface-river: 240 9% 5.8%;
-    --card: 240 7% 9.8%;
-    --card-foreground: 240 5% 94%;
-    --popover: 240 8% 10.2%;
-    --popover-foreground: 240 5% 94%;
-    --primary: 38 92% 52%;
-    --primary-foreground: 240 10% 6%;
-    --secondary: 240 6% 14%;
-    --secondary-foreground: 240 5% 90%;
-    --muted: 240 6% 13.5%;
-    --muted-foreground: 240 5% 56%;
-    --accent: 240 6% 16%;
-    --accent-foreground: 240 5% 96%;
-    --destructive: 0 72% 56%;
+    --background: 220 13% 4.5%;
+    --foreground: 210 10% 96%;
+    --surface: 225 11% 6.8%;
+    --surface-elevated: 224 11% 10.2%;
+    --surface-river: 222 12% 5.6%;
+    --card: 225 11% 8.4%;
+    --card-foreground: 210 10% 96%;
+    --popover: 225 12% 9.2%;
+    --popover-foreground: 210 10% 96%;
+    --primary: 234 57% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 10% 13%;
+    --secondary-foreground: 215 12% 88%;
+    --muted: 224 10% 11.8%;
+    --muted-foreground: 218 8% 57%;
+    --accent: 224 10% 15.2%;
+    --accent-foreground: 210 10% 98%;
+    --destructive: 0 68% 58%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 6% 14%;
-    --input: 240 6% 16%;
-    --ring: 38 92% 52%;
-    --radius: 0.75rem;
-    --shadow-col-rest: 0 2px 12px rgba(0, 0, 0, 0.24);
-    --shadow-card-rest: 0 1px 3px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.03);
-    --shadow-card-hover: 0 8px 22px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    --shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.07);
+    --border: 224 9% 15.5%;
+    --input: 224 9% 17%;
+    --ring: 234 57% 60%;
+    --radius: 0.5rem;
+    --shadow-col-rest: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+    --shadow-card-rest: 0 1px 2px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+    --shadow-card-hover: 0 4px 14px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --shadow-popover: 0 14px 36px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(255, 255, 255, 0.08);
     color-scheme: dark;
   }
 
   /* ========================================================================
-     SHADCN/UI DESIGN TOKENS — LIGHT (Crisp Minimal Neutral)
+     LINEAR DESIGN TOKENS — LIGHT (Crisp Porcelain & Hairline Slate)
      ======================================================================== */
   [data-theme="light"] {
-    --background: 220 14% 96%;
-    --foreground: 240 10% 9%;
-    --surface: 220 14% 92.5%;
+    --background: 220 14% 97.5%;
+    --foreground: 222 18% 11%;
+    --surface: 220 14% 94.8%;
     --surface-elevated: 0 0% 100%;
-    --surface-river: 220 14% 93.5%;
+    --surface-river: 220 14% 95.5%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 9%;
+    --card-foreground: 222 18% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 9%;
-    --primary: 32 95% 44%;
+    --popover-foreground: 222 18% 11%;
+    --primary: 234 56% 56%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 12% 91%;
-    --secondary-foreground: 240 8% 18%;
-    --muted: 220 12% 91.5%;
-    --muted-foreground: 240 5% 45%;
-    --accent: 220 12% 90%;
-    --accent-foreground: 240 10% 9%;
-    --destructive: 0 72% 51%;
+    --secondary: 220 13% 93%;
+    --secondary-foreground: 222 14% 20%;
+    --muted: 220 13% 93.5%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 91.5%;
+    --accent-foreground: 222 18% 11%;
+    --destructive: 0 70% 52%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 12% 88%;
-    --input: 220 12% 86%;
-    --ring: 32 95% 44%;
-    --shadow-col-rest: 0 1px 4px rgba(15, 23, 42, 0.05);
-    --shadow-card-rest: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.03);
-    --shadow-card-hover: 0 8px 20px rgba(15, 23, 42, 0.1), 0 2px 6px rgba(15, 23, 42, 0.05);
-    --shadow-popover: 0 16px 36px rgba(15, 23, 42, 0.14), 0 0 0 1px rgba(15, 23, 42, 0.06);
+    --border: 220 13% 89%;
+    --input: 220 13% 86%;
+    --ring: 234 56% 56%;
+    --shadow-col-rest: 0 1px 2px rgba(15, 23, 42, 0.03);
+    --shadow-card-rest: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-card-hover: 0 4px 12px rgba(15, 23, 42, 0.07);
+    --shadow-popover: 0 12px 32px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(15, 23, 42, 0.07);
     color-scheme: light;
   }
 
   /* ========================================================================
-     SHADCN/UI DESIGN TOKENS — PAPER (Warm Archival Japanese Stationery)
+     LINEAR DESIGN TOKENS — PAPER (Warm Archival Stationery, Precision Hairlines)
      ======================================================================== */
   [data-theme="paper"] {
-    --background: 40 33% 91%;
-    --foreground: 26 16% 16%;
-    --surface: 39 30% 87.5%;
-    --surface-elevated: 42 50% 97%;
-    --surface-river: 39 28% 86%;
-    --card: 42 48% 96.5%;
-    --card-foreground: 26 16% 16%;
-    --popover: 42 55% 97.5%;
-    --popover-foreground: 26 16% 16%;
-    --primary: 27 68% 45%;
-    --primary-foreground: 42 60% 98%;
-    --secondary: 38 24% 84%;
+    --background: 40 30% 92%;
+    --foreground: 26 16% 15%;
+    --surface: 39 26% 88.5%;
+    --surface-elevated: 42 46% 97%;
+    --surface-river: 39 25% 87.5%;
+    --card: 42 45% 96.5%;
+    --card-foreground: 26 16% 15%;
+    --popover: 42 52% 97.5%;
+    --popover-foreground: 26 16% 15%;
+    --primary: 234 45% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 38 22% 85%;
     --secondary-foreground: 26 16% 22%;
-    --muted: 38 22% 85.5%;
-    --muted-foreground: 30 12% 44%;
-    --accent: 38 26% 83%;
-    --accent-foreground: 26 16% 16%;
+    --muted: 38 20% 86.5%;
+    --muted-foreground: 30 11% 44%;
+    --accent: 38 24% 83.5%;
+    --accent-foreground: 26 16% 15%;
     --destructive: 0 65% 48%;
     --destructive-foreground: 42 60% 98%;
-    --border: 34 20% 80%;
-    --input: 34 20% 78%;
-    --ring: 27 68% 45%;
-    --shadow-col-rest: 0 1px 5px rgba(78, 58, 38, 0.07);
-    --shadow-card-rest: 0 1px 4px rgba(78, 58, 38, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.78);
-    --shadow-card-hover: 0 8px 20px rgba(78, 58, 38, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    --shadow-popover: 0 16px 38px rgba(62, 46, 30, 0.18), 0 0 0 1px rgba(94, 72, 48, 0.12);
+    --border: 34 18% 81%;
+    --input: 34 18% 79%;
+    --ring: 234 45% 50%;
+    --shadow-col-rest: 0 1px 2px rgba(78, 58, 38, 0.05);
+    --shadow-card-rest: 0 1px 2px rgba(78, 58, 38, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    --shadow-card-hover: 0 4px 12px rgba(78, 58, 38, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    --shadow-popover: 0 14px 34px rgba(62, 46, 30, 0.16), 0 0 0 1px rgba(94, 72, 48, 0.12);
     color-scheme: light;
   }
 
@@ -157,6 +157,12 @@
   }
   .bg-surface {
     background-color: hsl(var(--surface));
+  }
+  .bg-surface-elevated {
+    background-color: hsl(var(--surface-elevated));
+  }
+  .bg-surface-river {
+    background-color: hsl(var(--surface-river));
   }
   .bg-card {
     background-color: hsl(var(--card));
@@ -350,6 +356,18 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.38);
+}
+
+/* Scrollable container without any visible scrollbar */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Legacy hex compatibility bridge so remaining dark utilities harmonize cleanly */

@@ -241,22 +241,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         onKeyDown={handleKeyDown}
       >
         {/* Search Input Header */}
-        <div className="flex items-center gap-2.5 border-b border-border/70 px-4 py-3">
+        <div className="flex items-center gap-2.5 border-b border-border px-4 py-2.5">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索看板任务、文件夹、灵感、回收站或快捷命令..."
-            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+            className="flex-1 bg-transparent text-[13.5px] text-foreground placeholder:text-muted-foreground/65 focus:outline-none"
           />
-          <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+          <kbd className="rounded border border-border bg-muted/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             ESC
           </kbd>
         </div>
 
         {/* Results List */}
-        <div className="max-h-[360px] overflow-y-auto p-2">
+        <div className="max-h-[360px] overflow-y-auto p-1.5">
           {items.length === 0 ? (
             <div className="py-10 text-center text-xs text-muted-foreground">
               没有找到匹配的任务、灵感或命令
@@ -270,7 +270,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   type="button"
                   onMouseEnter={() => setActiveIndex(idx)}
                   onClick={item.onSelect}
-                  className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition ${
+                  className={`flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-left transition-colors ${
                     active
                       ? "bg-accent text-accent-foreground"
                       : "text-foreground/90 hover:bg-accent/50"

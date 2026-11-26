@@ -122,7 +122,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   const paperGrain = workspace.settings.paperGrain ?? true;
   const riverAtmosphere = workspace.settings.riverAtmosphere ?? true;
   const currentAccent = workspace.settings.accentColor || "";
-  const [hexInput, setHexInput] = useState(currentAccent || "#f59e0b");
+  const [hexInput, setHexInput] = useState(currentAccent || "#5e6ad2");
 
   // AI form state (each platform keeps its own independent API Key & model)
   const initialBaseUrl =
@@ -323,7 +323,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
       };
       return merged;
     });
-    setHexInput(workspace.settings.accentColor || "#f59e0b");
+    setHexInput(workspace.settings.accentColor || "#5e6ad2");
   }, [workspace.settings]);
 
   const setTheme = (theme: ThemeMode) => {
@@ -617,14 +617,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
       <DialogContent className="max-w-2xl p-0 overflow-hidden">
         <div className="flex flex-col sm:flex-row h-[540px] max-h-[84vh]">
           {/* Left Tab Navigation (Desktop) / Top Tab Strip (Mobile) */}
-          <aside className="shrink-0 sm:w-44 bg-muted/40 p-3 sm:p-4 flex flex-col gap-3">
+          <aside className="shrink-0 sm:w-44 border-b sm:border-b-0 sm:border-r border-border bg-surface/60 p-3 sm:p-3.5 flex flex-col gap-3">
             <DialogHeader className="px-1.5 pt-0.5 text-left">
-              <DialogTitle className="text-base font-semibold">
+              <DialogTitle className="text-[14px] font-semibold tracking-[-0.01em]">
                 {t("settings.title")}
               </DialogTitle>
             </DialogHeader>
 
-            <nav className="flex sm:flex-col gap-1 overflow-x-auto no-scrollbar">
+            <nav className="flex sm:flex-col gap-0.5 overflow-x-auto no-scrollbar">
               {tabs.map((tab) => {
                 const active = activeTab === tab.id;
                 return (
@@ -632,27 +632,23 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`relative flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${
+                    className={`relative flex shrink-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] transition-colors ${
                       active
-                        ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        ? "bg-accent text-foreground font-medium"
+                        : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                     }`}
                   >
                     {tab.icon}
                     <span className="truncate">{tab.label}</span>
                     {tab.badge && (
-                      <span
-                        className={`ml-auto h-1.5 w-1.5 rounded-full ${
-                          active ? "bg-primary-foreground" : "bg-primary"
-                        }`}
-                      />
+                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
                     )}
                   </button>
                 );
               })}
             </nav>
 
-            <div className="mt-auto hidden sm:block px-2 pt-2 text-xs font-mono text-muted-foreground/75">
+            <div className="mt-auto hidden sm:block px-2 pt-2 text-[11px] font-mono text-muted-foreground/75">
               ShibaPlan v{appVersion}
             </div>
           </aside>
@@ -702,26 +698,22 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                           key={item.id}
                           type="button"
                           onClick={() => setTheme(item.id)}
-                          className={`flex flex-col items-start gap-1.5 rounded-xl p-3 text-left transition-all ${
+                          className={`flex flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-colors ${
                             active
-                              ? "bg-primary text-primary-foreground shadow-sm"
-                              : "bg-secondary/75 text-secondary-foreground hover:bg-accent"
+                              ? "border-primary/60 bg-primary/10 text-foreground"
+                              : "border-border bg-card text-secondary-foreground hover:border-foreground/15 hover:bg-accent/60"
                           }`}
                         >
                           <div className="flex w-full items-center justify-between">
-                            {item.icon}
-                            {active && <Check className="h-3.5 w-3.5" />}
+                            <span className={active ? "text-primary" : "text-muted-foreground"}>
+                              {item.icon}
+                            </span>
+                            {active && <Check className="h-3.5 w-3.5 text-primary" />}
                           </div>
-                          <div className="text-xs font-medium">
+                          <div className="text-xs font-medium text-foreground">
                             {t(`theme.${item.id}`)}
                           </div>
-                          <div
-                            className={`text-xs ${
-                              active
-                                ? "text-primary-foreground/80"
-                                : "text-muted-foreground"
-                            }`}
-                          >
+                          <div className="text-xs text-muted-foreground">
                             {item.desc}
                           </div>
                         </button>
@@ -765,7 +757,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                         (preset.hex !== "" &&
                           currentAccent.toLowerCase() ===
                             preset.hex.toLowerCase());
-                      const swatchColor = preset.hex || "#f59e0b";
+                      const swatchColor = preset.hex || "#5e6ad2";
                       return (
                         <button
                           key={preset.id}
@@ -797,7 +789,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       className="relative flex h-8 w-10 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg shadow-sm"
                       style={{
                         backgroundColor:
-                          normalizeHex(hexInput) || currentAccent || "#f59e0b",
+                          normalizeHex(hexInput) || currentAccent || "#5e6ad2",
                       }}
                       title="点击拾取自定义颜色"
                     >

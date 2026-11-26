@@ -1,5 +1,6 @@
 import React, {
   lazy,
+  startTransition,
   Suspense,
   useCallback,
   useEffect,
@@ -31,10 +32,12 @@ import { ThemeMode, WorkspaceData } from "./types";
 import {
   createDefaultWorkspace,
   getDefaultDataDir,
+  hasPendingSave,
+  isOwnSaveEcho,
   isTauriRuntime,
   loadWorkspace,
   openCaptureWindow,
-  saveWorkspace,
+  scheduleSaveWorkspace,
 } from "./lib/storage";
 import { suggestTodayPlanWithAI } from "./lib/ai";
 import { applyAccentColor } from "./lib/theme";
@@ -45,9 +48,6 @@ import {
   UpdateCheckResult,
 } from "./lib/updater";
 import { CustomLocalePack, I18nProvider, useI18n } from "./lib/i18n";
-import { QuickCapture } from "./components/QuickCapture";
-import { KanbanBoard } from "./components/KanbanBoard";
-import { IdeaRiver } from "./components/IdeaRiver";
 import type { SettingsTabId } from "./components/SettingsDialog";
 import { Button } from "./components/ui/button";
 import { Separator } from "./components/ui/separator";
@@ -60,6 +60,15 @@ import {
 
 const CalendarView = lazy(() =>
   import("./components/CalendarView").then((m) => ({ default: m.CalendarView }))
+);
+const KanbanBoard = lazy(() =>
+  import("./components/KanbanBoard").then((m) => ({ default: m.KanbanBoard }))
+);
+const IdeaRiver = lazy(() =>
+  import("./components/IdeaRiver").then((m) => ({ default: m.IdeaRiver }))
+);
+const QuickCapture = lazy(() =>
+  import("./components/QuickCapture").then((m) => ({ default: m.QuickCapture }))
 );
 const ProjectsView = lazy(() =>
   import("./components/ProjectsView").then((m) => ({ default: m.ProjectsView }))
@@ -83,6 +92,7 @@ const SettingsDialog = lazy(() =>
 type TopView = "projects" | "kanban" | "calendar";
 
 const MAX_HISTORY = 30;
+const HISTORY_COALESCE_MS = 800;
 
 export const App: React.FC = () => {
   const isCaptureWindow =
@@ -90,7 +100,11 @@ export const App: React.FC = () => {
     new URLSearchParams(window.location.search).get("window") === "capture";
 
   if (isCaptureWindow) {
-    return <QuickCapture />;
+    return (
+      <Suspense fallback={null}>
+        <QuickCapture />
+      </Suspense>
+    );
   }
 
   return <WorkspaceShell />;
@@ -105,6 +119,7 @@ const WorkspaceShell: React.FC = () => {
   // Undo / Redo snapshot stacks (up to 30 steps)
   const undoStackRef = useRef<WorkspaceData[]>([]);
   const redoStackRef = useRef<WorkspaceData[]>([]);
+  const lastHistoryPushRef = useRef(0);
   const [historyMeta, setHistoryMeta] = useState({
     canUndo: false,
     canRedo: false,
@@ -136,6 +151,9 @@ const WorkspaceShell: React.FC = () => {
     if (isTauriRuntime()) {
       import("@tauri-apps/api/event").then(({ listen }) => {
         listen<string>("workspace-updated", (event) => {
+          // Ignore the echo of our own save (keeps object identity / structural
+          // sharing intact) and don't clobber local edits that are still pending.
+          if (isOwnSaveEcho(event.payload) || hasPendingSave()) return;
           try {
             const parsed = JSON.parse(event.payload) as WorkspaceData;
             setWorkspace(parsed);
@@ -148,7 +166,7 @@ const WorkspaceShell: React.FC = () => {
       });
     } else {
       pollTimer = window.setInterval(() => {
-        if (document.visibilityState !== "visible") return;
+        if (document.visibilityState !== "visible" || hasPendingSave()) return;
         const active = document.activeElement as HTMLElement | null;
         if (
           active &&
@@ -176,37 +194,52 @@ const WorkspaceShell: React.FC = () => {
 
   const handleUpdate = useCallback((next: WorkspaceData) => {
     setWorkspace((prev) => {
-      undoStackRef.current = [...undoStackRef.current.slice(-(MAX_HISTORY - 1)), prev];
+      // Coalesce rapid successive edits (e.g. typing) into one undo step so the
+      // history stays meaningful and bounded instead of one snapshot per key.
+      const now = Date.now();
+      if (now - lastHistoryPushRef.current > HISTORY_COALESCE_MS) {
+        undoStackRef.current = [
+          ...undoStackRef.current.slice(-(MAX_HISTORY - 1)),
+          prev,
+        ];
+      }
+      lastHistoryPushRef.current = now;
       redoStackRef.current = [];
       syncHistoryMeta();
       return next;
     });
-    saveWorkspace(next).catch((err) =>
-      console.error("Failed to save workspace:", err)
-    );
+    scheduleSaveWorkspace(next);
   }, []);
 
   const handleUndo = useCallback(() => {
     if (undoStackRef.current.length === 0) return;
     const prevSnapshot = undoStackRef.current.pop()!;
+    lastHistoryPushRef.current = 0;
     setWorkspace((current) => {
-      redoStackRef.current.push(current);
+      redoStackRef.current = [
+        ...redoStackRef.current.slice(-(MAX_HISTORY - 1)),
+        current,
+      ];
       syncHistoryMeta();
-      saveWorkspace(prevSnapshot).catch(() => {});
       return prevSnapshot;
     });
+    scheduleSaveWorkspace(prevSnapshot);
     notify("已撤销上一步操作");
   }, [notify]);
 
   const handleRedo = useCallback(() => {
     if (redoStackRef.current.length === 0) return;
     const nextSnapshot = redoStackRef.current.pop()!;
+    lastHistoryPushRef.current = 0;
     setWorkspace((current) => {
-      undoStackRef.current.push(current);
+      undoStackRef.current = [
+        ...undoStackRef.current.slice(-(MAX_HISTORY - 1)),
+        current,
+      ];
       syncHistoryMeta();
-      saveWorkspace(nextSnapshot).catch(() => {});
       return nextSnapshot;
     });
+    scheduleSaveWorkspace(nextSnapshot);
     notify("已重做操作");
   }, [notify]);
 
@@ -287,6 +320,10 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
+  const openProjectSettings = useCallback(() => {
+    setSettingsTab("projects");
+    setSettingsOpen(true);
+  }, []);
   const [commandOpen, setCommandOpen] = useState(false);
   const [lanShareOpen, setLanShareOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -572,17 +609,18 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
 
   return (
     <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground touch-manipulation">
-      {/* Frameless Custom Titlebar + Minimal Header */}
+      {/* Frameless Linear Topbar (3-column grid keeps primary nav mathematically centered) */}
       <header
         onMouseDown={handleHeaderMouseDown}
         onDoubleClick={handleHeaderDoubleClick}
-        className="flex h-11 shrink-0 items-center justify-between border-b border-border/60 bg-background/85 pl-3 sm:pl-4 pr-2 backdrop-blur-md"
+        className="grid h-11 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-border bg-surface/80 pl-3 sm:pl-4 pr-2 backdrop-blur-md select-none"
       >
-        <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background pointer-events-none">
+        {/* Left: Brand */}
+        <div className="flex items-center gap-2 justify-self-start pointer-events-none">
+          <div className="flex h-5 w-5 items-center justify-center rounded-[5px] bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]">
             <svg
               viewBox="0 0 512 512"
-              className="h-4 w-4"
+              className="h-3.5 w-3.5"
               fill="none"
               aria-hidden="true"
             >
@@ -590,25 +628,25 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                 d="M144 128 L206 184 H306 L368 128 C374 122 384 126 384 135 V268 C384 338 326 388 256 388 C186 388 128 338 128 268 V135 C128 126 138 122 144 128 Z"
                 fill="currentColor"
               />
-              <circle cx="212" cy="258" r="16" fill="hsl(var(--foreground))" />
-              <circle cx="300" cy="258" r="16" fill="hsl(var(--foreground))" />
+              <circle cx="212" cy="258" r="16" fill="hsl(var(--primary))" />
+              <circle cx="300" cy="258" r="16" fill="hsl(var(--primary))" />
               <rect
                 x="232"
                 y="306"
                 width="48"
                 height="18"
                 rx="9"
-                fill="hsl(var(--foreground))"
+                fill="hsl(var(--primary))"
               />
             </svg>
           </div>
-          <span className="text-[15px] font-semibold tracking-tight text-foreground pointer-events-none">
+          <span className="hidden sm:inline text-[13px] font-semibold tracking-[-0.015em] text-foreground">
             ShibaPlan
           </span>
         </div>
 
-        {/* Center Minimal Text-Only Navigation Titles */}
-        <nav className="flex h-full items-center gap-6">
+        {/* Center: Prominent Primary Navigation (项目 / 看板 / 时间, 14px) */}
+        <nav className="flex h-full items-center justify-self-center gap-1 sm:gap-2">
           {(
             [
               { id: "projects", label: "项目" },
@@ -621,8 +659,8 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setView(tab.id)}
-                className={`relative flex h-full items-center px-1 text-[15px] tracking-wide transition-colors ${
+                onClick={() => startTransition(() => setView(tab.id))}
+                className={`relative flex h-full items-center px-3 text-[14px] tracking-[-0.01em] transition-colors ${
                   active
                     ? "font-semibold text-foreground"
                     : "font-medium text-muted-foreground hover:text-foreground"
@@ -630,87 +668,102 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
               >
                 <span>{tab.label}</span>
                 {active && (
-                  <span className="absolute bottom-0 left-1 right-1 h-0.5 rounded-full bg-primary" />
+                  <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-primary" />
                 )}
               </button>
             );
           })}
         </nav>
 
-        {/* Icon-Only Right Actions */}
-        <div className="flex items-center gap-0.5 sm:gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
+        {/* Right: Cleanly Grouped Actions + Window Controls */}
+        <div className="flex items-center justify-self-end gap-1.5 shrink-0">
+          {/* Linear Command Palette Trigger */}
+          <button
+            type="button"
             onClick={() => setCommandOpen(true)}
             title="全局搜索与命令面板 (Ctrl + K)"
+            className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-background/70 px-2 text-xs text-muted-foreground transition-colors hover:border-foreground/15 hover:bg-accent/60 hover:text-foreground"
           >
-            <Search className="h-3.5 w-3.5" />
-          </Button>
+            <Search className="h-3.5 w-3.5 shrink-0" />
+            <kbd className="hidden xl:inline-flex items-center rounded border border-border/80 bg-surface px-1 py-px font-mono text-[10px] leading-tight text-muted-foreground/80">
+              Ctrl K
+            </kbd>
+          </button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleOpenAiPlan}
-            title="AI 今日排期建议"
-          >
-            <Bot className="h-3.5 w-3.5" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={!canUndo}
-            onClick={onUndo}
-            title="撤销 (Ctrl + Z)"
-            className="hidden sm:inline-flex"
-          >
-            <Undo2 className="h-3.5 w-3.5" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={!canRedo}
-            onClick={onRedo}
-            title="重做 (Ctrl + Shift + Z)"
-            className="hidden sm:inline-flex"
-          >
-            <Redo2 className="h-3.5 w-3.5" />
-          </Button>
-
-          {isTauriRuntime() && (
+          {/* Group 1: AI & Quick Capture */}
+          <div className="flex items-center gap-0.5">
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => openCaptureWindow()}
-              title={t("nav.quickCapture")}
+              onClick={handleOpenAiPlan}
+              title="AI 今日排期建议"
             >
-              <Sparkles className="h-3.5 w-3.5" />
+              <Bot className="h-3.5 w-3.5" />
             </Button>
-          )}
 
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setLanShareOpen(true)}
-            title="局域网访问与手机扫码"
-          >
-            <QrCode className="h-3.5 w-3.5" />
-          </Button>
+            {isTauriRuntime() && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => openCaptureWindow()}
+                title={t("nav.quickCapture")}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSettingsOpen(true)}
-            title={t("nav.settings")}
-          >
-            <Settings className="h-3.5 w-3.5" />
-          </Button>
+          <div className="hidden sm:block h-3.5 w-px bg-border" />
+
+          {/* Group 2: Undo / Redo */}
+          <div className="hidden sm:flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!canUndo}
+              onClick={onUndo}
+              title="撤销 (Ctrl + Z)"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!canRedo}
+              onClick={onRedo}
+              title="重做 (Ctrl + Shift + Z)"
+            >
+              <Redo2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          <div className="h-3.5 w-px bg-border" />
+
+          {/* Group 3: LAN Share & Settings */}
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setLanShareOpen(true)}
+              title="局域网访问与手机扫码"
+            >
+              <QrCode className="h-3.5 w-3.5" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSettingsOpen(true)}
+              title={t("nav.settings")}
+            >
+              <Settings className="h-3.5 w-3.5" />
+            </Button>
+          </div>
 
           {isTauriRuntime() && (
             <>
-              <div className="mx-1 h-4 w-px bg-border/70" />
+              <div className="h-3.5 w-px bg-border" />
               <div className="flex items-center gap-0.5">
                 <button
                   type="button"
@@ -765,10 +818,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                 <ProjectsView
                   workspace={workspace}
                   onUpdate={onUpdate}
-                  onOpenProjectSettings={() => {
-                    setSettingsTab("projects");
-                    setSettingsOpen(true);
-                  }}
+                  onOpenProjectSettings={openProjectSettings}
                   onStatusChange={setProjectStatusText}
                   onNotify={onNotify}
                 />
@@ -780,13 +830,15 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
             </Suspense>
           </main>
           {view !== "projects" && (
-            <IdeaRiver workspace={workspace} onUpdate={onUpdate} />
+            <Suspense fallback={null}>
+              <IdeaRiver workspace={workspace} onUpdate={onUpdate} />
+            </Suspense>
           )}
         </div>
       )}
 
       {/* Unified Bottom Status Bar */}
-      <footer className="flex h-7 shrink-0 items-center justify-between border-t border-border/60 bg-background px-3 sm:px-5 text-xs text-muted-foreground select-none">
+      <footer className="flex h-6 shrink-0 items-center justify-between border-t border-border bg-surface/60 px-3 sm:px-4 text-[11.5px] text-muted-foreground tabular-nums select-none">
         <div className="flex items-center gap-2.5 overflow-hidden">
           {statusNotice ? (
             <span className="truncate font-medium text-primary">

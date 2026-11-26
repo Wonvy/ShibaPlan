@@ -78,7 +78,11 @@ fn write_log_line(
 }
 
 #[tauri::command]
-fn append_app_log(
+async fn append_app_log(level: String, source: String, message: String, detail: Option<String>, custom_dir: Option<String>) -> Result<(), String> {
+    run_blocking(move || append_app_log_impl(level, source, message, detail, custom_dir)).await
+}
+
+fn append_app_log_impl(
     level: String,
     source: String,
     message: String,
@@ -90,7 +94,11 @@ fn append_app_log(
 }
 
 #[tauri::command]
-fn read_app_logs(
+async fn read_app_logs(limit: Option<usize>, custom_dir: Option<String>) -> Result<String, String> {
+    run_blocking(move || read_app_logs_impl(limit, custom_dir)).await
+}
+
+fn read_app_logs_impl(
     limit: Option<usize>,
     custom_dir: Option<String>,
 ) -> Result<String, String> {
@@ -109,7 +117,11 @@ fn read_app_logs(
 }
 
 #[tauri::command]
-fn clear_app_logs(custom_dir: Option<String>) -> Result<(), String> {
+async fn clear_app_logs(custom_dir: Option<String>) -> Result<(), String> {
+    run_blocking(move || clear_app_logs_impl(custom_dir)).await
+}
+
+fn clear_app_logs_impl(custom_dir: Option<String>) -> Result<(), String> {
     let log_path = resolve_log_file(custom_dir);
     if log_path.is_file() {
         fs::write(&log_path, "").map_err(|e| format!("清空日志失败: {}", e))?;
@@ -118,7 +130,11 @@ fn clear_app_logs(custom_dir: Option<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_log_file_path(custom_dir: Option<String>) -> Result<String, String> {
+async fn get_log_file_path(custom_dir: Option<String>) -> Result<String, String> {
+    run_blocking(move || get_log_file_path_impl(custom_dir)).await
+}
+
+fn get_log_file_path_impl(custom_dir: Option<String>) -> Result<String, String> {
     let log_path = resolve_log_file(custom_dir);
     if let Some(parent) = log_path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -132,7 +148,11 @@ fn get_default_data_dir() -> String {
 }
 
 #[tauri::command]
-fn load_workspace_data(custom_dir: Option<String>) -> Result<Option<String>, String> {
+async fn load_workspace_data(custom_dir: Option<String>) -> Result<Option<String>, String> {
+    run_blocking(move || load_workspace_data_impl(custom_dir)).await
+}
+
+fn load_workspace_data_impl(custom_dir: Option<String>) -> Result<Option<String>, String> {
     let dir = resolve_data_dir(custom_dir);
     let file_path = dir.join("shibaplan-data.json");
     if !file_path.exists() {
@@ -184,7 +204,11 @@ fn save_daily_snapshot_if_needed(dir: &PathBuf, data_json: &str) {
 }
 
 #[tauri::command]
-fn save_workspace_data(
+async fn save_workspace_data(app: AppHandle, data_json: String, custom_dir: Option<String>) -> Result<String, String> {
+    run_blocking(move || save_workspace_data_impl(app, data_json, custom_dir)).await
+}
+
+fn save_workspace_data_impl(
     app: AppHandle,
     data_json: String,
     custom_dir: Option<String>,
@@ -199,7 +223,11 @@ fn save_workspace_data(
 }
 
 #[tauri::command]
-fn list_workspace_snapshots(
+async fn list_workspace_snapshots(custom_dir: Option<String>) -> Result<Vec<WorkspaceSnapshotInfo>, String> {
+    run_blocking(move || list_workspace_snapshots_impl(custom_dir)).await
+}
+
+fn list_workspace_snapshots_impl(
     custom_dir: Option<String>,
 ) -> Result<Vec<WorkspaceSnapshotInfo>, String> {
     let backups_dir = resolve_data_dir(custom_dir).join("backups");
@@ -232,7 +260,11 @@ fn list_workspace_snapshots(
 }
 
 #[tauri::command]
-fn restore_workspace_snapshot(snapshot_path: String) -> Result<String, String> {
+async fn restore_workspace_snapshot(snapshot_path: String) -> Result<String, String> {
+    run_blocking(move || restore_workspace_snapshot_impl(snapshot_path)).await
+}
+
+fn restore_workspace_snapshot_impl(snapshot_path: String) -> Result<String, String> {
     let p = PathBuf::from(snapshot_path.trim());
     if !p.is_file() {
         return Err("快照文件不存在".to_string());
@@ -241,7 +273,11 @@ fn restore_workspace_snapshot(snapshot_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn save_pasted_image(
+async fn save_pasted_image(base64_data: String, ext: String, custom_dir: Option<String>) -> Result<String, String> {
+    run_blocking(move || save_pasted_image_impl(base64_data, ext, custom_dir)).await
+}
+
+fn save_pasted_image_impl(
     base64_data: String,
     ext: String,
     custom_dir: Option<String>,
@@ -274,7 +310,11 @@ fn save_pasted_image(
 }
 
 #[tauri::command]
-fn export_idea_markdown(
+async fn export_idea_markdown(filename: String, content: String, custom_dir: Option<String>) -> Result<String, String> {
+    run_blocking(move || export_idea_markdown_impl(filename, content, custom_dir)).await
+}
+
+fn export_idea_markdown_impl(
     filename: String,
     content: String,
     custom_dir: Option<String>,
@@ -395,6 +435,13 @@ struct ArchiveScanEntry {
     thumbnail_path: Option<String>,
     #[serde(default)]
     real_date_ms: Option<u64>,
+    /// Change signature of a project subtree (count / max mtime / total size of
+    /// its indexed descendants). Used to skip re-analysis on incremental scans.
+    #[serde(default)]
+    sig: Option<u64>,
+    /// Transient: analysis already filled in (reused from previous cache).
+    #[serde(skip)]
+    analyzed: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -402,6 +449,14 @@ struct ArchiveIndexCache {
     roots: Vec<String>,
     updated_at_ms: u64,
     entries: Vec<ArchiveScanEntry>,
+}
+
+/// Borrowed view used to write the cache without cloning every entry.
+#[derive(Serialize)]
+struct ArchiveIndexCacheRef<'a> {
+    roots: &'a [String],
+    updated_at_ms: u64,
+    entries: &'a [ArchiveScanEntry],
 }
 
 fn is_preview_image_ext(ext: &str) -> bool {
@@ -436,65 +491,6 @@ fn score_thumbnail_candidate(name: &str, ext: &str, size: u64, depth: usize) -> 
     score
 }
 
-fn find_project_thumbnail_inner(
-    dir: &PathBuf,
-    depth: usize,
-    best: &mut Option<(i32, String)>,
-    visited: &mut usize,
-) {
-    if depth > 2 || *visited > 160 {
-        return;
-    }
-    let Ok(read_dir) = fs::read_dir(dir) else {
-        return;
-    };
-    let mut subdirs: Vec<PathBuf> = Vec::new();
-    for entry in read_dir.flatten() {
-        *visited += 1;
-        if *visited > 160 {
-            break;
-        }
-        let name = entry.file_name().to_string_lossy().to_string();
-        if should_skip_archive_name(&name) || name == "__MACOSX" {
-            continue;
-        }
-        let path = entry.path();
-        let Ok(meta) = entry.metadata() else {
-            continue;
-        };
-        if meta.is_dir() {
-            if depth < 2 {
-                subdirs.push(path);
-            }
-        } else {
-            let ext = path
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            let s = score_thumbnail_candidate(&name, &ext, meta.len(), depth);
-            if s > 0 {
-                let replace = match best {
-                    Some((cur, _)) => s > *cur,
-                    None => true,
-                };
-                if replace {
-                    *best = Some((s, path.to_string_lossy().to_string()));
-                }
-            }
-        }
-    }
-    for sub in subdirs {
-        find_project_thumbnail_inner(&sub, depth + 1, best, visited);
-    }
-}
-
-fn find_project_thumbnail(dir: &PathBuf) -> Option<String> {
-    let mut best: Option<(i32, String)> = None;
-    let mut visited = 0usize;
-    find_project_thumbnail_inner(dir, 0, &mut best, &mut visited);
-    best.map(|(_, p)| p)
-}
-
 fn deliverable_file_weight(name: &str, ext: &str) -> u32 {
     if name.starts_with("~$") || matches!(ext, "tmp" | "bak" | "lnk" | "ini" | "db" | "log") {
         return 0;
@@ -514,13 +510,41 @@ fn deliverable_file_weight(name: &str, ext: &str) -> u32 {
     }
 }
 
-fn collect_file_mtimes_weighted(
+/// Single combined walk of a project folder (depth <= 2, <= 200 entries) that
+/// yields child count, best thumbnail candidate and inferred real date at once,
+/// instead of reading the same directories three separate times.
+fn analyze_project_dir(dir: &PathBuf) -> (usize, Option<String>, Option<u64>) {
+    let mut best: Option<(i32, String)> = None;
+    let mut buckets: HashMap<(i32, u32), (u32, u64)> = HashMap::new();
+    let mut visited = 0usize;
+    let mut child_count = 0usize;
+    analyze_project_dir_inner(
+        dir,
+        0,
+        &mut best,
+        &mut buckets,
+        &mut visited,
+        &mut child_count,
+    );
+    let real_ms = buckets
+        .into_iter()
+        .max_by(|(k1, (w1, max1)), (k2, (w2, max2))| {
+            w1.cmp(w2).then_with(|| k1.cmp(k2)).then_with(|| max1.cmp(max2))
+        })
+        .map(|(_, (_, latest_ms))| latest_ms);
+    (child_count, best.map(|(_, p)| p), real_ms)
+}
+
+fn analyze_project_dir_inner(
     dir: &PathBuf,
     depth: usize,
+    best: &mut Option<(i32, String)>,
     buckets: &mut HashMap<(i32, u32), (u32, u64)>,
     visited: &mut usize,
+    child_count: &mut usize,
 ) {
-    if depth > 2 || *visited > 200 {
+    const MAX_VISITED: usize = 200;
+    if depth > 2 || *visited > MAX_VISITED {
         return;
     }
     let Ok(read_dir) = fs::read_dir(dir) else {
@@ -528,8 +552,14 @@ fn collect_file_mtimes_weighted(
     };
     let mut subdirs: Vec<PathBuf> = Vec::new();
     for entry in read_dir.flatten() {
+        if depth == 0 {
+            *child_count += 1;
+            if *child_count >= MAX_VISITED {
+                break;
+            }
+        }
         *visited += 1;
-        if *visited > 200 {
+        if *visited > MAX_VISITED {
             break;
         }
         let name = entry.file_name().to_string_lossy().to_string();
@@ -550,6 +580,20 @@ fn collect_file_mtimes_weighted(
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
+
+        // Thumbnail candidate scoring
+        let s = score_thumbnail_candidate(&name, &ext, meta.len(), depth);
+        if s > 0 {
+            let replace = match best {
+                Some((cur, _)) => s > *cur,
+                None => true,
+            };
+            if replace {
+                *best = Some((s, path.to_string_lossy().to_string()));
+            }
+        }
+
+        // Weighted month-cluster date inference
         let weight = deliverable_file_weight(&name, &ext);
         if weight == 0 {
             continue;
@@ -565,35 +609,69 @@ fn collect_file_mtimes_weighted(
         if let Some(dt) = Local.timestamp_millis_opt(ms as i64).single() {
             let y = dt.year();
             if (1995..=2099).contains(&y) {
-                let key = (y, dt.month());
-                let entry_bucket = buckets.entry(key).or_insert((0, 0));
-                entry_bucket.0 += weight;
-                if ms > entry_bucket.1 {
-                    entry_bucket.1 = ms;
+                let bucket = buckets.entry((y, dt.month())).or_insert((0, 0));
+                bucket.0 += weight;
+                if ms > bucket.1 {
+                    bucket.1 = ms;
                 }
             }
         }
     }
     for sub in subdirs {
-        collect_file_mtimes_weighted(&sub, depth + 1, buckets, visited);
+        analyze_project_dir_inner(&sub, depth + 1, best, buckets, visited, child_count);
     }
 }
 
-/// Infers a project's true completion date from its inner files using weighted month-cluster consensus:
-/// - Weights creative/deliverable files 3x over generic files, ignores OS/temp junk.
-/// - Picks the (year, month) bucket with the highest total weight (immune to old reused templates and stray later touches).
-/// - Returns the latest file mtime inside that dominant work month.
-fn infer_project_real_date_ms(dir: &PathBuf) -> Option<u64> {
-    let mut buckets: HashMap<(i32, u32), (u32, u64)> = HashMap::new();
-    let mut visited = 0usize;
-    collect_file_mtimes_weighted(dir, 0, &mut buckets, &mut visited);
+/// Runs `analyze_project_dir` for every project entry using a small worker
+/// pool. Disk / network-share latency dominates, so parallel IO gives a large
+/// speedup on NAS or mapped drives.
+fn analyze_projects_parallel(out: &mut [ArchiveScanEntry]) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    buckets
-        .into_iter()
-        .max_by(|(k1, (w1, max1)), (k2, (w2, max2))| {
-            w1.cmp(w2).then_with(|| k1.cmp(k2)).then_with(|| max1.cmp(max2))
-        })
-        .map(|(_, (_, latest_ms))| latest_ms)
+    let jobs: Vec<(usize, PathBuf)> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.is_project && e.is_dir && !e.analyzed)
+        .map(|(i, e)| (i, PathBuf::from(&e.path)))
+        .collect();
+    if jobs.is_empty() {
+        return;
+    }
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get() * 2)
+        .unwrap_or(8)
+        .clamp(2, 16)
+        .min(jobs.len());
+    let next = AtomicUsize::new(0);
+
+    let results: Vec<(usize, (usize, Option<String>, Option<u64>))> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut local = Vec::new();
+                    loop {
+                        let k = next.fetch_add(1, Ordering::Relaxed);
+                        let Some((idx, path)) = jobs.get(k) else {
+                            break;
+                        };
+                        local.push((*idx, analyze_project_dir(path)));
+                    }
+                    local
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
+    });
+
+    for (idx, (count, thumb, real_ms)) in results {
+        let e = &mut out[idx];
+        e.child_count = count;
+        e.thumbnail_path = thumb;
+        e.real_date_ms = real_ms;
+    }
 }
 
 fn parse_pure_year_folder(name: &str) -> Option<i32> {
@@ -672,147 +750,283 @@ fn scan_archive_recursive(
         return;
     };
 
-    for entry in read_dir.flatten() {
+    let entries: Vec<fs::DirEntry> = read_dir.flatten().collect();
+
+    // Network / NAS drives are latency-bound: walk the top organizational
+    // levels (root children, year folders) in parallel, one thread per
+    // subdirectory, then concatenate in the original order so each project
+    // entry is still immediately followed by its descendants.
+    if depth <= 1 && !inside_project && entries.len() > 1 {
+        let chunks: Vec<Vec<ArchiveScanEntry>> = std::thread::scope(|s| {
+            let handles: Vec<_> = entries
+                .into_iter()
+                .map(|entry| {
+                    s.spawn(move || {
+                        let mut local = Vec::new();
+                        scan_archive_entry(
+                            entry, root, root_str, depth, inside_project, ctx_year, ctx_month,
+                            &mut local, max_entries,
+                        );
+                        local
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_default())
+                .collect()
+        });
+        for chunk in chunks {
+            if out.len() >= max_entries {
+                break;
+            }
+            out.extend(chunk);
+        }
+        out.truncate(max_entries);
+        return;
+    }
+
+    for entry in entries {
         if out.len() >= max_entries {
             break;
         }
-        let name = entry.file_name().to_string_lossy().to_string();
-        if should_skip_archive_name(&name) {
-            continue;
-        }
-        let path = entry.path();
-        let Ok(meta) = entry.metadata() else {
-            continue;
-        };
-        let is_dir = meta.is_dir();
-        let modified_ms = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
+        scan_archive_entry(
+            entry, root, root_str, depth, inside_project, ctx_year, ctx_month, out, max_entries,
+        );
+    }
+}
 
-        let relative_path = path
-            .strip_prefix(root)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| name.clone());
+#[allow(clippy::too_many_arguments)]
+fn scan_archive_entry(
+    entry: fs::DirEntry,
+    root: &PathBuf,
+    root_str: &str,
+    depth: usize,
+    inside_project: bool,
+    ctx_year: Option<i32>,
+    ctx_month: Option<u32>,
+    out: &mut Vec<ArchiveScanEntry>,
+    max_entries: usize,
+) {
+    let name = entry.file_name().to_string_lossy().to_string();
+    if should_skip_archive_name(&name) {
+        return;
+    }
+    let path = entry.path();
+    let Ok(meta) = entry.metadata() else {
+        return;
+    };
+    let is_dir = meta.is_dir();
+    let modified_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
 
-        if is_dir {
-            // Check if this folder is purely an organizational Year or Month container (when not yet inside a project)
-            if !inside_project {
-                if let Some(y) = parse_pure_year_folder(&name) {
-                    scan_archive_recursive(
-                        &path,
-                        root,
-                        root_str,
-                        depth + 1,
-                        false,
-                        Some(y),
-                        None,
-                        out,
-                        max_entries,
-                    );
-                    continue;
-                }
-                if let Some(m) = parse_pure_month_folder(&name) {
-                    let next_year = if name.len() == 7 {
-                        name[0..4].parse::<i32>().ok().or(ctx_year)
-                    } else {
-                        ctx_year
-                    };
-                    scan_archive_recursive(
-                        &path,
-                        root,
-                        root_str,
-                        depth + 1,
-                        false,
-                        next_year,
-                        Some(m),
-                        out,
-                        max_entries,
-                    );
-                    continue;
-                }
-            }
+    let relative_path = path
+        .strip_prefix(root)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| name.clone());
 
-            let is_project = !inside_project;
-            let (child_count, thumbnail_path, real_date_ms) = if is_project {
-                let count = fs::read_dir(&path)
-                    .map(|rd| rd.flatten().take(200).count())
-                    .unwrap_or(0);
-                let thumb = find_project_thumbnail(&path);
-                let real_ms = infer_project_real_date_ms(&path);
-                (count, thumb, real_ms)
-            } else {
-                (0, None, None)
-            };
-
-            out.push(ArchiveScanEntry {
-                name,
-                path: path.to_string_lossy().to_string(),
-                root_path: root_str.to_string(),
-                relative_path,
-                is_dir: true,
-                is_project,
-                ext: String::new(),
-                size: 0,
-                modified_ms,
-                context_year: ctx_year,
-                context_month: ctx_month,
-                child_count,
-                thumbnail_path,
-                real_date_ms,
-            });
-
-            // Also index up to 2 levels inside each project for Everything-style instant file search
-            if depth < 4 {
+    if is_dir {
+        // Check if this folder is purely an organizational Year or Month container (when not yet inside a project)
+        if !inside_project {
+            if let Some(y) = parse_pure_year_folder(&name) {
                 scan_archive_recursive(
                     &path,
                     root,
                     root_str,
                     depth + 1,
-                    true,
-                    ctx_year,
-                    ctx_month,
+                    false,
+                    Some(y),
+                    None,
                     out,
                     max_entries,
                 );
+                return;
             }
-        } else {
-            let ext = path
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            let path_str = path.to_string_lossy().to_string();
-            let thumbnail_path = if is_preview_image_ext(&ext) && meta.len() <= 15_000_000 {
-                Some(path_str.clone())
-            } else {
-                None
-            };
-            out.push(ArchiveScanEntry {
-                name,
-                path: path_str,
-                root_path: root_str.to_string(),
-                relative_path,
-                is_dir: false,
-                is_project: !inside_project,
-                ext,
-                size: meta.len(),
-                modified_ms,
-                context_year: ctx_year,
-                context_month: ctx_month,
-                child_count: 0,
-                thumbnail_path,
-                real_date_ms: if modified_ms > 0 { Some(modified_ms) } else { None },
-            });
+            if let Some(m) = parse_pure_month_folder(&name) {
+                let next_year = if name.len() == 7 {
+                    name[0..4].parse::<i32>().ok().or(ctx_year)
+                } else {
+                    ctx_year
+                };
+                scan_archive_recursive(
+                    &path,
+                    root,
+                    root_str,
+                    depth + 1,
+                    false,
+                    next_year,
+                    Some(m),
+                    out,
+                    max_entries,
+                );
+                return;
+            }
         }
+
+        let is_project = !inside_project;
+        // Heavy per-project analysis (child count, thumbnail, real date) is
+        // deferred to `analyze_projects_parallel` after the directory walk.
+        let (child_count, thumbnail_path, real_date_ms) = (0, None, None);
+
+        out.push(ArchiveScanEntry {
+            name,
+            path: path.to_string_lossy().to_string(),
+            root_path: root_str.to_string(),
+            relative_path,
+            is_dir: true,
+            is_project,
+            ext: String::new(),
+            size: 0,
+            modified_ms,
+            context_year: ctx_year,
+            context_month: ctx_month,
+            child_count,
+            thumbnail_path,
+            real_date_ms,
+            sig: None,
+            analyzed: false,
+        });
+
+        // Also index up to 2 levels inside each project for Everything-style instant file search
+        if depth < 4 {
+            scan_archive_recursive(
+                &path,
+                root,
+                root_str,
+                depth + 1,
+                true,
+                ctx_year,
+                ctx_month,
+                out,
+                max_entries,
+            );
+        }
+    } else {
+        let ext = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let path_str = path.to_string_lossy().to_string();
+        let thumbnail_path = if is_preview_image_ext(&ext) && meta.len() <= 15_000_000 {
+            Some(path_str.clone())
+        } else {
+            None
+        };
+        out.push(ArchiveScanEntry {
+            name,
+            path: path_str,
+            root_path: root_str.to_string(),
+            relative_path,
+            is_dir: false,
+            is_project: !inside_project,
+            ext,
+            size: meta.len(),
+            modified_ms,
+            context_year: ctx_year,
+            context_month: ctx_month,
+            child_count: 0,
+            thumbnail_path,
+            real_date_ms: if modified_ms > 0 { Some(modified_ms) } else { None },
+            sig: None,
+            analyzed: false,
+        });
     }
 }
 
+// NOTE: In Tauri 2, synchronous (non-async) commands execute on the main
+// thread, which blocks the window message loop and makes Windows mark the app
+// as "Not Responding" during heavy disk IO. All filesystem-heavy commands
+// below are therefore exposed as async wrappers that delegate to a blocking
+// worker thread via `spawn_blocking`.
+async fn run_blocking<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("后台任务执行失败: {}", e))?
+}
+
 #[tauri::command]
-fn scan_project_archive_roots(
+async fn scan_project_archive_roots(
     roots: Vec<String>,
     custom_dir: Option<String>,
+    full: Option<bool>,
+) -> Result<Vec<ArchiveScanEntry>, String> {
+    run_blocking(move || {
+        scan_project_archive_roots_impl(roots, custom_dir, full.unwrap_or(false))
+    })
+    .await
+}
+
+/// Computes a cheap change signature for each project from the entries that
+/// the directory walk already collected (DFS order: a project dir entry is
+/// immediately followed by its indexed descendants).
+fn compute_project_signatures(out: &mut [ArchiveScanEntry]) {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut i = 0;
+    while i < out.len() {
+        if !(out[i].is_project && out[i].is_dir) {
+            i += 1;
+            continue;
+        }
+        let prefix_a = format!("{}\\", out[i].path);
+        let prefix_b = format!("{}/", out[i].path);
+        let mut count: u64 = 0;
+        let mut max_mtime = out[i].modified_ms;
+        let mut total_size: u64 = 0;
+        let mut j = i + 1;
+        while j < out.len() {
+            let e = &out[j];
+            if e.is_project || !(e.path.starts_with(&prefix_a) || e.path.starts_with(&prefix_b)) {
+                break;
+            }
+            count += 1;
+            max_mtime = max_mtime.max(e.modified_ms);
+            total_size = total_size.wrapping_add(e.size);
+            j += 1;
+        }
+        let mut h = DefaultHasher::new();
+        (count, max_mtime, total_size, out[i].modified_ms).hash(&mut h);
+        out[i].sig = Some(h.finish());
+        i = j;
+    }
+}
+
+/// Copies analysis results from the previous cache for projects whose
+/// signature did not change. Returns how many projects were reused.
+fn reuse_previous_analysis(out: &mut [ArchiveScanEntry], prev: &[ArchiveScanEntry]) -> usize {
+    let prev_map: HashMap<&str, &ArchiveScanEntry> = prev
+        .iter()
+        .filter(|e| e.is_project && e.is_dir && e.sig.is_some())
+        .map(|e| (e.path.as_str(), e))
+        .collect();
+    let mut reused = 0;
+    for e in out.iter_mut().filter(|e| e.is_project && e.is_dir) {
+        if let Some(p) = prev_map.get(e.path.as_str()) {
+            if p.sig == e.sig {
+                e.child_count = p.child_count;
+                e.thumbnail_path = p.thumbnail_path.clone();
+                e.real_date_ms = p.real_date_ms;
+                e.analyzed = true;
+                reused += 1;
+            }
+        }
+    }
+    reused
+}
+
+fn scan_project_archive_roots_impl(
+    roots: Vec<String>,
+    custom_dir: Option<String>,
+    full: bool,
 ) -> Result<Vec<ArchiveScanEntry>, String> {
     let mut results: Vec<ArchiveScanEntry> = Vec::new();
     let max_entries = 18_000;
@@ -848,6 +1062,14 @@ fn scan_project_archive_roots(
         );
     }
 
+    compute_project_signatures(&mut results);
+    if !full {
+        if let Ok(Some(prev)) = load_project_archive_cache_impl(custom_dir.clone()) {
+            reuse_previous_analysis(&mut results, &prev.entries);
+        }
+    }
+    analyze_projects_parallel(&mut results);
+
     // Persist index cache to disk for instant startup & Everything-style search
     let data_dir = resolve_data_dir(custom_dir);
     if fs::create_dir_all(&data_dir).is_ok() {
@@ -856,13 +1078,19 @@ fn scan_project_archive_roots(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        let cache = ArchiveIndexCache {
-            roots: normalized_roots,
+        let cache = ArchiveIndexCacheRef {
+            roots: &normalized_roots,
             updated_at_ms,
-            entries: results.clone(),
+            entries: &results,
         };
-        if let Ok(json) = serde_json::to_string(&cache) {
-            let _ = fs::write(cache_file, json);
+        // Write to a temp file then rename, so a crash never leaves a torn cache.
+        let tmp_file = data_dir.join("project_archive_cache.json.tmp");
+        if let Ok(file) = fs::File::create(&tmp_file) {
+            let mut writer = std::io::BufWriter::new(file);
+            if serde_json::to_writer(&mut writer, &cache).is_ok() && writer.flush().is_ok() {
+                drop(writer);
+                let _ = fs::rename(&tmp_file, &cache_file);
+            }
         }
     }
 
@@ -870,7 +1098,13 @@ fn scan_project_archive_roots(
 }
 
 #[tauri::command]
-fn load_project_archive_cache(
+async fn load_project_archive_cache(
+    custom_dir: Option<String>,
+) -> Result<Option<ArchiveIndexCache>, String> {
+    run_blocking(move || load_project_archive_cache_impl(custom_dir)).await
+}
+
+fn load_project_archive_cache_impl(
     custom_dir: Option<String>,
 ) -> Result<Option<ArchiveIndexCache>, String> {
     let cache_file = resolve_data_dir(custom_dir).join("project_archive_cache.json");
@@ -906,7 +1140,75 @@ fn hash_thumb_key(path: &str, mtime_ms: u64) -> String {
 }
 
 #[tauri::command]
-fn read_archive_thumbnail(path: String, custom_dir: Option<String>) -> Result<String, String> {
+async fn read_archive_thumbnail(
+    path: String,
+    custom_dir: Option<String>,
+) -> Result<String, String> {
+    run_blocking(move || read_archive_thumbnail_impl(path, custom_dir)).await
+}
+
+/// Returns a local *file path* for the thumbnail (original small image or a
+/// disk-cached 360px JPEG). The frontend loads it through the asset protocol
+/// (`convertFileSrc`), avoiding base64 inflation and IPC JSON overhead.
+#[tauri::command]
+async fn resolve_archive_thumbnail(
+    path: String,
+    custom_dir: Option<String>,
+) -> Result<String, String> {
+    run_blocking(move || resolve_archive_thumbnail_impl(path, custom_dir)).await
+}
+
+fn resolve_archive_thumbnail_impl(path: String, custom_dir: Option<String>) -> Result<String, String> {
+    let p = PathBuf::from(path.trim());
+    let meta = fs::metadata(&p).map_err(|_| "缩略图文件不存在".to_string())?;
+    if !meta.is_file() {
+        return Err("缩略图文件不存在".to_string());
+    }
+    if meta.len() > 20_000_000 {
+        return Err("图片过大".to_string());
+    }
+    let ext = p
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if ext == "svg" || meta.len() <= 80_000 {
+        return Ok(p.to_string_lossy().to_string());
+    }
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let thumbs_dir = resolve_data_dir(custom_dir).join("thumbs");
+    let cache_file = thumbs_dir.join(format!("{}.jpg", hash_thumb_key(path.trim(), mtime_ms)));
+    if cache_file.is_file() {
+        return Ok(cache_file.to_string_lossy().to_string());
+    }
+    if let Ok(img) = image::open(&p) {
+        let thumb = img.thumbnail(360, 360);
+        if fs::create_dir_all(&thumbs_dir).is_ok() {
+            let tmp = cache_file.with_extension("jpg.tmp");
+            if let Ok(file) = fs::File::create(&tmp) {
+                let mut writer = std::io::BufWriter::new(file);
+                let ok = thumb
+                    .to_rgb8()
+                    .write_to(&mut writer, image::ImageFormat::Jpeg)
+                    .is_ok()
+                    && writer.flush().is_ok();
+                drop(writer);
+                if ok && fs::rename(&tmp, &cache_file).is_ok() {
+                    return Ok(cache_file.to_string_lossy().to_string());
+                }
+                let _ = fs::remove_file(&tmp);
+            }
+        }
+    }
+    // Decoding failed (e.g. unsupported variant): let the webview try the original.
+    Ok(p.to_string_lossy().to_string())
+}
+
+fn read_archive_thumbnail_impl(path: String, custom_dir: Option<String>) -> Result<String, String> {
     let p = PathBuf::from(path.trim());
     if !p.is_file() {
         return Err("缩略图文件不存在".to_string());
@@ -989,7 +1291,11 @@ fn read_archive_thumbnail(path: String, custom_dir: Option<String>) -> Result<St
 }
 
 #[tauri::command]
-fn inspect_path(path: String) -> Result<PathInfo, String> {
+async fn inspect_path(path: String) -> Result<PathInfo, String> {
+    run_blocking(move || inspect_path_impl(path)).await
+}
+
+fn inspect_path_impl(path: String) -> Result<PathInfo, String> {
     let clean = path.trim().trim_matches('"');
     let p = PathBuf::from(clean);
     if !p.exists() {
@@ -1007,7 +1313,11 @@ fn inspect_path(path: String) -> Result<PathInfo, String> {
 }
 
 #[tauri::command]
-fn list_folder_entries(folder_path: String) -> Result<Vec<FolderEntry>, String> {
+async fn list_folder_entries(folder_path: String) -> Result<Vec<FolderEntry>, String> {
+    run_blocking(move || list_folder_entries_impl(folder_path)).await
+}
+
+fn list_folder_entries_impl(folder_path: String) -> Result<Vec<FolderEntry>, String> {
     let p = PathBuf::from(folder_path.trim());
     if !p.is_dir() {
         return Err("不是有效的文件夹路径".to_string());
@@ -1039,7 +1349,13 @@ fn list_folder_entries(folder_path: String) -> Result<Vec<FolderEntry>, String> 
 }
 
 #[tauri::command]
-fn list_project_explorer_entries(folder_path: String) -> Result<Vec<ExplorerEntry>, String> {
+async fn list_project_explorer_entries(
+    folder_path: String,
+) -> Result<Vec<ExplorerEntry>, String> {
+    run_blocking(move || list_project_explorer_entries_impl(folder_path)).await
+}
+
+fn list_project_explorer_entries_impl(folder_path: String) -> Result<Vec<ExplorerEntry>, String> {
     let p = PathBuf::from(folder_path.trim());
     if !p.is_dir() {
         return Err("不是有效的文件夹路径".to_string());
@@ -1091,7 +1407,11 @@ fn list_project_explorer_entries(folder_path: String) -> Result<Vec<ExplorerEntr
 }
 
 #[tauri::command]
-fn read_file_text_preview(path: String) -> Result<String, String> {
+async fn read_file_text_preview(path: String) -> Result<String, String> {
+    run_blocking(move || read_file_text_preview_impl(path)).await
+}
+
+fn read_file_text_preview_impl(path: String) -> Result<String, String> {
     let p = PathBuf::from(path.trim());
     if !p.is_file() {
         return Err("文件不存在".to_string());
@@ -1122,7 +1442,15 @@ mod win_seer {
     #[link(name = "user32")]
     extern "system" {
         fn FindWindowW(lp_class_name: *const u16, lp_window_name: *const u16) -> isize;
-        fn SendMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> isize;
+        fn SendMessageTimeoutW(
+            hwnd: isize,
+            msg: u32,
+            wparam: usize,
+            lparam: isize,
+            flags: u32,
+            timeout_ms: u32,
+            result: *mut usize,
+        ) -> isize;
     }
 
     /// Official Seer third-party integration protocol (1218.io):
@@ -1150,20 +1478,30 @@ mod win_seer {
             lp_data: wide_path.as_ptr() as *const c_void,
         };
 
-        unsafe {
-            SendMessageW(
+        // SMTO_ABORTIFHUNG (0x0002): never block if Seer's UI thread is hung.
+        const SMTO_ABORTIFHUNG: u32 = 0x0002;
+        let mut _result: usize = 0;
+        let ok = unsafe {
+            SendMessageTimeoutW(
                 hwnd,
                 WM_COPYDATA,
                 0,
                 (&cds as *const CopyDataStruct) as isize,
-            );
-        }
-        true
+                SMTO_ABORTIFHUNG,
+                1500,
+                &mut _result,
+            )
+        };
+        ok != 0
     }
 }
 
 #[tauri::command]
-fn trigger_seer_preview(target_path: String) -> Result<String, String> {
+async fn trigger_seer_preview(target_path: String) -> Result<String, String> {
+    run_blocking(move || trigger_seer_preview_impl(target_path)).await
+}
+
+fn trigger_seer_preview_impl(target_path: String) -> Result<String, String> {
     let p = PathBuf::from(target_path.trim());
     if !p.exists() {
         return Err("目标路径不存在".to_string());
@@ -1215,7 +1553,11 @@ fn trigger_seer_preview(target_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn reveal_path_in_os(target_path: String) -> Result<(), String> {
+async fn reveal_path_in_os(target_path: String) -> Result<(), String> {
+    run_blocking(move || reveal_path_in_os_impl(target_path)).await
+}
+
+fn reveal_path_in_os_impl(target_path: String) -> Result<(), String> {
     let p = PathBuf::from(target_path.trim());
     if !p.exists() {
         return Err("目标路径不存在".to_string());
@@ -1250,7 +1592,11 @@ fn reveal_path_in_os(target_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_path_in_os(target_path: String) -> Result<(), String> {
+async fn open_path_in_os(target_path: String) -> Result<(), String> {
+    run_blocking(move || open_path_in_os_impl(target_path)).await
+}
+
+fn open_path_in_os_impl(target_path: String) -> Result<(), String> {
     let p = PathBuf::from(target_path.trim());
     if !p.exists() {
         return Err("目标路径不存在".to_string());
@@ -1703,7 +2049,11 @@ struct AiHttpResponse {
 }
 
 #[tauri::command]
-fn ai_http_request(
+async fn ai_http_request(url: String, method: String, headers: HashMap<String, String>, body: Option<String>) -> Result<AiHttpResponse, String> {
+    run_blocking(move || ai_http_request_impl(url, method, headers, body)).await
+}
+
+fn ai_http_request_impl(
     url: String,
     method: String,
     headers: HashMap<String, String>,
@@ -1976,6 +2326,7 @@ pub fn run() {
             load_project_archive_cache,
             pick_folder_path,
             read_archive_thumbnail,
+            resolve_archive_thumbnail,
             append_app_log,
             read_app_logs,
             clear_app_logs,

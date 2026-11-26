@@ -387,12 +387,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   return (
     <div
       onWheel={handleCalendarWheel}
-      className="flex h-full flex-col overflow-hidden px-3 sm:px-6 py-3 sm:py-4"
+      className="flex h-full flex-col overflow-hidden"
     >
-      {/* Minimal Calendar Header */}
-      <div className="mb-2.5 flex items-center justify-between gap-2 shrink-0">
+      {/* Unified Linear View Sub-Toolbar */}
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-background px-3 sm:px-5">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-semibold text-zinc-100">
+          <h2 className="text-[13.5px] font-semibold tracking-[-0.01em] text-foreground tabular-nums">
             {t("calendar.yearMonth", {
               year: cursor.getFullYear(),
               month: cursor.getMonth() + 1,
@@ -400,36 +400,38 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </h2>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center rounded-md border border-border bg-surface p-0.5">
           <button
             onClick={() => shiftMonth(-1)}
-            className="rounded-lg p-1 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-100"
+            className="flex h-6 w-6 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             title={t("calendar.prevMonth")}
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={jumpToday}
-            className="rounded-lg px-2 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-100"
+            className="h-6 rounded-[4px] px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
           >
             {t("common.today")}
           </button>
           <button
             onClick={() => shiftMonth(1)}
-            className="rounded-lg p-1 text-zinc-400 transition hover:bg-white/[0.06] hover:text-zinc-100"
+            className="flex h-6 w-6 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             title={t("calendar.nextMonth")}
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
+      <div className="flex flex-1 flex-col overflow-hidden px-3 sm:px-5 py-3">
+
       {/* Weekday Header */}
-      <div className="mb-1.5 grid grid-cols-7 gap-1 sm:gap-2 shrink-0">
+      <div className="mb-1.5 grid grid-cols-7 gap-1 sm:gap-1.5 shrink-0">
         {weekdays.map((day) => (
           <div
             key={day}
-            className="px-1 text-center text-xs font-medium text-zinc-500"
+            className="px-1 text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
           >
             {t("calendar.weekdayPrefix")}
             {day}
@@ -438,7 +440,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       </div>
 
       {/* Month Grid */}
-      <div className="grid flex-1 grid-cols-7 gap-1 sm:gap-2 overflow-y-auto">
+      <div className="grid flex-1 grid-cols-7 gap-1 sm:gap-1.5 overflow-y-auto">
         {calendarDays.map(({ date, key, inMonth }) => {
           const dayTasks = tasksByDate.get(key) ?? [];
           const isToday = key === todayKey;
@@ -467,29 +469,29 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   setQuickColId(workspace.columns[0].id);
                 }
               }}
-              className={`group flex min-h-[58px] sm:min-h-[82px] cursor-pointer flex-col rounded-lg sm:rounded-xl p-1.5 sm:p-2 transition-all duration-150 ${
+              className={`group flex min-h-[58px] sm:min-h-[82px] cursor-pointer flex-col rounded-md border p-1.5 sm:p-2 transition-colors duration-150 ${
                 isDropTarget
-                  ? "bg-[#25221a] shadow-[0_6px_18px_rgba(245,158,11,0.14)]"
+                  ? "border-primary/60 bg-primary/[0.08]"
                   : isToday
-                  ? "bg-[#1f1d18] shadow-[0_2px_10px_rgba(245,158,11,0.1)]"
+                  ? "border-primary/45 bg-primary/[0.05]"
                   : inMonth
-                  ? "bg-[#16161a] shadow-[0_1px_3px_rgba(0,0,0,0.18)] hover:bg-[#1f1f25] hover:shadow-[0_4px_12px_rgba(0,0,0,0.28)]"
-                  : "bg-[#131316]/60 opacity-45 hover:opacity-75"
+                  ? "border-border/75 bg-card hover:border-foreground/15 hover:bg-surface-elevated"
+                  : "border-border/40 bg-surface/50 opacity-45 hover:opacity-75"
               }`}
             >
               <div className="flex items-center justify-between">
                 <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-md text-xs sm:text-xs font-medium ${
+                  className={`flex h-5 w-5 items-center justify-center rounded-[5px] font-mono text-xs font-medium tabular-nums ${
                     isToday
-                      ? "bg-shiba-500 text-zinc-950 font-semibold"
-                      : "text-zinc-300"
+                      ? "bg-primary text-primary-foreground font-semibold"
+                      : "text-foreground/85"
                   }`}
                 >
                   {date.getDate()}
                 </span>
 
                 {pendingDayCount > 0 && (
-                  <span className="hidden sm:inline text-xs text-zinc-500">
+                  <span className="hidden sm:inline font-mono text-[11px] tabular-nums text-muted-foreground">
                     {pendingDayCount}
                   </span>
                 )}
@@ -562,14 +564,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       {hoveredDate && !selectedDate && (
         <div
           style={{ left: hoverPos.x, top: hoverPos.y }}
-          className="pointer-events-none fixed z-40 w-[280px] rounded-2xl bg-[#1b1b20]/95 p-3.5 ring-1 ring-white/[0.12] shadow-2xl backdrop-blur-md"
+          className="pointer-events-none fixed z-40 w-[280px] rounded-lg border border-border bg-popover/95 p-3 shadow-popover-soft backdrop-blur-md"
         >
-          <div className="flex items-center justify-between border-b border-white/[0.06] pb-2">
-            <span className="text-xs font-semibold text-zinc-100">
+          <div className="flex items-center justify-between border-b border-border/70 pb-2">
+            <span className="font-mono text-xs font-medium text-foreground">
               {hoveredDate}
               {hoveredDate === todayKey ? " · 今天" : ""}
             </span>
-            <span className="text-xs text-zinc-500">
+            <span className="text-xs text-muted-foreground">
               {hoveredTasks.length} 项任务
             </span>
           </div>
@@ -747,6 +749,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           )}
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 };

@@ -339,14 +339,34 @@ export function buildArchiveIndex(
     return (b.real_date_ms ?? b.modified_ms) - (a.real_date_ms ?? a.modified_ms);
   });
 
+  builtIndexModes.set(items, dateMode);
   return items;
 }
+
+// Tracks which date mode each built index array was produced with, so that
+// re-applying the same mode is a no-op instead of re-parsing every entry.
+const builtIndexModes = new WeakMap<IndexedArchiveItem[], ProjectDateMode>();
+// Per-source cache of derived indexes for other date modes (survives remounts).
+const reappliedIndexCache = new WeakMap<
+  IndexedArchiveItem[],
+  Map<ProjectDateMode, IndexedArchiveItem[]>
+>();
 
 export function reapplyArchiveDateMode(
   items: IndexedArchiveItem[],
   dateMode: ProjectDateMode
 ): IndexedArchiveItem[] {
-  return buildArchiveIndex(items, dateMode);
+  if (builtIndexModes.get(items) === dateMode) return items;
+  let perMode = reappliedIndexCache.get(items);
+  const cached = perMode?.get(dateMode);
+  if (cached) return cached;
+  const next = buildArchiveIndex(items, dateMode);
+  if (!perMode) {
+    perMode = new Map();
+    reappliedIndexCache.set(items, perMode);
+  }
+  perMode.set(dateMode, next);
+  return next;
 }
 
 interface ArchiveIndexCachePayload {
@@ -425,7 +445,8 @@ export async function loadCachedProjectArchive(
 
 export async function scanProjectArchiveRoots(
   roots: string[],
-  customDataDir?: string
+  customDataDir?: string,
+  options: { full?: boolean } = {}
 ): Promise<{ items: IndexedArchiveItem[]; updatedAtMs: number }> {
   const cleanRoots = roots.map((r) => r.trim()).filter(Boolean);
   if (cleanRoots.length === 0) {
@@ -439,6 +460,7 @@ export async function scanProjectArchiveRoots(
     raw = await invoke<ArchiveScanEntry[]>("scan_project_archive_roots", {
       roots: cleanRoots,
       customDir: customDataDir?.trim() || null,
+      full: Boolean(options.full),
     });
   } else {
     // Vite dev server local fallback so testing in browser tab works seamlessly
@@ -554,6 +576,16 @@ export async function listProjectExplorerEntries(
       folderPath,
     });
   }
+  try {
+    const res = await fetch("/api/dev-archive/explorer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folderPath }),
+    });
+    if (res.ok) return (await res.json()) as ExplorerEntry[];
+  } catch {
+    // ignore
+  }
   return [];
 }
 
@@ -584,10 +616,43 @@ export async function pickArchiveFolder(): Promise<string | null> {
   return null;
 }
 
+// Bounded LRU cache: asset:// URLs are tiny strings, but fallback data URLs can
+// be large, so cap the number of entries to keep memory flat while browsing.
+const THUMB_CACHE_MAX = 600;
 const thumbnailCache = new Map<string, string | null>();
 const thumbnailInflight = new Map<string, Promise<string | null>>();
 let activeThumbLoads = 0;
 const thumbQueue: (() => void)[] = [];
+
+function thumbCacheGet(key: string): string | null | undefined {
+  if (!thumbnailCache.has(key)) return undefined;
+  const v = thumbnailCache.get(key) ?? null;
+  // refresh recency
+  thumbnailCache.delete(key);
+  thumbnailCache.set(key, v);
+  return v;
+}
+
+function thumbCacheSet(key: string, value: string | null): void {
+  thumbnailCache.delete(key);
+  thumbnailCache.set(key, value);
+  while (thumbnailCache.size > THUMB_CACHE_MAX) {
+    const oldest = thumbnailCache.keys().next().value;
+    if (oldest === undefined) break;
+    thumbnailCache.delete(oldest);
+  }
+}
+
+function probeImage(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
+
+let assetProtocolWorks: boolean | null = null;
 
 function acquireThumbSlot(): Promise<void> {
   if (activeThumbLoads < 4) {
@@ -613,9 +678,8 @@ export async function loadArchiveThumbnail(
   customDataDir?: string
 ): Promise<string | null> {
   if (!filePath) return null;
-  if (thumbnailCache.has(filePath)) {
-    return thumbnailCache.get(filePath) ?? null;
-  }
+  const cachedValue = thumbCacheGet(filePath);
+  if (cachedValue !== undefined) return cachedValue;
   const existing = thumbnailInflight.get(filePath);
   if (existing) return existing;
 
@@ -623,19 +687,41 @@ export async function loadArchiveThumbnail(
     await acquireThumbSlot();
     try {
       if (isTauriRuntime()) {
-        const { invoke } = await import("@tauri-apps/api/core");
+        const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
+        const customDir = customDataDir?.trim() || null;
+
+        // Preferred: resolve to a local file and stream it via asset protocol.
+        if (assetProtocolWorks !== false) {
+          try {
+            const localPath = await invoke<string>("resolve_archive_thumbnail", {
+              path: filePath,
+              customDir,
+            });
+            const url = convertFileSrc(localPath);
+            if (assetProtocolWorks === true || (await probeImage(url))) {
+              assetProtocolWorks = true;
+              thumbCacheSet(filePath, url);
+              return url;
+            }
+            if (assetProtocolWorks === null) assetProtocolWorks = false;
+          } catch {
+            // fall through to data URL
+          }
+        }
+
+        // Fallback: legacy base64 data URL over IPC.
         const dataUrl = await invoke<string>("read_archive_thumbnail", {
           path: filePath,
-          customDir: customDataDir?.trim() || null,
+          customDir,
         });
-        thumbnailCache.set(filePath, dataUrl);
+        thumbCacheSet(filePath, dataUrl);
         return dataUrl;
       }
       const url = `/api/dev-archive/thumb?path=${encodeURIComponent(filePath)}`;
-      thumbnailCache.set(filePath, url);
+      thumbCacheSet(filePath, url);
       return url;
     } catch {
-      thumbnailCache.set(filePath, null);
+      thumbCacheSet(filePath, null);
       return null;
     } finally {
       releaseThumbSlot();

@@ -16,6 +16,7 @@ export interface BoardColumn {
   title: string;
   color: string;
   width?: number;
+  gapAfter?: number;
   collapsed?: boolean;
   collapsedHeight?: number;
   x?: number;

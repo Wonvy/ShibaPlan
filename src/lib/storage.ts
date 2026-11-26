@@ -260,6 +260,7 @@ export async function loadWorkspace(customDir?: string): Promise<WorkspaceData> 
 
 export async function saveWorkspace(data: WorkspaceData): Promise<void> {
   const json = JSON.stringify(data, null, 2);
+  lastSavedJson = json;
   if (isTauriRuntime()) {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke<string>("save_workspace_data", {
@@ -276,6 +277,62 @@ export async function saveWorkspace(data: WorkspaceData): Promise<void> {
       }).catch(() => {});
     }
   }
+}
+
+// ---- Debounced, serialized saving ----------------------------------------
+// Rapid edits (typing, dragging) are coalesced into one write, and writes are
+// chained so an older snapshot can never land on disk after a newer one.
+
+let lastSavedJson: string | null = null;
+let pendingSave: WorkspaceData | null = null;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveChain: Promise<void> = Promise.resolve();
+const SAVE_DEBOUNCE_MS = 400;
+
+/** True when a `workspace-updated` payload is just the echo of our own save. */
+export function isOwnSaveEcho(payload: string): boolean {
+  return lastSavedJson !== null && payload === lastSavedJson;
+}
+
+/** True while there are local edits that have not been written yet. */
+export function hasPendingSave(): boolean {
+  return pendingSave !== null;
+}
+
+export function flushPendingSave(): Promise<void> {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  const data = pendingSave;
+  pendingSave = null;
+  if (data) {
+    saveChain = saveChain
+      .then(() => saveWorkspace(data))
+      .catch((err) => console.error("Failed to save workspace:", err));
+  }
+  return saveChain;
+}
+
+export function scheduleSaveWorkspace(data: WorkspaceData): void {
+  pendingSave = data;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void flushPendingSave();
+  }, SAVE_DEBOUNCE_MS);
+}
+
+if (typeof window !== "undefined") {
+  const flush = () => {
+    void flushPendingSave();
+  };
+  window.addEventListener("beforeunload", flush);
+  window.addEventListener("pagehide", flush);
+  window.addEventListener("blur", flush);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flush();
+  });
 }
 
 export async function savePastedImage(

@@ -5,14 +5,14 @@ export interface AccentColorPreset {
 }
 
 export const ACCENT_COLOR_PRESETS: AccentColorPreset[] = [
-  { id: "default", label: "默认琥珀", hex: "" },
-  { id: "amber", label: "暖金", hex: "#f59e0b" },
-  { id: "orange", label: "赤陶", hex: "#ea580c" },
-  { id: "rose", label: "绯红", hex: "#e11d48" },
+  { id: "default", label: "Linear 靛蓝", hex: "" },
+  { id: "indigo", label: "深靛青", hex: "#4f46e5" },
   { id: "violet", label: "紫罗兰", hex: "#7c3aed" },
-  { id: "indigo", label: "靛青", hex: "#4f46e5" },
-  { id: "sky", label: "晴空", hex: "#0284c7" },
-  { id: "emerald", label: "青黛", hex: "#059669" },
+  { id: "sky", label: "晴空蓝", hex: "#0284c7" },
+  { id: "emerald", label: "青黛绿", hex: "#059669" },
+  { id: "amber", label: "暖金琥珀", hex: "#f59e0b" },
+  { id: "orange", label: "赤陶橙", hex: "#ea580c" },
+  { id: "rose", label: "绯红", hex: "#e11d48" },
   { id: "slate", label: "墨灰", hex: "#52525b" },
 ];
 

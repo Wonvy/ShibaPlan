@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowUp,
   BarChart3,
+  Check,
   ChevronDown,
-  ChevronRight,
   Clock,
   Copy,
   ExternalLink,
@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   List,
   Loader2,
+  MoreHorizontal,
   PanelRight,
   RefreshCw,
   Search,
@@ -51,6 +52,13 @@ import {
   triggerSeerPreview,
 } from "../lib/archive";
 import { Button } from "./ui/button";
+import { ProjectThumbnail } from "./projects/ProjectThumbnail";
+import {
+  ProjectGridCard,
+  ProjectTimelineCard,
+  VirtualProjectList,
+} from "./projects/ProjectCards";
+import { formatFileSize, getFolderLabel } from "./projects/utils";
 
 interface ProjectsViewProps {
   workspace: WorkspaceData;
@@ -69,174 +77,7 @@ const RIGHT_WIDTH_STORAGE_KEY = "shibaplan_projects_right_w_v1";
 const EXPLORER_VIEW_STORAGE_KEY = "shibaplan_projects_explorer_view_v1";
 const CARD_WIDTH_STORAGE_KEY = "shibaplan_projects_card_w_v1";
 
-function formatFileSize(bytes: number): string {
-  if (bytes <= 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function getFolderLabel(dir: ProjectArchiveDir): string {
-  if (dir.label?.trim()) return dir.label.trim();
-  const clean = dir.path.replace(/[\\/]+$/, "");
-  const parts = clean.split(/[\\/]/);
-  return parts[parts.length - 1] || clean;
-}
-
-function renderHighlightedText(text: string, terms: string[]): React.ReactNode {
-  if (!terms.length || !text) return text;
-  const escaped = terms
-    .filter(Boolean)
-    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (escaped.length === 0) return text;
-
-  const regex = new RegExp(`(${escaped.join("|")})`, "gi");
-  const parts = text.split(regex);
-  return parts.map((part, idx) =>
-    idx % 2 === 1 ? (
-      <mark
-        key={idx}
-        className="rounded bg-primary/20 px-0.5 font-medium text-primary"
-      >
-        {part}
-      </mark>
-    ) : (
-      <React.Fragment key={idx}>{part}</React.Fragment>
-    )
-  );
-}
-
-const ProjectThumbnail: React.FC<{
-  thumbPath: string | null;
-  alt: string;
-  variant?: "card" | "timeline" | "compact";
-  fixedHeight?: number;
-  showPlaceholder?: boolean;
-}> = ({
-  thumbPath,
-  alt,
-  variant = "card",
-  fixedHeight = 128,
-  showPlaceholder = false,
-}) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-  const [src, setSrc] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!thumbPath) return;
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "180px" }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [thumbPath]);
-
-  useEffect(() => {
-    if (!visible || !thumbPath) return;
-    let cancelled = false;
-    loadArchiveThumbnail(thumbPath).then((url) => {
-      if (!cancelled) {
-        if (url) setSrc(url);
-        else setFailed(true);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [visible, thumbPath]);
-
-  if (!thumbPath || failed) {
-    if (variant === "card" && showPlaceholder) {
-      return (
-        <div
-          style={{ height: fixedHeight }}
-          className="mb-2.5 flex w-full items-center justify-center rounded-lg bg-muted/35 text-muted-foreground/30"
-        >
-          <Folder className="h-7 w-7" />
-        </div>
-      );
-    }
-    return null;
-  }
-
-  if (variant === "compact") {
-    return (
-      <div
-        ref={containerRef}
-        className="flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/50 p-0.5"
-      >
-        {src ? (
-          <img
-            src={src}
-            alt={alt}
-            loading="lazy"
-            onError={() => setFailed(true)}
-            className="max-h-full max-w-full object-contain"
-          />
-        ) : (
-          <ImageIcon className="h-3.5 w-3.5 text-muted-foreground/50" />
-        )}
-      </div>
-    );
-  }
-
-  if (variant === "timeline") {
-    return (
-      <div
-        ref={containerRef}
-        className="flex w-36 sm:w-48 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5"
-      >
-        {src ? (
-          <img
-            src={src}
-            alt={alt}
-            loading="lazy"
-            onError={() => setFailed(true)}
-            className="max-h-36 w-full h-auto object-contain rounded transition-transform duration-300 group-hover:scale-[1.02]"
-          />
-        ) : (
-          <div className="flex h-24 w-full items-center justify-center text-muted-foreground/35">
-            <ImageIcon className="h-5 w-5" />
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      style={{ height: fixedHeight }}
-      className="mb-2.5 flex w-full items-center justify-center overflow-hidden rounded-lg bg-muted/40 p-1.5"
-    >
-      {src ? (
-        <img
-          src={src}
-          alt={alt}
-          loading="lazy"
-          onError={() => setFailed(true)}
-          className="max-h-full max-w-full object-contain rounded transition-transform duration-300 group-hover:scale-[1.02]"
-        />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center text-muted-foreground/35">
-          <ImageIcon className="h-5 w-5" />
-        </div>
-      )}
-    </div>
-  );
-};
+const EMPTY_ITEMS: IndexedArchiveItem[] = [];
 
 export const ProjectsView: React.FC<ProjectsViewProps> = ({
   workspace,
@@ -306,9 +147,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     number | "all" | "unknown" | "starred"
   >("all");
   const [selectedMonth, setSelectedMonth] = useState<number | "all">("all");
-  const [expandedYears, setExpandedYears] = useState<Set<number>>(
-    () => new Set()
-  );
+  const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [renderLimit, setRenderLimit] = useState(160);
   const [expandedProjectPath, setExpandedProjectPath] = useState<string | null>(
     null
@@ -318,33 +157,49 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     x: number;
     y: number;
   } | null>(null);
+  const [projectMenu, setProjectMenu] = useState<{
+    item: IndexedArchiveItem;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const starredSet = useMemo(
     () => new Set(workspace.settings.starredProjects ?? []),
     [workspace.settings.starredProjects]
   );
 
+  // Keep the latest workspace in a ref so callbacks below stay referentially
+  // stable across workspace edits (lets memoized cards skip re-rendering).
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+
   const toggleStarProject = useCallback(
     (projectPath: string) => {
-      const current = workspace.settings.starredProjects ?? [];
+      const ws = workspaceRef.current;
+      const current = ws.settings.starredProjects ?? [];
       const exists = current.includes(projectPath);
       const next = exists
         ? current.filter((p) => p !== projectPath)
         : [projectPath, ...current];
       onUpdate({
-        ...workspace,
+        ...ws,
         settings: {
-          ...workspace.settings,
+          ...ws.settings,
           starredProjects: next,
         },
       });
     },
-    [workspace, onUpdate]
+    [onUpdate]
   );
+
+  const toggleExpandProject = useCallback((path: string) => {
+    setExpandedProjectPath((cur) => (cur === path ? null : path));
+  }, []);
 
   const sendEntryToKanban = useCallback(
     (entry: ExplorerEntry) => {
-      let columns = workspace.columns;
+      const ws = workspaceRef.current;
+      let columns = ws.columns;
       let targetColId = columns[0]?.id;
       if (!targetColId) {
         targetColId = uid("col");
@@ -371,25 +226,48 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         createdAt: new Date().toISOString(),
       };
       onUpdate({
-        ...workspace,
+        ...ws,
         columns,
-        tasks: [newTask, ...workspace.tasks],
+        tasks: [newTask, ...ws.tasks],
       });
       onNotify(`已发送到看板：${entry.name}`);
     },
-    [workspace, onUpdate, onNotify]
+    [onUpdate, onNotify]
   );
 
   useEffect(() => {
-    if (!explorerMenu) return;
-    const close = () => setExplorerMenu(null);
+    if (!explorerMenu && !projectMenu) return;
+    const close = () => {
+      setExplorerMenu(null);
+      setProjectMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
     window.addEventListener("click", close);
     window.addEventListener("contextmenu", close);
+    window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("click", close);
       window.removeEventListener("contextmenu", close);
+      window.removeEventListener("keydown", onKey);
     };
-  }, [explorerMenu]);
+  }, [explorerMenu, projectMenu]);
+
+  const handleProjectContextMenu = useCallback(
+    (e: React.MouseEvent, item: IndexedArchiveItem) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setExplorerMenu(null);
+      setSelectedProject(item);
+      setProjectMenu({
+        item,
+        x: Math.min(e.clientX, window.innerWidth - 208),
+        y: Math.min(e.clientY, window.innerHeight - 220),
+      });
+    },
+    []
+  );
 
   // Right-side Embedded Project Explorer + Seer Spacebar Preview state
   const [explorerOpen, setExplorerOpen] = useState(true);
@@ -407,11 +285,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [leftWidth, setLeftWidth] = useState<number>(() => {
     try {
       const n = Number(localStorage.getItem(LEFT_WIDTH_STORAGE_KEY));
-      if (n >= 140 && n <= 340) return n;
+      if (n >= 112 && n <= 260) return n;
     } catch {
       // ignore
     }
-    return 184;
+    return 140;
   });
   const [rightWidth, setRightWidth] = useState<number>(() => {
     try {
@@ -432,6 +310,37 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     return 220;
   });
   const middlePaneRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarWidth, setToolbarWidth] = useState<number>(800);
+  const [openDropdown, setOpenDropdown] = useState<
+    "scope" | "root" | "more" | null
+  >(null);
+
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (typeof w === "number" && w > 0) setToolbarWidth(w);
+    });
+    ro.observe(el);
+    setToolbarWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, [archiveDirs.length]);
+
+  useEffect(() => {
+    if (!openDropdown) return;
+    const close = () => setOpenDropdown(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [openDropdown]);
 
   // Ctrl/Cmd + Mouse Wheel zoom for project card size
   useEffect(() => {
@@ -475,7 +384,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     let latest = startW;
 
     const onMove = (ev: MouseEvent) => {
-      latest = Math.max(140, Math.min(340, startW + (ev.clientX - startX)));
+      latest = Math.max(112, Math.min(260, startW + (ev.clientX - startX)));
       setLeftWidth(latest);
     };
     const onUp = () => {
@@ -633,7 +542,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   };
 
   const runIndex = useCallback(
-    async (silent = false) => {
+    async (silent = false, full = false) => {
       if (enabledRootPaths.length === 0) {
         setAllItems([]);
         setIndexError(null);
@@ -645,7 +554,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       try {
         const { items: indexed, updatedAtMs } = await scanProjectArchiveRoots(
           enabledRootPaths,
-          workspace.settings.customDataDir
+          workspace.settings.customDataDir,
+          { full }
         );
         setAllItems(indexed);
         setCacheRestored(false);
@@ -818,6 +728,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
   const timelineStats = useMemo(() => {
     const yearMap = new Map<number, Map<number, number>>();
+    const yearTotals = new Map<number, number>();
     let unknownCount = 0;
 
     for (const item of projectsByRoot) {
@@ -825,6 +736,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         unknownCount++;
         continue;
       }
+      yearTotals.set(item.year, (yearTotals.get(item.year) ?? 0) + 1);
       if (!yearMap.has(item.year)) {
         yearMap.set(item.year, new Map());
       }
@@ -836,7 +748,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
     const years = Array.from(yearMap.entries())
       .map(([year, mMap]) => {
-        const total = projectsByRoot.filter((i) => i.year === year).length;
+        const total = yearTotals.get(year) ?? 0;
         const months = Array.from(mMap.entries()).sort((a, b) => b[0] - a[0]);
         return { year, total, months };
       })
@@ -844,6 +756,20 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
     return { years, unknownCount, totalProjects: projectsByRoot.length };
   }, [projectsByRoot]);
+
+  // In Timeline view, always lock to a single year (current calendar year if available, otherwise latest year)
+  useEffect(() => {
+    if (viewMode !== "timeline") return;
+    if (typeof selectedYear === "number") return;
+    if (timelineStats.years.length === 0) return;
+    const thisYear = new Date().getFullYear();
+    const targetYear = timelineStats.years.some((y) => y.year === thisYear)
+      ? thisYear
+      : timelineStats.years[0].year;
+    setSelectedYear(targetYear);
+    setSelectedMonth("all");
+    setExpandedYear(targetYear);
+  }, [viewMode, selectedYear, timelineStats.years]);
 
   // Effective scope: if user uses ext: or file: syntax, auto-search all items
   const effectiveScope: SearchScope = useMemo(() => {
@@ -1140,28 +1066,74 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       .slice(0, 40);
   }, [allItems, expandedProjectPath]);
 
-  // Group browse items by YYYY年M月 when not searching
-  const groupedBrowse = useMemo(() => {
+  // Group browse items by Year -> Month sections so Year + Month merge cleanly
+  // instead of repeating "2026年 11月", "2026年 10月" on every row.
+  const groupedByYear = useMemo(() => {
     if (query.trim()) return [];
     const visible = matchedItems.slice(0, renderLimit);
-    const groups = new Map<string, IndexedArchiveItem[]>();
+
+    type MonthBucket = {
+      month: number | null;
+      monthLabel: string;
+      items: IndexedArchiveItem[];
+    };
+    type YearSection = {
+      yearKey: string;
+      year: number | null;
+      yearLabel: string;
+      totalCount: number;
+      months: MonthBucket[];
+    };
+
+    const yearMap = new Map<string, YearSection>();
 
     for (const item of visible) {
-      const label =
-        item.year && item.month
-          ? `${item.year}年 ${item.month}月`
-          : item.year
-            ? `${item.year}年`
-            : "其他未归类";
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label)!.push(item);
+      const yearKey = item.year !== null ? String(item.year) : "unknown";
+      let ySec = yearMap.get(yearKey);
+      if (!ySec) {
+        ySec = {
+          yearKey,
+          year: item.year,
+          yearLabel: item.year !== null ? String(item.year) : "未归类",
+          totalCount: 0,
+          months: [],
+        };
+        yearMap.set(yearKey, ySec);
+      }
+      ySec.totalCount += 1;
+
+      const mVal = item.month;
+      let mBucket = ySec.months.find((b) => b.month === mVal);
+      if (!mBucket) {
+        mBucket = {
+          month: mVal,
+          monthLabel:
+            mVal !== null
+              ? `${String(mVal).padStart(2, "0")}月`
+              : item.year !== null
+                ? "全年"
+                : "其他",
+          items: [],
+        };
+        ySec.months.push(mBucket);
+      }
+      mBucket.items.push(item);
     }
 
-    return Array.from(groups.entries());
+    return Array.from(yearMap.values());
   }, [matchedItems, query, renderLimit]);
 
   const isSearching = query.trim().length > 0;
-  const visibleItems = matchedItems.slice(0, renderLimit);
+
+  const gridTemplateStyle = useMemo<React.CSSProperties>(
+    () => ({
+      gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, ${Math.min(
+        cardWidth + 36,
+        340
+      )}px))`,
+    }),
+    [cardWidth]
+  );
 
   // Sync dynamic selection & filter context to the unified bottom status bar
   useEffect(() => {
@@ -1230,155 +1202,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Minimal Top Search & View Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-2 border-b border-border/50 bg-background/60 shrink-0">
-        <div className="flex flex-wrap items-center gap-2 min-w-0">
-          {/* Compact Search Input */}
-          <div className="relative w-56 sm:w-64 md:w-72">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索项目或文件..."
-              title="支持 Everything 语法：空格=与，|=或，!=排除，ext:psd，folder:，file:"
-              className="h-8 w-full rounded-lg bg-muted/60 pl-8 pr-14 text-[13px] text-foreground placeholder:text-muted-foreground focus:bg-card focus:outline-none focus:ring-1 focus:ring-ring transition-colors"
-            />
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                  title="清空搜索"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-              <span className="font-mono text-xs text-muted-foreground">
-                {matchedItems.length}
-              </span>
-            </div>
-          </div>
-
-          {/* Scope Segmented Pills */}
-          <div className="flex items-center rounded-lg bg-muted/60 p-0.5">
-            {(
-              [
-                { id: "projects", label: "项目" },
-                { id: "all", label: "全部" },
-                { id: "files", label: "文件" },
-              ] as const
-            ).map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setScope(s.id)}
-                className={`rounded-md px-2 py-1 text-xs transition-colors ${
-                  effectiveScope === s.id
-                    ? "bg-card text-foreground font-medium shadow-card-rest"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          {/* Icon-only View Mode Switcher */}
-          <div
-            className="flex items-center rounded-lg bg-muted/60 p-0.5"
-            title="切换项目视图"
-          >
-            {(
-              [
-                {
-                  id: "grid",
-                  label: "网格视图",
-                  icon: <LayoutGrid className="h-3.5 w-3.5" />,
-                },
-                {
-                  id: "timeline",
-                  label: "时间轴视图",
-                  icon: <Clock className="h-3.5 w-3.5" />,
-                },
-                {
-                  id: "list",
-                  label: "列表视图",
-                  icon: <List className="h-3.5 w-3.5" />,
-                },
-                {
-                  id: "stats",
-                  label: "统计视图",
-                  icon: <BarChart3 className="h-3.5 w-3.5" />,
-                },
-              ] as const
-            ).map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => changeViewMode(m.id)}
-                title={m.label}
-                className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-                  viewMode === m.id
-                    ? "bg-card text-foreground shadow-card-rest"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {m.icon}
-              </button>
-            ))}
-          </div>
-
-          {/* Compact Icon Actions */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            disabled={indexing || enabledRootPaths.length === 0}
-            onClick={() => runIndex(false)}
-            className="h-8 w-8"
-            title={
-              lastIndexedAt
-                ? `刷新索引（上次更新 ${lastIndexedAt}）`
-                : "刷新索引"
-            }
-          >
-            {indexing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-          </Button>
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={onOpenProjectSettings}
-            className="h-8 w-8"
-            title={`项目目录设置 (${archiveDirs.length})`}
-          >
-            <FolderPlus className="h-3.5 w-3.5" />
-          </Button>
-
-          <Button
-            type="button"
-            variant={explorerOpen ? "secondary" : "ghost"}
-            size="icon"
-            onClick={() => setExplorerOpen((v) => !v)}
-            className="h-8 w-8 shrink-0"
-            title={explorerOpen ? "隐藏右侧资源管理器" : "显示右侧资源管理器"}
-          >
-            <PanelRight className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Body: Empty State OR Sidebar + Results */}
+      {/* Body: Empty State OR Sidebar + Middle Column (with Toolbar) + Right Explorer */}
       {archiveDirs.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-6">
           <div className="w-full max-w-md rounded-2xl bg-card p-6 shadow-card-rest space-y-4">
@@ -1416,281 +1240,603 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
-          {/* Left Year / Month & Root Rail */}
+          {/* Left Sidebar: Minimal Right-Aligned Year & Month Timeline */}
           <aside
             style={{ width: leftWidth }}
-            className="hidden sm:flex shrink-0 flex-col overflow-y-auto bg-surface/40 p-2.5 space-y-4"
+            className="no-scrollbar hidden sm:flex shrink-0 flex-col overflow-y-auto px-2.5 py-3 select-none"
           >
-            {/* Multi-Root Filter */}
-            {archiveDirs.length > 1 && (
-              <div className="space-y-1">
-                <div className="px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  项目目录
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedRoot("all");
-                    setSelectedYear("all");
-                    setSelectedMonth("all");
-                  }}
-                  className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs transition-colors ${
-                    selectedRoot === "all"
-                      ? "bg-primary text-primary-foreground font-medium"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                  }`}
-                >
-                  <span className="truncate">全部目录</span>
-                  <span className="font-mono text-xs opacity-80">
-                    {archiveDirs.filter((d) => d.enabled !== false).length}
-                  </span>
-                </button>
-                {archiveDirs
-                  .filter((d) => d.enabled !== false)
-                  .map((dir) => {
-                    const active = selectedRoot === dir.path.trim();
-                    return (
-                      <button
-                        key={dir.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedRoot(dir.path.trim());
-                          setSelectedYear("all");
-                          setSelectedMonth("all");
-                        }}
-                        title={dir.path}
-                        className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors ${
-                          active
-                            ? "bg-primary text-primary-foreground font-medium"
-                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                        }`}
-                      >
-                        <Folder className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{getFolderLabel(dir)}</span>
-                      </button>
-                    );
-                  })}
-              </div>
-            )}
-
-            {/* Minimalist Right-Aligned Ruler Timeline */}
-            <div className="relative border-r border-border/50 pr-0">
-              {/* All Years */}
+            {/* Primary Filters: 全部 & 收藏 */}
+            <div className="mb-2 flex items-center justify-end gap-1">
               <button
                 type="button"
                 onClick={() => {
                   setSelectedYear("all");
                   setSelectedMonth("all");
+                  setExpandedYear(null);
                 }}
-                className={`group flex w-full items-center justify-between py-1.5 pl-2 text-right transition-colors ${
+                className={`rounded-md px-2 py-1 text-xs transition-colors ${
                   selectedYear === "all"
-                    ? "text-foreground font-medium"
-                    : "text-muted-foreground/75 hover:text-foreground"
+                    ? "bg-accent text-foreground font-medium"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                 }`}
               >
-                <span className="font-mono text-xs tabular-nums opacity-45 group-hover:opacity-80">
-                  {timelineStats.totalProjects}
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="text-xs tracking-wide">全部</span>
-                  <span
-                    className={`block transition-all ${
-                      selectedYear === "all"
-                        ? "h-[1.5px] w-3.5 bg-primary"
-                        : "h-px w-2 bg-border group-hover:w-3 group-hover:bg-foreground/45"
-                    }`}
-                  />
-                </span>
+                全部
               </button>
 
-              {/* Starred */}
-              {starredSet.size > 0 && (
+              {projectsByRoot.some((p) => starredSet.has(p.path)) && (
                 <button
                   type="button"
                   onClick={() => {
-                    setSelectedYear("starred");
+                    const next =
+                      selectedYear === "starred" ? "all" : "starred";
+                    setSelectedYear(next);
                     setSelectedMonth("all");
+                    setExpandedYear(null);
                   }}
-                  className={`group flex w-full items-center justify-between py-1.5 pl-2 text-right transition-colors ${
+                  className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs transition-colors ${
                     selectedYear === "starred"
-                      ? "text-primary font-medium"
-                      : "text-muted-foreground/75 hover:text-foreground"
+                      ? "bg-accent text-primary font-medium"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                   }`}
+                  title="只看收藏项目"
                 >
-                  <span className="font-mono text-xs tabular-nums opacity-45 group-hover:opacity-80">
-                    {projectsByRoot.filter((p) => starredSet.has(p.path)).length}
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 text-xs tracking-wide">
-                      <Star className="h-3 w-3 fill-current" />
-                      收藏
-                    </span>
-                    <span
-                      className={`block transition-all ${
-                        selectedYear === "starred"
-                          ? "h-[1.5px] w-3.5 bg-primary"
-                          : "h-px w-2 bg-border group-hover:w-3 group-hover:bg-foreground/45"
-                      }`}
-                    />
-                  </span>
+                  <Star className="h-3 w-3 fill-current" />
                 </button>
               )}
+            </div>
 
-              {/* Years & Collapsible Months */}
-              <div className="mt-1.5 space-y-0.5">
-                {timelineStats.years.map(({ year, total, months }) => {
-                  const yearActive = selectedYear === year;
-                  const isExpanded = expandedYears.has(year);
-                  return (
-                    <div key={year}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExpandedYears((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(year)) {
-                              next.delete(year);
-                            } else {
-                              next.add(year);
-                            }
-                            return next;
-                          });
+            {/* Unified Right-Aligned Vertical Timeline */}
+            <div className="relative flex flex-col">
+              {/* Continuous Vertical Axis Hairline */}
+              <div className="pointer-events-none absolute right-[6.5px] top-3 bottom-3 w-px bg-border/80" />
+
+              {timelineStats.years.map(({ year, total, months }) => {
+                const yearActive = selectedYear === year;
+                const isExpanded = expandedYear === year;
+
+                return (
+                  <div key={year} className="flex flex-col">
+                    {/* Year Node */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (yearActive && selectedMonth === "all") {
+                          setExpandedYear((cur) => (cur === year ? null : year));
+                          if (isExpanded) setSelectedYear("all");
+                        } else {
                           setSelectedYear(year);
                           setSelectedMonth("all");
-                        }}
-                        title={isExpanded ? "单击折叠月份" : "单击展开月份"}
-                        className={`group flex w-full items-center justify-between py-2 pl-2 text-right transition-colors ${
+                          setExpandedYear(year);
+                        }
+                      }}
+                      title={`${year}年 (${total} 个项目)`}
+                      className="group relative flex w-full items-center justify-end gap-2 py-2 text-right transition-colors"
+                    >
+                      <span
+                        className={`font-mono text-[17px] leading-none tracking-tight tabular-nums transition-colors ${
                           yearActive
-                            ? "text-foreground"
-                            : "text-muted-foreground/65 hover:text-foreground"
+                            ? "font-semibold text-foreground"
+                            : "font-medium text-muted-foreground/65 group-hover:text-foreground/85"
                         }`}
                       >
-                        <span
-                          className={`font-mono text-xs tabular-nums transition-opacity ${
-                            yearActive
-                              ? "opacity-65"
-                              : "opacity-35 group-hover:opacity-70"
+                        {year}
+                      </span>
+                      <span
+                        className={`relative z-10 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-background transition-colors ${
+                          yearActive
+                            ? "text-foreground"
+                            : "text-muted-foreground/55 group-hover:text-foreground/85"
+                        }`}
+                      >
+                        <ChevronDown
+                          className={`h-3 w-3 transition-transform duration-150 ${
+                            isExpanded ? "rotate-0" : "-rotate-90"
                           }`}
-                        >
-                          {total}
-                        </span>
-                        <span className="flex items-center gap-2.5">
-                          <span
-                            className={`font-mono text-[19px] leading-none tracking-tight tabular-nums transition-colors ${
-                              yearActive
-                                ? "font-semibold text-primary"
-                                : "font-medium"
-                            }`}
-                          >
-                            {year}
-                          </span>
-                          <span
-                            className={`block transition-all ${
-                              yearActive
-                                ? "h-[2px] w-4 bg-primary"
-                                : "h-px w-2.5 bg-border group-hover:w-3.5 group-hover:bg-foreground/50"
-                            }`}
-                          />
-                        </span>
-                      </button>
+                        />
+                      </span>
+                    </button>
 
-                      {isExpanded && months.length > 0 && (
-                        <div className="mb-1.5 space-y-0.5">
-                          {months.map(([mo, cnt]) => {
-                            const mActive = yearActive && selectedMonth === mo;
-                            return (
-                              <button
-                                key={mo}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedYear(year);
-                                  setSelectedMonth(mActive ? "all" : mo);
-                                }}
-                                className={`group flex w-full items-center justify-between py-1 pl-3 text-right transition-colors ${
+                    {/* Expanded Month Nodes along the exact same right-aligned axis */}
+                    {isExpanded && months.length > 0 && (
+                      <div className="mb-1 flex flex-col">
+                        {months.map(([mo, cnt]) => {
+                          const mActive = yearActive && selectedMonth === mo;
+                          return (
+                            <button
+                              key={mo}
+                              type="button"
+                              onClick={() => {
+                                setSelectedYear(year);
+                                setSelectedMonth(mActive ? "all" : mo);
+                              }}
+                              title={`${year}年${mo}月 (${cnt} 个项目)`}
+                              className="group relative flex w-full items-center justify-end gap-2 py-1 pr-[4px] text-right transition-colors"
+                            >
+                              <span
+                                className={`font-mono text-[13px] leading-none tabular-nums transition-colors ${
                                   mActive
-                                    ? "text-primary font-medium"
-                                    : "text-muted-foreground/65 hover:text-foreground"
+                                    ? "font-semibold text-foreground"
+                                    : "text-muted-foreground/60 group-hover:text-foreground/85"
                                 }`}
                               >
-                                <span
-                                  className={`font-mono text-xs tabular-nums transition-opacity ${
-                                    mActive
-                                      ? "opacity-75"
-                                      : "opacity-30 group-hover:opacity-65"
-                                  }`}
-                                >
-                                  {cnt}
-                                </span>
-                                <span className="flex items-center gap-2">
-                                  <span className="font-mono text-xs tabular-nums">
-                                    {String(mo).padStart(2, "0")}月
-                                  </span>
-                                  <span
-                                    className={`block transition-all ${
-                                      mActive
-                                        ? "h-[1.5px] w-3 bg-primary"
-                                        : "h-px w-1.5 bg-border/75 group-hover:w-2.5 group-hover:bg-foreground/45"
-                                    }`}
-                                  />
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                                {mo}月
+                              </span>
+                              <span
+                                className={`relative z-10 h-1.5 w-1.5 shrink-0 rounded-full ring-2 ring-background transition-colors ${
+                                  mActive
+                                    ? "bg-foreground"
+                                    : "bg-border group-hover:bg-muted-foreground"
+                                }`}
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
-              {/* Unknown Year */}
+              {/* Unknown Year Node */}
               {timelineStats.unknownCount > 0 && (
                 <button
                   type="button"
                   onClick={() => {
-                    setSelectedYear("unknown");
+                    setSelectedYear(
+                      selectedYear === "unknown" ? "all" : "unknown"
+                    );
                     setSelectedMonth("all");
+                    setExpandedYear(null);
                   }}
-                  className={`group mt-1 flex w-full items-center justify-between py-1.5 pl-2 text-right transition-colors ${
-                    selectedYear === "unknown"
-                      ? "text-primary font-medium"
-                      : "text-muted-foreground/65 hover:text-foreground"
-                  }`}
+                  title={`未归类 (${timelineStats.unknownCount} 个项目)`}
+                  className="group relative flex w-full items-center justify-end gap-2 py-1.5 pr-[3px] text-right transition-colors"
                 >
-                  <span className="font-mono text-xs tabular-nums opacity-40 group-hover:opacity-75">
-                    {timelineStats.unknownCount}
+                  <span
+                    className={`text-xs leading-none transition-colors ${
+                      selectedYear === "unknown"
+                        ? "font-semibold text-foreground"
+                        : "text-muted-foreground/65 group-hover:text-foreground/85"
+                    }`}
+                  >
+                    未归类
                   </span>
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs">未归类</span>
-                    <span
-                      className={`block transition-all ${
-                        selectedYear === "unknown"
-                          ? "h-[1.5px] w-3 bg-primary"
-                          : "h-px w-1.5 bg-border/75 group-hover:w-2.5 group-hover:bg-foreground/45"
-                      }`}
-                    />
-                  </span>
+                  <span
+                    className={`relative z-10 h-2 w-2 shrink-0 rounded-full ring-2 ring-background transition-colors ${
+                      selectedYear === "unknown"
+                        ? "bg-foreground"
+                        : "bg-muted-foreground/40 group-hover:bg-foreground/70"
+                    }`}
+                  />
                 </button>
               )}
             </div>
           </aside>
 
-          {/* Left-Middle Resize Handle */}
+          {/* Subtle Left-Middle Resize Handle (hairline, blends left & center as one canvas) */}
           <div
             onMouseDown={startResizeLeft}
-            title="拖动调整左侧栏宽度"
-            className={`hidden sm:block w-1 shrink-0 cursor-col-resize transition-colors ${
+            title="拖动调整左侧年份轴宽度"
+            className={`hidden sm:block w-px shrink-0 cursor-col-resize transition-colors ${
               resizingPane === "left"
-                ? "bg-primary/60"
-                : "bg-border/40 hover:bg-primary/40"
+                ? "bg-primary"
+                : "bg-border/35 hover:bg-primary/50"
             }`}
           />
 
-          {/* Main Project Grid / Everything Results List */}
-          <div
-            ref={middlePaneRef}
-            className="flex-1 min-w-0 overflow-y-auto px-3 sm:px-5 py-3.5 space-y-4"
-          >
+          {/* Middle Column: Toolbar + Project Grid / List */}
+          <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
+            {/* Middle Column Top Toolbar (Responsive: grouped columns + auto-collapse to dropdowns when narrow) */}
+            {(() => {
+              const enabledDirs = archiveDirs.filter(
+                (d) => d.enabled !== false
+              );
+              const compactRoots = toolbarWidth < 740;
+              const compactScope = toolbarWidth < 560;
+              const compactActions = toolbarWidth < 460;
+              const scopeOptions = [
+                { id: "projects" as const, label: "项目" },
+                { id: "all" as const, label: "全部" },
+                { id: "files" as const, label: "文件" },
+              ];
+              const activeScopeLabel =
+                scopeOptions.find((s) => s.id === effectiveScope)?.label ??
+                "项目";
+              const activeRootLabel =
+                selectedRoot === "all"
+                  ? "全部目录"
+                  : rootLabelMap.get(selectedRoot) ?? "目录";
+
+              return (
+                <div
+                  ref={toolbarRef}
+                  className="relative flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-background px-3 sm:px-5"
+                >
+                  {/* Left Columns: Search | Scope | Directories */}
+                  <div className="flex items-center gap-2 min-w-0">
+                    {/* Compact Search Input */}
+                    <div className="relative w-36 sm:w-40 shrink-0">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="搜索..."
+                        title="支持 Everything 语法：空格=与，|=或，!=排除，ext:psd，folder:，file:"
+                        className="h-7 w-full rounded-md border border-border bg-surface/80 pl-8 pr-11 text-xs text-foreground placeholder:text-muted-foreground/65 focus:border-ring/70 focus:bg-card focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors"
+                      />
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                        {query && (
+                          <button
+                            type="button"
+                            onClick={() => setQuery("")}
+                            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                            title="清空搜索"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                          {matchedItems.length}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="h-3.5 w-px shrink-0 bg-border" />
+
+                    {/* Scope: Segmented Pills (wide) OR Dropdown (narrow) */}
+                    {compactScope ? (
+                      <div
+                        className="relative shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenDropdown((cur) =>
+                              cur === "scope" ? null : "scope"
+                            )
+                          }
+                          className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface px-2 text-xs text-foreground transition-colors hover:bg-accent"
+                        >
+                          <span>{activeScopeLabel}</span>
+                          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                        </button>
+                        {openDropdown === "scope" && (
+                          <div className="absolute left-0 top-full z-40 mt-1 w-28 rounded-lg border border-border bg-popover p-1 shadow-popover-soft">
+                            {scopeOptions.map((s) => (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => {
+                                  setScope(s.id);
+                                  setOpenDropdown(null);
+                                }}
+                                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent"
+                              >
+                                <span>{s.label}</span>
+                                {effectiveScope === s.id && (
+                                  <Check className="h-3 w-3 text-primary" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex shrink-0 items-center rounded-md border border-border bg-surface p-0.5">
+                        {scopeOptions.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setScope(s.id)}
+                            className={`h-6 rounded-[4px] px-2 text-xs transition-colors ${
+                              effectiveScope === s.id
+                                ? "bg-accent text-foreground font-medium"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Project Root Directories: Inline Pills (wide) OR Dropdown (narrow) */}
+                    {enabledDirs.length > 1 && (
+                      <>
+                        <div className="h-3.5 w-px shrink-0 bg-border" />
+                        {compactRoots ? (
+                          <div
+                            className="relative shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenDropdown((cur) =>
+                                  cur === "root" ? null : "root"
+                                )
+                              }
+                              className="inline-flex h-7 max-w-[120px] items-center gap-1 rounded-md border border-border bg-surface px-2 text-xs text-foreground transition-colors hover:bg-accent"
+                              title="切换项目目录"
+                            >
+                              <Folder className="h-3 w-3 shrink-0 text-muted-foreground" />
+                              <span className="truncate">{activeRootLabel}</span>
+                              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            </button>
+                            {openDropdown === "root" && (
+                              <div className="absolute left-0 top-full z-40 mt-1 w-44 rounded-lg border border-border bg-popover p-1 shadow-popover-soft">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedRoot("all");
+                                    setSelectedYear("all");
+                                    setSelectedMonth("all");
+                                    setExpandedYear(null);
+                                    setOpenDropdown(null);
+                                  }}
+                                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent"
+                                >
+                                  <span>全部目录</span>
+                                  {selectedRoot === "all" && (
+                                    <Check className="h-3 w-3 text-primary" />
+                                  )}
+                                </button>
+                                {enabledDirs.map((dir) => {
+                                  const cleanPath = dir.path.trim();
+                                  const active = selectedRoot === cleanPath;
+                                  return (
+                                    <button
+                                      key={dir.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedRoot(cleanPath);
+                                        setSelectedYear("all");
+                                        setSelectedMonth("all");
+                                        setExpandedYear(null);
+                                        setOpenDropdown(null);
+                                      }}
+                                      title={dir.path}
+                                      className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent"
+                                    >
+                                      <span className="flex min-w-0 items-center gap-1.5">
+                                        <Folder className="h-3 w-3 shrink-0 text-muted-foreground" />
+                                        <span className="truncate">
+                                          {getFolderLabel(dir)}
+                                        </span>
+                                      </span>
+                                      {active && (
+                                        <Check className="h-3 w-3 shrink-0 text-primary" />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex shrink-0 items-center rounded-md border border-border bg-surface p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedRoot("all");
+                                setSelectedYear("all");
+                                setSelectedMonth("all");
+                                setExpandedYear(null);
+                              }}
+                              className={`h-6 rounded-[4px] px-2 text-xs transition-colors ${
+                                selectedRoot === "all"
+                                  ? "bg-accent text-foreground font-medium"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                              title="显示全部已启用的项目目录"
+                            >
+                              全部目录
+                            </button>
+                            {enabledDirs.map((dir) => {
+                              const cleanPath = dir.path.trim();
+                              const active = selectedRoot === cleanPath;
+                              return (
+                                <button
+                                  key={dir.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedRoot(cleanPath);
+                                    setSelectedYear("all");
+                                    setSelectedMonth("all");
+                                    setExpandedYear(null);
+                                  }}
+                                  title={dir.path}
+                                  className={`inline-flex h-6 items-center gap-1 rounded-[4px] px-2 text-xs transition-colors max-w-[120px] ${
+                                    active
+                                      ? "bg-accent text-primary font-medium"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  <Folder className="h-3 w-3 shrink-0 opacity-75" />
+                                  <span className="truncate">
+                                    {getFolderLabel(dir)}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Right Columns: View Switcher (4 buttons) | Utility Actions (3 buttons or More dropdown) */}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div
+                      className="flex items-center rounded-md border border-border bg-surface p-0.5"
+                      title="切换项目视图"
+                    >
+                      {(
+                        [
+                          {
+                            id: "grid",
+                            label: "网格视图",
+                            icon: <LayoutGrid className="h-3.5 w-3.5" />,
+                          },
+                          {
+                            id: "timeline",
+                            label: "时间轴视图",
+                            icon: <Clock className="h-3.5 w-3.5" />,
+                          },
+                          {
+                            id: "list",
+                            label: "列表视图",
+                            icon: <List className="h-3.5 w-3.5" />,
+                          },
+                          {
+                            id: "stats",
+                            label: "统计视图",
+                            icon: <BarChart3 className="h-3.5 w-3.5" />,
+                          },
+                        ] as const
+                      ).map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => changeViewMode(m.id)}
+                          title={m.label}
+                          className={`inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors ${
+                            viewMode === m.id
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {m.icon}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="h-3.5 w-px bg-border" />
+
+                    {compactActions ? (
+                      <div
+                        className="relative shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() =>
+                            setOpenDropdown((cur) =>
+                              cur === "more" ? null : "more"
+                            )
+                          }
+                          title="更多工具"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </Button>
+                        {openDropdown === "more" && (
+                          <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-lg border border-border bg-popover p-1 shadow-popover-soft">
+                            <button
+                              type="button"
+                              disabled={indexing || enabledRootPaths.length === 0}
+                              onClick={(e) => {
+                                setOpenDropdown(null);
+                                runIndex(false, e.shiftKey);
+                              }}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent disabled:opacity-40"
+                            >
+                              {indexing ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                              ) : (
+                                <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+                              )}
+                              <span>刷新索引</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenDropdown(null);
+                                onOpenProjectSettings();
+                              }}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent"
+                            >
+                              <FolderPlus className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span>项目目录设置 ({archiveDirs.length})</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenDropdown(null);
+                                setExplorerOpen((v) => !v);
+                              }}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent"
+                            >
+                              <PanelRight className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span>
+                                {explorerOpen
+                                  ? "隐藏右侧资源管理器"
+                                  : "显示右侧资源管理器"}
+                              </span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-0.5">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={indexing || enabledRootPaths.length === 0}
+                          onClick={(e) => runIndex(false, e.shiftKey)}
+                          title={
+                            lastIndexedAt
+                              ? `刷新索引（上次更新 ${lastIndexedAt}）· Shift+单击 完全重建`
+                              : "刷新索引 · Shift+单击 完全重建"
+                          }
+                        >
+                          {indexing ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={onOpenProjectSettings}
+                          title={`项目目录设置 (${archiveDirs.length})`}
+                        >
+                          <FolderPlus className="h-3.5 w-3.5" />
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant={explorerOpen ? "secondary" : "ghost"}
+                          size="icon"
+                          onClick={() => setExplorerOpen((v) => !v)}
+                          className="shrink-0"
+                          title={
+                            explorerOpen
+                              ? "隐藏右侧资源管理器"
+                              : "显示右侧资源管理器"
+                          }
+                        >
+                          <PanelRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Main Project Grid / Everything Results List */}
+            <div
+              ref={middlePaneRef}
+              className="flex-1 min-w-0 overflow-y-auto px-3 sm:px-5 py-3.5 space-y-4"
+            >
             {indexError && (
               <div className="rounded-xl bg-destructive/12 px-3.5 py-2.5 text-xs text-destructive">
                 {indexError}
@@ -1936,239 +2082,106 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             ) : isSearching ||
               effectiveScope !== "projects" ||
               viewMode === "list" ? (
-              /* EVERYTHING-STYLE INSTANT DENSE LIST VIEW */
-              <div className="space-y-1.5">
-                {visibleItems.map((item) => {
-                  const isSelected = selectedProject?.path === item.path;
-                  return (
-                  <div
-                    key={item.path}
-                    onClick={() => selectProjectForExplorer(item)}
-                    onDoubleClick={() => openArchivePath(item.path)}
-                    className={`group flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs transition-all cursor-pointer shadow-card-rest ${
-                      isSelected
-                        ? "bg-card ring-1 ring-primary/50"
-                        : "bg-card/80 hover:bg-card"
-                    }`}
-                  >
-                    {item.thumbnail_path ? (
-                      <ProjectThumbnail
-                        thumbPath={item.thumbnail_path}
-                        alt={item.name}
-                        variant="compact"
-                      />
-                    ) : item.is_dir ? (
-                      <Folder className="h-4 w-4 shrink-0 text-primary" />
-                    ) : (
-                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    )}
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate font-medium text-foreground">
-                          {renderHighlightedText(
-                            isSearching ? item.name : item.displayTitle,
-                            highlightTerms
-                          )}
-                        </span>
-                        {item.ext && (
-                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-xs uppercase text-muted-foreground">
-                            {item.ext}
-                          </span>
-                        )}
-                      </div>
-                      <div className="truncate font-mono text-xs text-muted-foreground">
-                        {renderHighlightedText(
-                          item.relative_path,
-                          highlightTerms
-                        )}
-                      </div>
-                    </div>
-
-                    {item.dateLabel && (
-                      <span className="hidden sm:inline-block shrink-0 rounded-md bg-muted/70 px-2 py-0.5 font-mono text-xs text-muted-foreground">
-                        {item.dateLabel}
-                      </span>
-                    )}
-
-                    {!item.is_dir && item.size > 0 && (
-                      <span className="hidden md:inline-block w-16 text-right font-mono text-xs text-muted-foreground">
-                        {formatFileSize(item.size)}
-                      </span>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openArchivePath(item.path);
-                      }}
-                      className="shrink-0 rounded-lg p-1.5 text-muted-foreground opacity-70 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
-                      title="在资源管理器中打开"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                  );
-                })}
-
-                {matchedItems.length > renderLimit && (
-                  <div className="flex justify-center pt-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setRenderLimit((n) => n + 200)}
-                    >
-                      加载更多（剩余 {matchedItems.length - renderLimit} 条）
-                    </Button>
-                  </div>
-                )}
-              </div>
+              /* EVERYTHING-STYLE INSTANT DENSE LIST VIEW (virtualized) */
+              <VirtualProjectList
+                items={matchedItems}
+                scrollElementRef={middlePaneRef}
+                selectedPath={selectedProject?.path ?? null}
+                isSearching={isSearching}
+                highlightTerms={highlightTerms}
+                onSelect={selectProjectForExplorer}
+                onContextMenu={handleProjectContextMenu}
+              />
             ) : viewMode === "timeline" ? (
-              /* VISUAL VERTICAL TIMELINE VIEW */
-              <div className="space-y-6 pb-4">
-                {groupedBrowse.map(([groupLabel, groupItems]) => (
-                  <section key={groupLabel} className="relative pl-5 sm:pl-6">
-                    {/* Vertical timeline spine */}
-                    <div className="absolute left-2 top-3 bottom-0 w-px bg-border/70" />
+              /* SINGLE-YEAR TIMELINE VIEW (shows only the current/selected year) */
+              (() => {
+                const thisYear = new Date().getFullYear();
+                const targetYear =
+                  typeof selectedYear === "number"
+                    ? selectedYear
+                    : groupedByYear.some((s) => s.year === thisYear)
+                      ? thisYear
+                      : groupedByYear[0]?.year ?? null;
+                const singleYearSections =
+                  targetYear !== null
+                    ? groupedByYear.filter((s) => s.year === targetYear)
+                    : groupedByYear.slice(0, 1);
 
-                    {/* Group milestone dot + header */}
-                    <div className="relative mb-3 flex items-center gap-2">
-                      <span className="absolute -left-[21px] sm:-left-[25px] flex h-3 w-3 items-center justify-center rounded-full bg-primary/20">
-                        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                return (
+              <div className="space-y-7 pb-6">
+                {singleYearSections.map((ySec) => (
+                  <section key={ySec.yearKey} className="space-y-3">
+                    {/* Year Divider Header */}
+                    <div className="flex items-center gap-3 px-0.5">
+                      <span className="font-mono text-lg font-semibold tracking-tight text-foreground tabular-nums">
+                        {ySec.yearLabel}
                       </span>
-                      <span className="text-sm font-semibold text-foreground">
-                        {groupLabel}
-                      </span>
-                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                        {groupItems.length}
+                      <div className="h-px flex-1 bg-border/45" />
+                      <span className="font-mono text-xs text-muted-foreground/75 tabular-nums">
+                        {ySec.totalCount} 个项目
                       </span>
                     </div>
 
-                    <div className="space-y-2.5">
-                      {groupItems.map((item) => {
-                        const isExpanded = expandedProjectPath === item.path;
-                        const isSelected = selectedProject?.path === item.path;
-                        const rootTag = rootLabelMap.get(item.root_path);
-                        return (
-                          <div
-                            key={item.path}
-                            onClick={() => selectProjectForExplorer(item)}
-                            onDoubleClick={() => openArchivePath(item.path)}
-                            className={`group relative rounded-xl bg-card p-3 transition-all cursor-pointer shadow-card-rest hover:shadow-card-hover ${
-                              isSelected ? "ring-1 ring-primary/50" : ""
-                            }`}
+                    {/* Month Rows aligned on a single clean left axis */}
+                    <div className="space-y-3.5">
+                      {ySec.months.map((mBucket) => (
+                        <div
+                          key={`${ySec.yearKey}-${mBucket.month ?? "none"}`}
+                          className="flex items-start gap-3"
+                        >
+                          {/* Compact Right-Aligned Month Tag */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (ySec.year !== null && mBucket.month !== null) {
+                                const isSame =
+                                  selectedYear === ySec.year &&
+                                  selectedMonth === mBucket.month;
+                                setSelectedYear(ySec.year);
+                                setSelectedMonth(isSame ? "all" : mBucket.month);
+                              }
+                            }}
+                            title="点击筛选该月份"
+                            className="group/m shrink-0 w-12 pt-2.5 text-right"
                           >
-                            {/* Connector dot on spine */}
-                            <span className="absolute -left-[18px] sm:-left-[22px] top-5 h-1.5 w-1.5 rounded-full bg-border group-hover:bg-primary transition-colors" />
-
-                            <div className="flex flex-col sm:flex-row items-start gap-3">
-                              <ProjectThumbnail
-                                thumbPath={item.thumbnail_path}
-                                alt={item.displayTitle}
-                                variant="timeline"
-                              />
-
-                              <div className="min-w-0 flex-1 space-y-1.5 w-full">
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0 flex-1 space-y-1">
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                      {item.dateLabel && (
-                                        <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-xs font-medium text-primary">
-                                          {item.dateLabel}
-                                        </span>
-                                      )}
-                                      {archiveDirs.length > 1 && rootTag && (
-                                        <span className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                                          {rootTag}
-                                        </span>
-                                      )}
-                                      <span className="font-mono text-xs text-muted-foreground">
-                                        {item.is_dir
-                                          ? `${item.child_count} 个子项`
-                                          : item.ext.toUpperCase() || "文件"}
-                                      </span>
-                                    </div>
-
-                                    <div
-                                      className="text-sm font-medium text-foreground"
-                                      title={item.name}
-                                    >
-                                      {item.displayTitle}
-                                    </div>
-
-                                    <div className="truncate font-mono text-xs text-muted-foreground/80">
-                                      {item.relative_path}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex shrink-0 items-center gap-1">
-                                    {item.is_dir && item.child_count > 0 && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setExpandedProjectPath(
-                                            isExpanded ? null : item.path
-                                          )
-                                        }
-                                        className="inline-flex items-center gap-0.5 rounded-lg px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                                      >
-                                        {isExpanded ? (
-                                          <ChevronDown className="h-3 w-3" />
-                                        ) : (
-                                          <ChevronRight className="h-3 w-3" />
-                                        )}
-                                        <span>{isExpanded ? "收起" : "预览"}</span>
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => openArchivePath(item.path)}
-                                      className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                                      title="打开项目文件夹"
-                                    >
-                                      <FolderOpen className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
-                                </div>
-
-                                {isExpanded && (
-                                  <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
-                                    {expandedChildren.length === 0 ? (
-                                      <div className="text-xs text-muted-foreground">
-                                        暂无可预览子文件
-                                      </div>
-                                    ) : (
-                                      expandedChildren
-                                        .slice(0, 10)
-                                        .map((child) => (
-                                          <button
-                                            key={child.path}
-                                            type="button"
-                                            onClick={() =>
-                                              openArchivePath(child.path)
-                                            }
-                                            className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                                          >
-                                            {child.is_dir ? (
-                                              <Folder className="h-3 w-3 shrink-0 text-primary/80" />
-                                            ) : (
-                                              <File className="h-3 w-3 shrink-0" />
-                                            )}
-                                            <span className="truncate">
-                                              {child.name}
-                                            </span>
-                                          </button>
-                                        ))
-                                    )}
-                                  </div>
-                                )}
-                              </div>
+                            <div className="font-mono text-xs font-medium text-muted-foreground group-hover/m:text-primary transition-colors tabular-nums">
+                              {mBucket.monthLabel}
                             </div>
+                            {mBucket.items.length > 1 && (
+                              <div className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
+                                {mBucket.items.length}项
+                              </div>
+                            )}
+                          </button>
+
+                          {/* Month Cards Column with subtle vertical hairline */}
+                          <div className="relative flex-1 min-w-0 space-y-2 border-l border-border/50 pl-3.5">
+                            <span className="pointer-events-none absolute -left-[3.5px] top-4 h-1.5 w-1.5 rounded-full bg-primary/70" />
+                            {mBucket.items.map((item) => {
+                              const isExpanded =
+                                expandedProjectPath === item.path;
+                              return (
+                                <ProjectTimelineCard
+                                  key={item.path}
+                                  item={item}
+                                  isSelected={
+                                    selectedProject?.path === item.path
+                                  }
+                                  isExpanded={isExpanded}
+                                  rootTag={rootLabelMap.get(item.root_path)}
+                                  showRootTag={archiveDirs.length > 1}
+                                  expandedChildren={
+                                    isExpanded ? expandedChildren : EMPTY_ITEMS
+                                  }
+                                  onSelect={selectProjectForExplorer}
+                                  onToggleExpand={toggleExpandProject}
+                                  onContextMenu={handleProjectContextMenu}
+                                />
+                              );
+                            })}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   </section>
                 ))}
@@ -2186,116 +2199,44 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   </div>
                 )}
               </div>
+                );
+              })()
             ) : (
-              /* GROUPED ADAPTIVE GRID CARDS VIEW */
-              <div className="space-y-5">
-                {groupedBrowse.map(([groupLabel, groupItems]) => (
-                  <section key={groupLabel} className="space-y-2.5">
-                    <div className="flex items-center gap-2 px-1">
-                      <span className="text-sm font-semibold text-foreground">
-                        {groupLabel}
+              /* UNIFIED YEAR-GROUPED ADAPTIVE GRID CARDS VIEW */
+              <div className="space-y-6 pb-4">
+                {groupedByYear.map((ySec) => (
+                  <section key={ySec.yearKey} className="space-y-2.5">
+                    {/* Minimal Year Divider Header: Year on left, count on far right */}
+                    <div className="flex items-center gap-3 px-0.5">
+                      <span className="font-mono text-base font-semibold tracking-tight text-foreground tabular-nums">
+                        {ySec.yearLabel}
                       </span>
-                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                        {groupItems.length}
+                      <div className="h-px flex-1 bg-border/45" />
+                      <span className="font-mono text-xs text-muted-foreground/75 tabular-nums">
+                        {ySec.totalCount}
                       </span>
                     </div>
 
                     <div
-                      style={{
-                        gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, ${Math.min(
-                          cardWidth + 36,
-                          340
-                        )}px))`,
-                      }}
+                      style={gridTemplateStyle}
                       className="grid gap-2.5 items-stretch"
                     >
-                      {groupItems.map((item) => {
-                        const isSelected = selectedProject?.path === item.path;
-                        const rootTag = rootLabelMap.get(item.root_path);
-                        const thumbH = Math.round(cardWidth * 0.58);
-                        return (
-                          <div
+                      {ySec.months.flatMap((mBucket) =>
+                        mBucket.items.map((item) => (
+                          <ProjectGridCard
                             key={item.path}
-                            onClick={() => selectProjectForExplorer(item)}
-                            onDoubleClick={() => openArchivePath(item.path)}
-                            className={`group flex flex-col rounded-xl bg-card p-3 transition-all cursor-pointer shadow-card-rest hover:shadow-card-hover ${
-                              isSelected ? "ring-1 ring-primary/50" : ""
-                            }`}
-                          >
-                            <ProjectThumbnail
-                              thumbPath={item.thumbnail_path}
-                              alt={item.displayTitle}
-                              variant="card"
-                              fixedHeight={thumbH}
-                              showPlaceholder
-                            />
-
-                            <div className="flex items-center justify-between gap-1.5">
-                              <div
-                                className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground"
-                                title={item.name}
-                              >
-                                {item.displayTitle}
-                              </div>
-                              <div className="flex shrink-0 items-center gap-0.5">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleStarProject(item.path);
-                                  }}
-                                  className={`rounded-md p-1 transition hover:bg-accent ${
-                                    starredSet.has(item.path)
-                                      ? "text-primary opacity-100"
-                                      : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground"
-                                  }`}
-                                  title={
-                                    starredSet.has(item.path)
-                                      ? "取消收藏"
-                                      : "收藏项目"
-                                  }
-                                >
-                                  <Star
-                                    className={`h-3.5 w-3.5 ${
-                                      starredSet.has(item.path)
-                                        ? "fill-current"
-                                        : ""
-                                    }`}
-                                  />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openArchivePath(item.path);
-                                  }}
-                                  className="rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
-                                  title="打开项目文件夹"
-                                >
-                                  <FolderOpen className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                              {item.dateLabel && (
-                                <span className="font-mono">{item.dateLabel}</span>
-                              )}
-                              <span>·</span>
-                              <span className="truncate font-mono">
-                                {item.is_dir
-                                  ? `${item.child_count} 项`
-                                  : item.ext.toUpperCase() || "文件"}
-                              </span>
-                              {archiveDirs.length > 1 && rootTag && (
-                                <span className="ml-auto truncate opacity-75">
-                                  {rootTag}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
+                            item={item}
+                            isSelected={selectedProject?.path === item.path}
+                            isStarred={starredSet.has(item.path)}
+                            rootTag={rootLabelMap.get(item.root_path)}
+                            showRootTag={archiveDirs.length > 1}
+                            cardWidth={cardWidth}
+                            onSelect={selectProjectForExplorer}
+                            onToggleStar={toggleStarProject}
+                            onContextMenu={handleProjectContextMenu}
+                          />
+                        ))
+                      )}
                     </div>
                   </section>
                 ))}
@@ -2314,6 +2255,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 )}
               </div>
             )}
+            </div>
           </div>
 
           {/* Right Column: Embedded Project File Explorer + Seer Spacebar Preview */}
@@ -2333,35 +2275,31 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 style={{ width: rightWidth }}
                 className="hidden lg:flex shrink-0 flex-col bg-surface/40 overflow-hidden"
               >
-                {/* Explorer Header */}
-                <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5 shrink-0">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-semibold text-foreground">
-                      {selectedProject
-                        ? selectedProject.displayTitle
-                        : "项目资源管理器"}
-                    </div>
-                    <div
-                      className="truncate font-mono text-xs text-muted-foreground"
-                      title={explorerPath || ""}
-                    >
-                      {selectedProject
-                        ? explorerPath.replace(selectedProject.root_path, "") ||
-                          "\\"
-                        : "点击左侧项目查看内部文件"}
-                    </div>
+                {/* Explorer Header (h-10 aligned with middle column toolbar; path/hint shown on hover) */}
+                <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 px-3">
+                  <div
+                    className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-[-0.01em] text-foreground"
+                    title={
+                      selectedProject
+                        ? explorerPath || selectedProject.path
+                        : "点击左侧项目查看内部文件"
+                    }
+                  >
+                    {selectedProject
+                      ? selectedProject.displayTitle
+                      : "项目资源管理器"}
                   </div>
 
                   <div className="flex shrink-0 items-center gap-1">
                     {/* List / Icons View Switcher */}
-                    <div className="flex items-center rounded-md bg-muted/70 p-0.5">
+                    <div className="flex items-center rounded-md border border-border bg-surface p-0.5">
                       <button
                         type="button"
                         onClick={() => changeExplorerViewMode("list")}
                         title="列表视图"
-                        className={`rounded p-1 transition-colors ${
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors ${
                           explorerViewMode === "list"
-                            ? "bg-card text-foreground shadow-card-rest"
+                            ? "bg-accent text-foreground"
                             : "text-muted-foreground hover:text-foreground"
                         }`}
                       >
@@ -2371,9 +2309,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         type="button"
                         onClick={() => changeExplorerViewMode("icons")}
                         title="图标视图"
-                        className={`rounded p-1 transition-colors ${
+                        className={`inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors ${
                           explorerViewMode === "icons"
-                            ? "bg-card text-foreground shadow-card-rest"
+                            ? "bg-accent text-foreground"
                             : "text-muted-foreground hover:text-foreground"
                         }`}
                       >
@@ -2604,12 +2542,99 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         </div>
       )}
 
+      {/* Project Card Context Menu */}
+      {projectMenu && (
+        <div
+          style={{ left: projectMenu.x, top: projectMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed z-50 w-48 rounded-lg border border-border bg-popover p-1 text-xs text-popover-foreground shadow-popover-soft"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              const target = projectMenu.item;
+              setProjectMenu(null);
+              openArchivePath(target.path);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+          >
+            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+            <span>{projectMenu.item.is_dir ? "打开项目文件夹" : "用默认程序打开"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const target = projectMenu.item;
+              setProjectMenu(null);
+              revealPathInOs(target.path).catch(() => {});
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
+            <span>在资源管理器中定位</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const target = projectMenu.item;
+              setProjectMenu(null);
+              toggleStarProject(target.path);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+          >
+            <Star
+              className={`h-3.5 w-3.5 ${
+                starredSet.has(projectMenu.item.path)
+                  ? "text-primary fill-current"
+                  : "text-muted-foreground"
+              }`}
+            />
+            <span>
+              {starredSet.has(projectMenu.item.path) ? "取消收藏" : "收藏项目"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const target = projectMenu.item;
+              setProjectMenu(null);
+              await navigator.clipboard.writeText(target.path).catch(() => {});
+              onNotify("已复制完整路径");
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+          >
+            <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+            <span>复制完整路径</span>
+          </button>
+          <div className="my-1 h-px bg-border/60" />
+          <button
+            type="button"
+            onClick={() => {
+              const target = projectMenu.item;
+              setProjectMenu(null);
+              sendEntryToKanban({
+                name: target.displayTitle || target.name,
+                path: target.path,
+                is_dir: target.is_dir,
+                ext: target.ext,
+                size: target.size,
+                modified_ms: target.modified_ms,
+              });
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-primary transition-colors hover:bg-accent"
+          >
+            <Kanban className="h-3.5 w-3.5" />
+            <span>发送到看板作为任务</span>
+          </button>
+        </div>
+      )}
+
       {/* Right Explorer File Context Menu */}
       {explorerMenu && (
         <div
           style={{ left: explorerMenu.x, top: explorerMenu.y }}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 w-48 rounded-xl bg-popover p-1.5 text-xs text-popover-foreground shadow-popover-soft"
+          className="fixed z-50 w-48 rounded-lg border border-border bg-popover p-1 text-xs text-popover-foreground shadow-popover-soft"
         >
           <button
             type="button"

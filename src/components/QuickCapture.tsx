@@ -179,20 +179,20 @@ export const QuickCapture: React.FC = () => {
   const columns = workspace?.columns ?? [];
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-[#161619] text-zinc-100 ring-1 ring-white/[0.1]">
+    <div className="flex h-screen w-screen flex-col border border-border bg-popover text-popover-foreground">
       <div
         data-tauri-drag-region
-        className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5 select-none cursor-move"
+        className="flex items-center justify-between border-b border-border px-4 py-2 select-none cursor-move"
       >
         <div className="flex items-center gap-2 pointer-events-none">
-          <Sparkles className="h-3.5 w-3.5 text-shiba-400" />
-          <span className="text-xs font-medium text-zinc-200">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <span className="text-xs font-medium text-foreground">
             ShibaPlan 闪念
           </span>
         </div>
         <button
           onClick={() => hideCaptureWindow()}
-          className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200"
+          className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -318,12 +318,12 @@ export const QuickCapture: React.FC = () => {
               </div>
             )}
 
-            <div className="flex items-stretch overflow-hidden rounded-lg bg-shiba-500 text-zinc-950">
+            <div className="flex items-stretch overflow-hidden rounded-md bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]">
               <button
                 type="button"
                 onClick={handleSave}
                 disabled={saving || (!content.trim() && !imagePreview)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold hover:bg-shiba-400 disabled:opacity-35"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium hover:brightness-110 disabled:opacity-35"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 {saving ? "保存中..." : "保存"}
@@ -331,7 +331,7 @@ export const QuickCapture: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSaveMenuOpen((v) => !v)}
-                className="flex items-center justify-center border-l border-zinc-950/20 px-1.5 hover:bg-shiba-400"
+                className="flex items-center justify-center border-l border-primary-foreground/20 px-1.5 hover:brightness-110"
                 title="切换回车保存方式"
               >
                 <ChevronUp className="h-3.5 w-3.5" />
