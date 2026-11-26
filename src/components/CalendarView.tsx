@@ -19,6 +19,7 @@ import {
 import { savePastedImage, uid } from "../lib/storage";
 import { useI18n } from "../lib/i18n";
 import { Button } from "./ui/button";
+import { ColumnSelect } from "./ui/column-select";
 import { Input } from "./ui/input";
 import { Separator } from "./ui/separator";
 import {
@@ -718,17 +719,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               />
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <select
+                  <ColumnSelect
+                    columns={workspace.columns}
                     value={quickColId}
-                    onChange={(e) => setQuickColId(e.target.value)}
-                    className="h-8 rounded-lg bg-background px-2.5 text-xs text-foreground focus:outline-none"
-                  >
-                    {workspace.columns.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.title}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setQuickColId}
+                  />
                   <Input
                     type="time"
                     value={quickTime}

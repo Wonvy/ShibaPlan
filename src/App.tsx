@@ -37,6 +37,7 @@ import {
   isTauriRuntime,
   loadWorkspace,
   openCaptureWindow,
+  openPathInOs,
   scheduleSaveWorkspace,
 } from "./lib/storage";
 import { suggestTodayPlanWithAI } from "./lib/ai";
@@ -845,9 +846,23 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
               {statusNotice}
             </span>
           ) : view === "projects" ? (
-            <span className="truncate">
-              {projectStatusText || "项目归档工作台"}
-            </span>
+            projectStatusText &&
+            (/^[a-zA-Z]:[\\/]/.test(projectStatusText) ||
+              projectStatusText.startsWith("\\\\") ||
+              projectStatusText.startsWith("/")) ? (
+              <button
+                type="button"
+                onClick={() => openPathInOs(projectStatusText).catch(() => {})}
+                title={`点击打开：${projectStatusText}`}
+                className="truncate text-left font-mono transition-colors hover:text-foreground hover:underline underline-offset-2 cursor-pointer"
+              >
+                {projectStatusText}
+              </button>
+            ) : (
+              <span className="truncate">
+                {projectStatusText || "项目归档工作台"}
+              </span>
+            )
           ) : (
             <>
               <span className="truncate">

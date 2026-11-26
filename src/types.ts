@@ -4,6 +4,14 @@ export type EffortSize = "S" | "M" | "L";
 
 export type TaskStatus = "todo" | "in_progress" | "done";
 
+export type TaskPriorityColor = "urgent" | "important" | "normal";
+
+export interface TaskAttachment {
+  path: string;
+  name: string;
+  is_dir: boolean;
+}
+
 export interface ColumnDisplayOptions {
   showEffort?: boolean;
   showDate?: boolean;
@@ -39,6 +47,7 @@ export interface TaskItem {
   role?: RoleType;
   projectId?: string;
   importance: 1 | 2 | 3;
+  priorityColor?: TaskPriorityColor;
   effort: EffortSize;
   estimatedMinutes: number;
   actualMinutes: number;
@@ -49,6 +58,7 @@ export interface TaskItem {
   imagePath?: string;
   folderPath?: string;
   filePath?: string;
+  attachments?: TaskAttachment[];
   cachedFiles?: { name: string; path: string; is_dir: boolean }[];
   createdAt: string;
   completedAt?: string;

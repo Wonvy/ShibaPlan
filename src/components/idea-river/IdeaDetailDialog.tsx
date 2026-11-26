@@ -12,6 +12,7 @@ import {
 import { BoardColumn, IdeaItem } from "../../types";
 import { useI18n } from "../../lib/i18n";
 import { Button } from "../ui/button";
+import { ColumnSelect } from "../ui/column-select";
 import { Separator } from "../ui/separator";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog";
 
@@ -112,17 +113,11 @@ export const IdeaDetailDialog: React.FC<IdeaDetailDialogProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5">
               {columns.length > 0 ? (
                 <div className="flex items-center gap-1.5">
-                  <select
+                  <ColumnSelect
+                    columns={columns}
                     value={targetColId}
-                    onChange={(e) => onTargetColChange(e.target.value)}
-                    className="h-8 rounded-lg bg-background px-2.5 text-xs text-foreground focus:outline-none"
-                  >
-                    {columns.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.title}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={onTargetColChange}
+                  />
                   <Button
                     variant="secondary"
                     onClick={() => onSendToKanban(selectedIdea)}

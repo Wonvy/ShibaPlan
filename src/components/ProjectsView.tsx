@@ -77,8 +77,6 @@ const RIGHT_WIDTH_STORAGE_KEY = "shibaplan_projects_right_w_v1";
 const EXPLORER_VIEW_STORAGE_KEY = "shibaplan_projects_explorer_view_v1";
 const CARD_WIDTH_STORAGE_KEY = "shibaplan_projects_card_w_v1";
 
-const EMPTY_ITEMS: IndexedArchiveItem[] = [];
-
 export const ProjectsView: React.FC<ProjectsViewProps> = ({
   workspace,
   onUpdate,
@@ -149,9 +147,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<number | "all">("all");
   const [expandedYear, setExpandedYear] = useState<number | null>(null);
   const [renderLimit, setRenderLimit] = useState(160);
-  const [expandedProjectPath, setExpandedProjectPath] = useState<string | null>(
-    null
-  );
   const [explorerMenu, setExplorerMenu] = useState<{
     entry: ExplorerEntry;
     x: number;
@@ -191,10 +186,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     },
     [onUpdate]
   );
-
-  const toggleExpandProject = useCallback((path: string) => {
-    setExpandedProjectPath((cur) => (cur === path ? null : path));
-  }, []);
 
   const sendEntryToKanban = useCallback(
     (entry: ExplorerEntry) => {
@@ -427,6 +418,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   };
   const [selectedProject, setSelectedProject] =
     useState<IndexedArchiveItem | null>(null);
+  const [hoveredProject, setHoveredProject] =
+    useState<IndexedArchiveItem | null>(null);
+  const [hoveredExplorerEntry, setHoveredExplorerEntry] =
+    useState<ExplorerEntry | null>(null);
   const [explorerPath, setExplorerPath] = useState<string>("");
   const [explorerEntries, setExplorerEntries] = useState<ExplorerEntry[]>([]);
   const [explorerLoading, setExplorerLoading] = useState(false);
@@ -436,6 +431,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [selectionFocus, setSelectionFocus] = useState<"project" | "explorer">(
     "project"
   );
+  const explorerCacheRef = useRef<Map<string, ExplorerEntry[]>>(new Map());
+  const explorerReqIdRef = useRef(0);
+  const hoverTimerRef = useRef<number | null>(null);
   const [quickLook, setQuickLook] = useState<{
     entry: ExplorerEntry;
     kind: "image" | "text" | "meta";
@@ -448,35 +446,95 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const autoOpenedSettingsRef = useRef(false);
 
   const loadExplorerDir = useCallback(async (dirPath: string) => {
+    const reqId = ++explorerReqIdRef.current;
     if (!dirPath) {
       setExplorerEntries([]);
+      setExplorerLoading(false);
+      return;
+    }
+    const cached = explorerCacheRef.current.get(dirPath);
+    if (cached) {
+      setExplorerEntries(cached);
+      setSelectedExplorerPath(cached[0]?.path ?? null);
+      setExplorerLoading(false);
       return;
     }
     setExplorerLoading(true);
     try {
       const entries = await listProjectExplorerEntries(dirPath);
+      if (reqId !== explorerReqIdRef.current) return;
+      explorerCacheRef.current.set(dirPath, entries);
       setExplorerEntries(entries);
       setSelectedExplorerPath(entries[0]?.path ?? null);
     } catch {
+      if (reqId !== explorerReqIdRef.current) return;
       setExplorerEntries([]);
     } finally {
-      setExplorerLoading(false);
+      if (reqId === explorerReqIdRef.current) {
+        setExplorerLoading(false);
+      }
     }
+  }, []);
+
+  const getProjectDir = useCallback((item: IndexedArchiveItem) => {
+    return item.is_dir
+      ? item.path
+      : item.path.replace(/[\\/][^\\/]+$/, "");
   }, []);
 
   const selectProjectForExplorer = useCallback(
     (item: IndexedArchiveItem) => {
+      if (hoverTimerRef.current) {
+        window.clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      setHoveredProject(null);
       setSelectedProject(item);
       setSelectionFocus("project");
-      const targetDir = item.is_dir
-        ? item.path
-        : item.path.replace(/[\\/][^\\/]+$/, "");
+      const targetDir = getProjectDir(item);
       setExplorerPath(targetDir);
       if (!explorerOpen) setExplorerOpen(true);
-      loadExplorerDir(targetDir);
+      void loadExplorerDir(targetDir);
     },
-    [explorerOpen, loadExplorerDir]
+    [explorerOpen, getProjectDir, loadExplorerDir]
   );
+
+  const handleHoverProject = useCallback(
+    (item: IndexedArchiveItem | null) => {
+      if (hoverTimerRef.current) {
+        window.clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+      if (!item) {
+        setHoveredProject(null);
+        // Restore active selected project in right explorer
+        if (selectedProject) {
+          const activeDir = getProjectDir(selectedProject);
+          setExplorerPath(activeDir);
+          void loadExplorerDir(activeDir);
+        } else {
+          setExplorerPath("");
+          setExplorerEntries([]);
+        }
+        return;
+      }
+      // Update status bar immediately; debounce disk read slightly while sweeping
+      setHoveredProject(item);
+      const targetDir = getProjectDir(item);
+      if (explorerCacheRef.current.has(targetDir)) {
+        setExplorerPath(targetDir);
+        void loadExplorerDir(targetDir);
+      } else {
+        hoverTimerRef.current = window.setTimeout(() => {
+          setExplorerPath(targetDir);
+          void loadExplorerDir(targetDir);
+        }, 120);
+      }
+    },
+    [selectedProject, getProjectDir, loadExplorerDir]
+  );
+
+  const displayedProject = hoveredProject ?? selectedProject;
 
   const handleExplorerGoUp = useCallback(() => {
     if (!selectedProject || !explorerPath) return;
@@ -1050,22 +1108,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     };
   }, [effectiveItems, selectedRoot, selectedYear, selectedMonth]);
 
-  // Nested children lookup for inline project preview
-  const expandedChildren = useMemo(() => {
-    if (!expandedProjectPath) return [];
-    const prefix = expandedProjectPath.endsWith("\\") || expandedProjectPath.endsWith("/")
-      ? expandedProjectPath
-      : expandedProjectPath + "\\";
-    const altPrefix = expandedProjectPath + "/";
-    return allItems
-      .filter(
-        (item) =>
-          item.path !== expandedProjectPath &&
-          (item.path.startsWith(prefix) || item.path.startsWith(altPrefix))
-      )
-      .slice(0, 40);
-  }, [allItems, expandedProjectPath]);
-
   // Group browse items by Year -> Month sections so Year + Month merge cleanly
   // instead of repeating "2026年 11月", "2026年 10月" on every row.
   const groupedByYear = useMemo(() => {
@@ -1143,28 +1185,26 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       return;
     }
 
+    if (hoveredExplorerEntry) {
+      onStatusChange(hoveredExplorerEntry.path);
+      return;
+    }
+
+    if (hoveredProject) {
+      onStatusChange(hoveredProject.path);
+      return;
+    }
+
     if (selectionFocus === "explorer" && selectedExplorerPath) {
       const ent = explorerEntries.find((e) => e.path === selectedExplorerPath);
       if (ent) {
-        const sizeStr = !ent.is_dir && ent.size > 0 ? ` · ${formatFileSize(ent.size)}` : "";
-        onStatusChange(
-          `${ent.is_dir ? "文件夹" : "文件"}：${ent.name}${sizeStr} · 按空格 Seer 预览`
-        );
+        onStatusChange(ent.path);
         return;
       }
     }
 
     if (selectedProject) {
-      const parts = [
-        `已选项目：${selectedProject.displayTitle}`,
-        selectedProject.dateLabel || null,
-        selectedProject.is_dir
-          ? `${selectedProject.child_count} 项`
-          : selectedProject.ext
-            ? selectedProject.ext.toUpperCase()
-            : null,
-      ].filter(Boolean);
-      onStatusChange(parts.join(" · "));
+      onStatusChange(selectedProject.path);
       return;
     }
 
@@ -1187,6 +1227,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   }, [
     onStatusChange,
     archiveDirs.length,
+    hoveredExplorerEntry,
+    hoveredProject,
     selectionFocus,
     selectedExplorerPath,
     explorerEntries,
@@ -1243,10 +1285,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           {/* Left Sidebar: Minimal Right-Aligned Year & Month Timeline */}
           <aside
             style={{ width: leftWidth }}
-            className="no-scrollbar hidden sm:flex shrink-0 flex-col overflow-y-auto px-2.5 py-3 select-none"
+            className="hidden sm:flex shrink-0 flex-col overflow-hidden select-none"
           >
-            {/* Primary Filters: 全部 & 收藏 */}
-            <div className="mb-2 flex items-center justify-end gap-1">
+            {/* Primary Filters: 全部 & 收藏 (h-10 aligned with middle search toolbar) */}
+            <div className="flex h-10 shrink-0 items-center justify-end gap-1 border-b border-border/70 px-2.5">
               <button
                 type="button"
                 onClick={() => {
@@ -1254,7 +1296,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   setSelectedMonth("all");
                   setExpandedYear(null);
                 }}
-                className={`rounded-md px-2 py-1 text-xs transition-colors ${
+                className={`h-7 rounded-md px-2 text-xs transition-colors ${
                   selectedYear === "all"
                     ? "bg-accent text-foreground font-medium"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -1273,7 +1315,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     setSelectedMonth("all");
                     setExpandedYear(null);
                   }}
-                  className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs transition-colors ${
+                  className={`inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs transition-colors ${
                     selectedYear === "starred"
                       ? "bg-accent text-primary font-medium"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -1286,6 +1328,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             </div>
 
             {/* Unified Right-Aligned Vertical Timeline */}
+            <div className="no-scrollbar flex-1 overflow-y-auto px-2.5 py-2">
             <div className="relative flex flex-col">
               {/* Continuous Vertical Axis Hairline */}
               <div className="pointer-events-none absolute right-[6.5px] top-3 bottom-3 w-px bg-border/80" />
@@ -1410,6 +1453,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 </button>
               )}
             </div>
+            </div>
           </aside>
 
           {/* Subtle Left-Middle Resize Handle (hairline, blends left & center as one canvas) */}
@@ -1463,10 +1507,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="搜索..."
                         title="支持 Everything 语法：空格=与，|=或，!=排除，ext:psd，folder:，file:"
-                        className="h-7 w-full rounded-md border border-border bg-surface/80 pl-8 pr-11 text-xs text-foreground placeholder:text-muted-foreground/65 focus:border-ring/70 focus:bg-card focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors"
+                        className="h-7 w-full rounded-md border border-border bg-surface/80 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground/65 focus:border-ring/70 focus:bg-card focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors"
                       />
-                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                        {query && (
+                      {query && (
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
                           <button
                             type="button"
                             onClick={() => setQuery("")}
@@ -1475,11 +1519,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                           >
                             <X className="h-3 w-3" />
                           </button>
-                        )}
-                        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                          {matchedItems.length}
-                        </span>
-                      </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="h-3.5 w-px shrink-0 bg-border" />
@@ -2090,6 +2131,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 isSearching={isSearching}
                 highlightTerms={highlightTerms}
                 onSelect={selectProjectForExplorer}
+                onHover={handleHoverProject}
                 onContextMenu={handleProjectContextMenu}
               />
             ) : viewMode === "timeline" ? (
@@ -2147,38 +2189,25 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             <div className="font-mono text-xs font-medium text-muted-foreground group-hover/m:text-primary transition-colors tabular-nums">
                               {mBucket.monthLabel}
                             </div>
-                            {mBucket.items.length > 1 && (
-                              <div className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
-                                {mBucket.items.length}项
-                              </div>
-                            )}
                           </button>
 
                           {/* Month Cards Column with subtle vertical hairline */}
                           <div className="relative flex-1 min-w-0 space-y-2 border-l border-border/50 pl-3.5">
                             <span className="pointer-events-none absolute -left-[3.5px] top-4 h-1.5 w-1.5 rounded-full bg-primary/70" />
-                            {mBucket.items.map((item) => {
-                              const isExpanded =
-                                expandedProjectPath === item.path;
-                              return (
-                                <ProjectTimelineCard
-                                  key={item.path}
-                                  item={item}
-                                  isSelected={
-                                    selectedProject?.path === item.path
-                                  }
-                                  isExpanded={isExpanded}
-                                  rootTag={rootLabelMap.get(item.root_path)}
-                                  showRootTag={archiveDirs.length > 1}
-                                  expandedChildren={
-                                    isExpanded ? expandedChildren : EMPTY_ITEMS
-                                  }
-                                  onSelect={selectProjectForExplorer}
-                                  onToggleExpand={toggleExpandProject}
-                                  onContextMenu={handleProjectContextMenu}
-                                />
-                              );
-                            })}
+                            {mBucket.items.map((item) => (
+                              <ProjectTimelineCard
+                                key={item.path}
+                                item={item}
+                                isSelected={
+                                  selectedProject?.path === item.path
+                                }
+                                rootTag={rootLabelMap.get(item.root_path)}
+                                showRootTag={archiveDirs.length > 1}
+                                onSelect={selectProjectForExplorer}
+                                onHover={handleHoverProject}
+                                onContextMenu={handleProjectContextMenu}
+                              />
+                            ))}
                           </div>
                         </div>
                       ))}
@@ -2232,6 +2261,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             showRootTag={archiveDirs.length > 1}
                             cardWidth={cardWidth}
                             onSelect={selectProjectForExplorer}
+                            onHover={handleHoverProject}
                             onToggleStar={toggleStarProject}
                             onContextMenu={handleProjectContextMenu}
                           />
@@ -2275,53 +2305,41 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 style={{ width: rightWidth }}
                 className="hidden lg:flex shrink-0 flex-col bg-surface/40 overflow-hidden"
               >
-                {/* Explorer Header (h-10 aligned with middle column toolbar; path/hint shown on hover) */}
+                {/* Explorer Top Toolbar (h-10 aligned with middle column toolbar) */}
                 <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 px-3">
-                  <div
-                    className="min-w-0 flex-1 truncate text-[13px] font-medium tracking-[-0.01em] text-foreground"
-                    title={
-                      selectedProject
-                        ? explorerPath || selectedProject.path
-                        : "点击左侧项目查看内部文件"
-                    }
-                  >
-                    {selectedProject
-                      ? selectedProject.displayTitle
-                      : "项目资源管理器"}
+                  {/* List / Icons View Switcher */}
+                  <div className="flex items-center rounded-md border border-border bg-surface p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => changeExplorerViewMode("list")}
+                      title="列表视图"
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors ${
+                        explorerViewMode === "list"
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <List className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => changeExplorerViewMode("icons")}
+                      title="图标视图"
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors ${
+                        explorerViewMode === "icons"
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <LayoutGrid className="h-3.5 w-3.5" />
+                    </button>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-1">
-                    {/* List / Icons View Switcher */}
-                    <div className="flex items-center rounded-md border border-border bg-surface p-0.5">
-                      <button
-                        type="button"
-                        onClick={() => changeExplorerViewMode("list")}
-                        title="列表视图"
-                        className={`inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors ${
-                          explorerViewMode === "list"
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        <List className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => changeExplorerViewMode("icons")}
-                        title="图标视图"
-                        className={`inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors ${
-                          explorerViewMode === "icons"
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        <LayoutGrid className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
-                    {selectedProject && (
-                      <div className="flex items-center gap-0.5">
-                        {explorerPath.toLowerCase() !==
+                  {displayedProject && (
+                    <div className="flex items-center gap-0.5">
+                      {selectedProject &&
+                        !hoveredProject &&
+                        explorerPath.toLowerCase() !==
                           (selectedProject.is_dir
                             ? selectedProject.path
                             : selectedProject.path.replace(/[\\/][^\\/]+$/, "")
@@ -2335,37 +2353,61 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             <ArrowUp className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => loadExplorerDir(explorerPath)}
-                          className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                          title="刷新目录"
-                        >
-                          <RefreshCw
-                            className={`h-3.5 w-3.5 ${
-                              explorerLoading ? "animate-spin" : ""
-                            }`}
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openArchivePath(explorerPath)}
-                          className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                          title="在系统资源管理器中打开"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          explorerCacheRef.current.delete(explorerPath);
+                          void loadExplorerDir(explorerPath);
+                        }}
+                        className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                        title="刷新目录"
+                      >
+                        <RefreshCw
+                          className={`h-3.5 w-3.5 ${
+                            explorerLoading ? "animate-spin" : ""
+                          }`}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openArchivePath(explorerPath)}
+                        className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                        title="在系统资源管理器中打开"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Project Title Row (full-width dedicated row below toolbar) */}
+                <div
+                  className="flex shrink-0 items-center justify-between gap-2 border-b border-border/50 px-3 py-1.5"
+                  title={
+                    displayedProject
+                      ? explorerPath || displayedProject.path
+                      : "点击或悬停左侧项目查看内部文件"
+                  }
+                >
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium tracking-[-0.01em] text-foreground">
+                    {displayedProject
+                      ? displayedProject.displayTitle
+                      : "项目资源管理器"}
+                  </span>
+                  {hoveredProject &&
+                    hoveredProject.path !== selectedProject?.path && (
+                      <span className="shrink-0 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-normal text-primary">
+                        预览
+                      </span>
                     )}
-                  </div>
                 </div>
 
                 {/* Explorer Entries (List or Icons Grid) */}
                 <div className="flex-1 overflow-y-auto p-2">
-                  {!selectedProject ? (
+                  {!displayedProject ? (
                     <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
                       <FolderOpen className="h-6 w-6 opacity-35" />
-                      <span>点击中间任意项目即可在此浏览文件条目</span>
+                      <span>悬停或点击中间任意项目即可在此浏览文件条目</span>
                       <span>选中文件后按空格键支持 Seer 预览</span>
                     </div>
                   ) : explorerLoading ? (
@@ -2392,6 +2434,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         return (
                           <div
                             key={entry.path}
+                            onMouseEnter={() => setHoveredExplorerEntry(entry)}
+                            onMouseLeave={() => setHoveredExplorerEntry(null)}
                             onClick={() => {
                               setSelectedExplorerPath(entry.path);
                               setSelectionFocus("explorer");
@@ -2457,6 +2501,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         return (
                           <div
                             key={entry.path}
+                            onMouseEnter={() => setHoveredExplorerEntry(entry)}
+                            onMouseLeave={() => setHoveredExplorerEntry(null)}
                             onClick={() => {
                               setSelectedExplorerPath(entry.path);
                               setSelectionFocus("explorer");

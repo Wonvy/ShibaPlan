@@ -17,9 +17,14 @@ import {
   Trash2,
   Waves,
 } from "lucide-react";
-import { BoardColumn, ColumnDisplayOptions, TaskItem } from "../../types";
+import {
+  BoardColumn,
+  ColumnDisplayOptions,
+  TaskItem,
+  TaskPriorityColor,
+} from "../../types";
 import { useI18n } from "../../lib/i18n";
-import { AreaMenuState } from "./constants";
+import { AreaMenuState, TASK_PRIORITY_COLORS } from "./constants";
 
 const itemCls =
   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent";
@@ -39,6 +44,10 @@ export interface AreaContextMenuProps {
   openTaskEditor: (task: TaskItem) => void;
   startFocus: (task: TaskItem) => void;
   toggleStar: (task: TaskItem) => void;
+  setTaskPriorityColor: (
+    task: TaskItem,
+    color: TaskPriorityColor | undefined
+  ) => void;
   toggleDone: (task: TaskItem) => void;
   duplicateTask: (task: TaskItem) => void;
   moveTaskToRiver: (task: TaskItem) => void;
@@ -65,6 +74,7 @@ export const AreaContextMenu: React.FC<AreaContextMenuProps> = ({
   openTaskEditor,
   startFocus,
   toggleStar,
+  setTaskPriorityColor,
   toggleDone,
   duplicateTask,
   moveTaskToRiver,
@@ -85,7 +95,7 @@ export const AreaContextMenu: React.FC<AreaContextMenuProps> = ({
     <div
       style={{ left: menu.x, top: menu.y }}
       onClick={(e) => e.stopPropagation()}
-      className="fixed z-50 w-44 rounded-lg border border-border bg-popover p-1 shadow-popover-soft"
+      className="fixed z-50 w-56 rounded-lg border border-border bg-popover p-1 shadow-popover-soft"
     >
       {menu.kind === "card" &&
         (() => {
@@ -156,6 +166,56 @@ export const AreaContextMenu: React.FC<AreaContextMenuProps> = ({
                   {isDone ? t("kanban.restoreTodo") : t("kanban.markDone")}
                 </span>
               </button>
+
+              <div className="my-1 border-t border-white/[0.06]" />
+
+              <div className="px-1 py-1">
+                <div className="grid grid-cols-4 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTaskPriorityColor(ctxTask, undefined);
+                      close();
+                    }}
+                    title="恢复默认颜色"
+                    className={`flex items-center justify-center gap-1 rounded-md border px-1 py-1 text-[11px] font-medium transition-colors ${
+                      !ctxTask.priorityColor
+                        ? "border-foreground/25 bg-accent text-foreground"
+                        : "border-transparent bg-secondary/45 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    <span className="h-2 w-2 shrink-0 rounded-full border border-muted-foreground/60 bg-transparent" />
+                    <span>默认</span>
+                  </button>
+                  {TASK_PRIORITY_COLORS.map((opt) => {
+                    const active = ctxTask.priorityColor === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setTaskPriorityColor(
+                            ctxTask,
+                            active ? undefined : opt.id
+                          );
+                          close();
+                        }}
+                        title={active ? `恢复默认颜色` : `标记为${opt.label}`}
+                        className={`flex items-center justify-center gap-1 rounded-md border px-1 py-1 text-[11px] font-medium transition-colors ${
+                          active
+                            ? opt.pillActiveClass
+                            : "border-transparent bg-secondary/45 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${opt.dotClass}`}
+                        />
+                        <span>{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               <div className="my-1 border-t border-white/[0.06]" />
 

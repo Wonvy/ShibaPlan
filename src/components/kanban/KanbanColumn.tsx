@@ -1,5 +1,5 @@
 import React from "react";
-import { Folder, Maximize2, Minimize2, Plus, Trash2 } from "lucide-react";
+import { Folder, Maximize2, Minimize2, SquarePen, Trash2 } from "lucide-react";
 import { BoardColumn, TaskItem } from "../../types";
 import { FolderEntry } from "../../lib/storage";
 import { InsertPosition, TranslateFn } from "./constants";
@@ -32,6 +32,7 @@ export interface KanbanColumnActions {
   commitRenameColumn: (colId: string) => void;
   cancelRenameColumn: () => void;
   startAddTask: (colId: string) => void;
+  openAddTaskModal: (colId: string) => void;
   setDraftTaskTitle: (value: string) => void;
   commitAddTask: (colId: string) => void;
   cancelAddTask: () => void;
@@ -413,12 +414,16 @@ const KanbanColumnImpl: React.FC<KanbanColumnProps> = ({
                 {col.title}
               </span>
             )}
-            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-              {pendingCount}
-            </span>
           </div>
 
           <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => actions.requestDeleteColumn(col)}
+              className="rounded-md p-1 text-muted-foreground/70 opacity-100 sm:opacity-0 transition sm:group-hover/col:opacity-100 hover:bg-destructive/15 hover:text-destructive"
+              title={t("kanban.deleteColumn")}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
             <button
               onClick={() => actions.toggleColumnCollapse(col.id)}
               className="rounded-md p-1 text-muted-foreground opacity-100 sm:opacity-0 transition sm:group-hover/col:opacity-100 hover:bg-accent hover:text-foreground"
@@ -427,18 +432,17 @@ const KanbanColumnImpl: React.FC<KanbanColumnProps> = ({
               <Minimize2 className="h-3.5 w-3.5" />
             </button>
             <button
-              onClick={() => actions.startAddTask(col.id)}
+              onClick={(e) => {
+                if (e.ctrlKey || e.metaKey) {
+                  actions.startAddTask(col.id);
+                } else {
+                  actions.openAddTaskModal(col.id);
+                }
+              }}
               className="rounded-md p-1 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-              title="新增卡片"
+              title="新建卡片（按住 Ctrl 点击可快速行内新增）"
             >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => actions.requestDeleteColumn(col)}
-              className="rounded-md p-1 text-muted-foreground/70 opacity-100 sm:opacity-0 transition sm:group-hover/col:opacity-100 hover:bg-destructive/15 hover:text-destructive"
-              title={t("kanban.deleteColumn")}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
+              <SquarePen className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -487,7 +491,7 @@ const KanbanColumnImpl: React.FC<KanbanColumnProps> = ({
               colId: col.id,
             });
           }}
-          className="flex-1 space-y-1.5 overflow-y-auto pr-0.5"
+          className="flex-1 space-y-1.5 overflow-y-auto overscroll-contain pr-0.5"
         >
           {colTasks.length === 0 ? (
             <div className="flex h-20 items-center justify-center rounded-md border border-dashed border-border/70 text-xs text-muted-foreground/60">
@@ -514,9 +518,9 @@ const KanbanColumnImpl: React.FC<KanbanColumnProps> = ({
                   isBeingDragged={isBeingDragged}
                   insertPosition={insertPosition}
                   isCollapsed={Boolean(collapsedCards[task.id])}
-                  isFolderExpanded={Boolean(expandedFolders[task.id])}
-                  folderEntries={folderFiles[task.id]}
-                  isFolderLoading={Boolean(loadingFolders[task.id])}
+                  expandedFolders={expandedFolders}
+                  folderFiles={folderFiles}
+                  loadingFolders={loadingFolders}
                   locale={locale}
                   t={t}
                   actions={cardActions}

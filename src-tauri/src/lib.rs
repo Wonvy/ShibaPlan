@@ -394,11 +394,86 @@ struct OsDragDropPayload {
     y: f64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct PathInfo {
     path: String,
     name: String,
     is_dir: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct ResolvedDropPathsPayload {
+    #[serde(rename = "requestId")]
+    req_id: String,
+    items: Vec<PathInfo>,
+}
+
+#[cfg(target_os = "windows")]
+fn attach_webview2_drop_path_resolver(win: &tauri::WebviewWindow) {
+    let win_for_emit = win.clone();
+    let _ = win.with_webview(move |webview| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2File, ICoreWebView2WebMessageReceivedEventArgs2,
+        };
+        use webview2_com::{take_pwstr, WebMessageReceivedEventHandler};
+        use windows_core::{Interface, PWSTR};
+
+        unsafe {
+            let Ok(core) = webview.controller().CoreWebView2() else {
+                return;
+            };
+            let mut token = 0i64;
+            let emit_win = win_for_emit.clone();
+            let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                let mut json_pwstr = PWSTR::null();
+                if args.WebMessageAsJson(&mut json_pwstr).is_err() {
+                    return Ok(());
+                }
+                let json_str = take_pwstr(json_pwstr);
+                let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) else {
+                    return Ok(());
+                };
+                let Some(req_id) = val.get("__shibaResolvePaths").and_then(|v| v.as_str()) else {
+                    return Ok(());
+                };
+
+                let mut items: Vec<PathInfo> = Vec::new();
+                if let Ok(args2) = args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>() {
+                    if let Ok(collection) = args2.AdditionalObjects() {
+                        let mut count = 0u32;
+                        if collection.Count(&mut count).is_ok() {
+                            for i in 0..count {
+                                if let Ok(obj) = collection.GetValueAtIndex(i) {
+                                    if let Ok(file) = obj.cast::<ICoreWebView2File>() {
+                                        let mut path_pwstr = PWSTR::null();
+                                        if file.Path(&mut path_pwstr).is_ok() {
+                                            let raw_path = take_pwstr(path_pwstr);
+                                            if let Ok(info) = inspect_path_impl(raw_path) {
+                                                items.push(info);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let _ = emit_win.emit(
+                    "shiba-resolved-drop-paths",
+                    ResolvedDropPathsPayload {
+                        req_id: req_id.to_string(),
+                        items,
+                    },
+                );
+                Ok(())
+            }));
+            let _ = core.add_WebMessageReceived(&handler, &mut token);
+        }
+    });
 }
 
 #[derive(Serialize)]
@@ -1293,6 +1368,287 @@ fn read_archive_thumbnail_impl(path: String, custom_dir: Option<String>) -> Resu
 #[tauri::command]
 async fn inspect_path(path: String) -> Result<PathInfo, String> {
     run_blocking(move || inspect_path_impl(path)).await
+}
+
+#[cfg(target_os = "windows")]
+mod win_shell_icon {
+    use base64::Engine;
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+
+    const SHGFI_ICON: u32 = 0x000000100;
+    const SHGFI_LARGEICON: u32 = 0x000000000;
+    const SHGFI_USEFILEATTRIBUTES: u32 = 0x000000010;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x00000010;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x00000080;
+    const DIB_RGB_COLORS: u32 = 0;
+    const BI_RGB: u32 = 0;
+
+    #[repr(C)]
+    struct ShFileInfoW {
+        h_icon: isize,
+        i_icon: i32,
+        dw_attributes: u32,
+        sz_display_name: [u16; 260],
+        sz_type_name: [u16; 80],
+    }
+
+    #[repr(C)]
+    struct IconInfo {
+        f_icon: i32,
+        x_hotspot: u32,
+        y_hotspot: u32,
+        hbm_mask: isize,
+        hbm_color: isize,
+    }
+
+    #[repr(C)]
+    struct Bitmap {
+        bm_type: i32,
+        bm_width: i32,
+        bm_height: i32,
+        bm_width_bytes: i32,
+        bm_planes: u16,
+        bm_bits_pixel: u16,
+        bm_bits: *mut c_void,
+    }
+
+    #[repr(C)]
+    struct BitmapInfoHeader {
+        bi_size: u32,
+        bi_width: i32,
+        bi_height: i32,
+        bi_planes: u16,
+        bi_bit_count: u16,
+        bi_compression: u32,
+        bi_size_image: u32,
+        bi_x_pels_per_meter: i32,
+        bi_y_pels_per_meter: i32,
+        bi_clr_used: u32,
+        bi_clr_important: u32,
+    }
+
+    #[repr(C)]
+    struct BitmapInfo {
+        bmi_header: BitmapInfoHeader,
+        bmi_colors: [u32; 1],
+    }
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SHGetFileInfoW(
+            psz_path: *const u16,
+            dw_file_attributes: u32,
+            psfi: *mut ShFileInfoW,
+            cb_file_info: u32,
+            u_flags: u32,
+        ) -> usize;
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetIconInfo(h_icon: isize, piconinfo: *mut IconInfo) -> i32;
+        fn DestroyIcon(h_icon: isize) -> i32;
+        fn GetDC(hwnd: isize) -> isize;
+        fn ReleaseDC(hwnd: isize, hdc: isize) -> i32;
+    }
+
+    #[link(name = "gdi32")]
+    extern "system" {
+        fn GetObjectW(h: isize, c: i32, pv: *mut c_void) -> i32;
+        fn GetDIBits(
+            hdc: isize,
+            hbm: isize,
+            start: u32,
+            c_lines: u32,
+            lpv_bits: *mut c_void,
+            lpbmi: *mut BitmapInfo,
+            usage: u32,
+        ) -> i32;
+        fn DeleteObject(ho: isize) -> i32;
+    }
+
+    pub fn extract_icon_png_data_url(raw_path: &str, is_dir: bool) -> Option<String> {
+        let trimmed = raw_path.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let path_obj = Path::new(trimmed);
+        let exists = path_obj.exists();
+        let wide: Vec<u16> = std::ffi::OsStr::new(trimmed)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let mut shfi: ShFileInfoW = unsafe { std::mem::zeroed() };
+        let attrs = if is_dir {
+            FILE_ATTRIBUTE_DIRECTORY
+        } else {
+            FILE_ATTRIBUTE_NORMAL
+        };
+        let flags = if exists {
+            SHGFI_ICON | SHGFI_LARGEICON
+        } else {
+            SHGFI_ICON | SHGFI_LARGEICON | SHGFI_USEFILEATTRIBUTES
+        };
+
+        let res = unsafe {
+            SHGetFileInfoW(
+                wide.as_ptr(),
+                attrs,
+                &mut shfi,
+                std::mem::size_of::<ShFileInfoW>() as u32,
+                flags,
+            )
+        };
+        if res == 0 || shfi.h_icon == 0 {
+            return None;
+        }
+        let h_icon = shfi.h_icon;
+
+        let png_result = unsafe { hicon_to_png_data_url(h_icon) };
+        unsafe {
+            DestroyIcon(h_icon);
+        }
+        png_result
+    }
+
+    unsafe fn hicon_to_png_data_url(h_icon: isize) -> Option<String> {
+        let mut icon_info: IconInfo = std::mem::zeroed();
+        if GetIconInfo(h_icon, &mut icon_info) == 0 {
+            return None;
+        }
+
+        let out = (|| -> Option<String> {
+            let hbm_color = icon_info.hbm_color;
+            let hbm_mask = icon_info.hbm_mask;
+            let target_bm = if hbm_color != 0 { hbm_color } else { hbm_mask };
+            if target_bm == 0 {
+                return None;
+            }
+
+            let mut bm: Bitmap = std::mem::zeroed();
+            if GetObjectW(
+                target_bm,
+                std::mem::size_of::<Bitmap>() as i32,
+                (&mut bm as *mut Bitmap) as *mut c_void,
+            ) == 0
+            {
+                return None;
+            }
+
+            let w = bm.bm_width.clamp(1, 256) as u32;
+            let h = (if hbm_color != 0 {
+                bm.bm_height
+            } else {
+                bm.bm_height / 2
+            })
+            .clamp(1, 256) as u32;
+
+            let hdc = GetDC(0);
+            if hdc == 0 {
+                return None;
+            }
+
+            let mut bmi = BitmapInfo {
+                bmi_header: BitmapInfoHeader {
+                    bi_size: std::mem::size_of::<BitmapInfoHeader>() as u32,
+                    bi_width: w as i32,
+                    bi_height: -(h as i32), // top-down DIB
+                    bi_planes: 1,
+                    bi_bit_count: 32,
+                    bi_compression: BI_RGB,
+                    bi_size_image: 0,
+                    bi_x_pels_per_meter: 0,
+                    bi_y_pels_per_meter: 0,
+                    bi_clr_used: 0,
+                    bi_clr_important: 0,
+                },
+                bmi_colors: [0],
+            };
+
+            let mut bgra = vec![0u8; (w * h * 4) as usize];
+            let got = GetDIBits(
+                hdc,
+                target_bm,
+                0,
+                h,
+                bgra.as_mut_ptr() as *mut c_void,
+                &mut bmi,
+                DIB_RGB_COLORS,
+            );
+
+            // Check if alpha channel is all-zero (legacy icon using hbmMask)
+            let has_alpha = bgra.chunks_exact(4).any(|px| px[3] != 0);
+            let mut mask_bgra: Option<Vec<u8>> = None;
+            if !has_alpha && hbm_mask != 0 && hbm_color != 0 {
+                let mut m_buf = vec![0u8; (w * h * 4) as usize];
+                let mut m_bmi = bmi;
+                if GetDIBits(
+                    hdc,
+                    hbm_mask,
+                    0,
+                    h,
+                    m_buf.as_mut_ptr() as *mut c_void,
+                    &mut m_bmi,
+                    DIB_RGB_COLORS,
+                ) > 0
+                {
+                    mask_bgra = Some(m_buf);
+                }
+            }
+
+            ReleaseDC(0, hdc);
+            if got == 0 {
+                return None;
+            }
+
+            let mut rgba = vec![0u8; (w * h * 4) as usize];
+            for i in 0..(w * h) as usize {
+                let idx = i * 4;
+                rgba[idx] = bgra[idx + 2]; // R
+                rgba[idx + 1] = bgra[idx + 1]; // G
+                rgba[idx + 2] = bgra[idx]; // B
+                rgba[idx + 3] = if has_alpha {
+                    bgra[idx + 3]
+                } else if let Some(ref m) = mask_bgra {
+                    if m[idx] == 0 { 255 } else { 0 }
+                } else {
+                    255
+                };
+            }
+
+            let img = image::RgbaImage::from_raw(w, h, rgba)?;
+            let mut png_bytes: Vec<u8> = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut png_bytes);
+            img.write_to(&mut cursor, image::ImageFormat::Png).ok()?;
+            let encoded = base64::engine::general_purpose::STANDARD.encode(png_bytes);
+            Some(format!("data:image/png;base64,{}", encoded))
+        })();
+
+        if icon_info.hbm_color != 0 {
+            DeleteObject(icon_info.hbm_color);
+        }
+        if icon_info.hbm_mask != 0 {
+            DeleteObject(icon_info.hbm_mask);
+        }
+        out
+    }
+}
+
+#[tauri::command]
+async fn get_file_icon_data_url(path: String, is_dir: bool) -> Result<Option<String>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return run_blocking(move || Ok(win_shell_icon::extract_icon_png_data_url(&path, is_dir)))
+            .await;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (path, is_dir);
+        Ok(None)
+    }
 }
 
 fn inspect_path_impl(path: String) -> Result<PathInfo, String> {
@@ -2254,6 +2610,8 @@ pub fn run() {
 
             if let Some(win) = app.get_webview_window("main") {
                 eprintln!("[ShibaPlan] main window exists, showing...");
+                #[cfg(target_os = "windows")]
+                attach_webview2_drop_path_resolver(&win);
                 let _ = win.show();
                 let _ = win.unminimize();
                 let _ = win.set_focus();
@@ -2318,6 +2676,7 @@ pub fn run() {
             save_pasted_image,
             export_idea_markdown,
             inspect_path,
+            get_file_icon_data_url,
             list_folder_entries,
             list_project_explorer_entries,
             read_file_text_preview,

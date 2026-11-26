@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { AlertTriangle, Calendar, X } from "lucide-react";
-import { BoardColumn, TaskItem } from "../../types";
+import { AlertTriangle, Calendar, SquarePen, X } from "lucide-react";
+import { BoardColumn, TaskAttachment, TaskItem } from "../../types";
+import { openPathInOs } from "../../lib/storage";
 import { useI18n } from "../../lib/i18n";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -13,6 +14,14 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { dateWithOffset } from "./constants";
+import { AttachmentIcon } from "./AttachmentIcon";
+import {
+  getTaskAttachments,
+  isOsFileDrag,
+  mergeTaskAttachments,
+  resolveDroppedOsItems,
+  stripLegacyFolderTokens,
+} from "./dropUtils";
 
 /* ------------------------------------------------------------------ */
 /* Confirm Delete Card Modal                                           */
@@ -137,6 +146,7 @@ export interface TaskEditFields {
   dueDate: string | undefined;
   startTime: string | undefined;
   imagePreview: string | undefined;
+  attachments: TaskAttachment[] | undefined;
 }
 
 /**
@@ -146,11 +156,15 @@ export interface TaskEditFields {
  */
 export const TaskEditorDialog: React.FC<{
   task: TaskItem | null;
+  creatingInColId?: string | null;
   onClose: () => void;
   onSave: (fields: TaskEditFields) => void;
-}> = ({ task, onClose, onSave }) => {
+  onCreate?: (colId: string, fields: TaskEditFields) => void;
+}> = ({ task, creatingInColId = null, onClose, onSave, onCreate }) => {
   const { t } = useI18n();
-  const [seededFrom, setSeededFrom] = useState<TaskItem | null>(null);
+  const isCreateMode = !task && Boolean(creatingInColId);
+  const seedKey = task ? `edit:${task.id}` : creatingInColId ? `create:${creatingInColId}` : null;
+  const [seededKey, setSeededKey] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
@@ -158,44 +172,139 @@ export const TaskEditorDialog: React.FC<{
   const [editImagePreview, setEditImagePreview] = useState<string | undefined>(
     undefined
   );
+  const [editAttachments, setEditAttachments] = useState<TaskAttachment[]>([]);
+  const [isDragOverForm, setIsDragOverForm] = useState(false);
 
-  // Re-seed form fields during render when a new task is opened
-  // (equivalent to setting them together with the "open" state).
-  if (task && task !== seededFrom) {
-    setSeededFrom(task);
-    setEditTitle(task.title);
-    setEditNotes(task.notes ?? "");
-    setEditDueDate(task.dueDate ?? "");
-    setEditStartTime(task.startTime ?? "");
-    setEditImagePreview(task.imagePreview);
-  } else if (!task && seededFrom) {
-    setSeededFrom(null);
+  // Re-seed form fields during render when a new task or create modal is opened.
+  if (seedKey && seedKey !== seededKey) {
+    setSeededKey(seedKey);
+    if (task) {
+      setEditTitle(stripLegacyFolderTokens(task.title) || task.title);
+      const cleanedNotes = task.notes ? stripLegacyFolderTokens(task.notes) : "";
+      const existingAtts = getTaskAttachments(task);
+      const isRedundant =
+        task.notes &&
+        existingAtts.some(
+          (a) =>
+            task.notes!.trim() === a.path.trim() ||
+            task.notes!.trim() === `[[${a.path.trim()}]]`
+        );
+      setEditNotes(isRedundant ? "" : cleanedNotes);
+      setEditDueDate(task.dueDate ?? "");
+      setEditStartTime(task.startTime ?? "");
+      setEditImagePreview(task.imagePreview);
+      setEditAttachments(existingAtts);
+    } else {
+      setEditTitle("");
+      setEditNotes("");
+      setEditDueDate("");
+      setEditStartTime("");
+      setEditImagePreview(undefined);
+      setEditAttachments([]);
+    }
+  } else if (!seedKey && seededKey) {
+    setSeededKey(null);
   }
+
+  const handleFormDrop = (e: React.DragEvent) => {
+    if (!isOsFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOverForm(false);
+    const dropPromise = resolveDroppedOsItems(e.dataTransfer);
+    void dropPromise.then((items) => {
+      if (items.length === 0) return;
+      const firstImg = items.find((it) => it.imagePreview)?.imagePreview;
+      if (firstImg) {
+        setEditImagePreview(firstImg);
+      }
+      const nonImageItems = items.filter((it) => !it.imagePreview);
+      if (nonImageItems.length > 0) {
+        const incoming: TaskAttachment[] = nonImageItems.map((it) => ({
+          path: it.path,
+          name: it.name,
+          is_dir: it.is_dir,
+        }));
+        setEditAttachments((prev) => mergeTaskAttachments(prev, incoming));
+      }
+    });
+  };
+
+  const handleFormPaste = (e: React.ClipboardEvent) => {
+    const clipItems = e.clipboardData?.items;
+    if (!clipItems) return;
+    for (let i = 0; i < clipItems.length; i++) {
+      if (clipItems[i].type.startsWith("image/")) {
+        const file = clipItems[i].getAsFile();
+        if (!file) continue;
+        e.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === "string") {
+            setEditImagePreview(reader.result);
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!task || !editTitle.trim()) return;
-    onSave({
+    if (!editTitle.trim()) return;
+    const fields: TaskEditFields = {
       title: editTitle.trim(),
       notes: editNotes.trim() || undefined,
       dueDate: editDueDate || undefined,
       startTime: editStartTime || undefined,
       imagePreview: editImagePreview,
-    });
+      attachments: editAttachments.length > 0 ? editAttachments : undefined,
+    };
+    if (task) {
+      onSave(fields);
+    } else if (creatingInColId && onCreate) {
+      onCreate(creatingInColId, fields);
+    }
   };
 
   return (
     <Dialog
-      open={Boolean(task)}
+      open={Boolean(task) || Boolean(creatingInColId)}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
     >
-      <DialogContent>
+      <DialogContent
+        onDragOver={(e) => {
+          if (!isOsFileDrag(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "copy";
+          setIsDragOverForm(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            setIsDragOverForm(false);
+          }
+        }}
+        onDrop={handleFormDrop}
+        onPaste={handleFormPaste}
+        className={isDragOverForm ? "ring-2 ring-primary/60" : undefined}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-primary" />
-            {t("kanban.taskModalTitle")}
+            {isCreateMode ? (
+              <>
+                <SquarePen className="h-4 w-4 text-primary" />
+                {t("kanban.addCard")}
+              </>
+            ) : (
+              <>
+                <Calendar className="h-4 w-4 text-primary" />
+                {t("kanban.taskModalTitle")}
+              </>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -228,11 +337,48 @@ export const TaskEditorDialog: React.FC<{
           )}
 
           <Textarea
-            rows={2}
+            rows={3}
             value={editNotes}
             onChange={(e) => setEditNotes(e.target.value)}
             placeholder={t("kanban.taskNotesPlaceholder")}
           />
+
+          {editAttachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {editAttachments.map((att) => (
+                <span
+                  key={att.path}
+                  className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs text-foreground"
+                  title={att.path}
+                >
+                  <button
+                    type="button"
+                    onClick={() => openPathInOs(att.path).catch(() => {})}
+                    className="flex min-w-0 items-center gap-1.5 hover:text-primary"
+                  >
+                    <AttachmentIcon
+                      path={att.path}
+                      isDir={att.is_dir}
+                      className="h-3.5 w-3.5"
+                    />
+                    <span className="max-w-[180px] truncate">{att.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditAttachments((prev) =>
+                        prev.filter((a) => a.path !== att.path)
+                      )
+                    }
+                    className="rounded p-0.5 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                    title="移除"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">

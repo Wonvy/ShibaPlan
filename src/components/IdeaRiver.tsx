@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -29,6 +30,7 @@ import {
   fetchCurrentWeather,
   getCachedWeatherSync,
 } from "../lib/atmosphere";
+import { getTodayCalendarInfo } from "../lib/lunar";
 import {
   exportIdeaToMarkdown,
   generateAISpec,
@@ -73,6 +75,75 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
   const [liveWeather, setLiveWeather] = useState<IdeaWeather | null>(() =>
     getCachedWeatherSync()
   );
+
+  // Header info pill display preferences (right-click checkboxes)
+  type InfoDisplayPrefs = {
+    weather: boolean;
+    date: boolean;
+    lunar: boolean;
+    festival: boolean;
+  };
+  const [infoPrefs, setInfoPrefs] = useState<InfoDisplayPrefs>(() => {
+    try {
+      const raw = localStorage.getItem("shibaplan_river_info_prefs");
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<InfoDisplayPrefs>;
+        return {
+          weather: parsed.weather ?? true,
+          date: parsed.date ?? true,
+          lunar: parsed.lunar ?? true,
+          festival: parsed.festival ?? true,
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return { weather: true, date: true, lunar: true, festival: true };
+  });
+  const [infoMenuPos, setInfoMenuPos] = useState<{
+    left: number;
+    bottom: number;
+  } | null>(null);
+  const [dayTick, setDayTick] = useState(() => new Date().toDateString());
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const cur = new Date().toDateString();
+      setDayTick((prev) => (prev === cur ? prev : cur));
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!infoMenuPos) return;
+    const close = () => setInfoMenuPos(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [infoMenuPos]);
+
+  const toggleInfoPref = useCallback((key: keyof InfoDisplayPrefs) => {
+    setInfoPrefs((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem("shibaplan_river_info_prefs", JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+
+  const todayInfo = useMemo(() => {
+    void dayTick;
+    return getTodayCalendarInfo(new Date());
+  }, [dayTick]);
   const riverAtmosphere = workspace.settings.riverAtmosphere ?? true;
   const currentTheme: ThemeMode = workspace.settings.theme || "dark";
 
@@ -1034,6 +1105,15 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
         <div
           className="flex items-center gap-2 min-w-0 cursor-pointer"
           title={collapsed ? "双击展开灵感流" : "双击折叠灵感流"}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const menuW = 148;
+            setInfoMenuPos({
+              left: Math.max(8, Math.min(e.clientX, window.innerWidth - menuW - 12)),
+              bottom: window.innerHeight - e.clientY + 6,
+            });
+          }}
         >
           {viewMode === "river" ? (
             <Waves className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -1043,25 +1123,98 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
           <span className="truncate text-[12.5px] font-medium tracking-[-0.01em] text-foreground">
             {t("river.title")}
           </span>
-          {riverAtmosphere && liveWeather && (
+          {((infoPrefs.weather && riverAtmosphere && liveWeather) ||
+            infoPrefs.date ||
+            (infoPrefs.lunar && Boolean(todayInfo.lunarLabel)) ||
+            (infoPrefs.festival && Boolean(todayInfo.festivalLabel))) && (
             <span
-              className="hidden sm:inline-flex items-center gap-1 rounded border border-border/70 bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground"
-              title="当前自动获取的本地天气"
+              className="hidden sm:inline-flex items-center gap-1.5 rounded border border-border/70 bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground"
+              title="右键自定义显示项（天气 / 日期 / 农历 / 节日）"
             >
-              {renderWeatherIcon(
-                liveWeather.kind,
-                new Date().getHours() >= 20 || new Date().getHours() <= 4,
-                "h-3 w-3 text-primary"
+              {infoPrefs.weather && riverAtmosphere && liveWeather && (
+                <span className="inline-flex items-center gap-1">
+                  {renderWeatherIcon(
+                    liveWeather.kind,
+                    new Date().getHours() >= 20 || new Date().getHours() <= 4,
+                    "h-3 w-3 text-primary"
+                  )}
+                  <span>
+                    {liveWeather.label}
+                    {typeof liveWeather.tempC === "number"
+                      ? ` ${liveWeather.tempC}°C`
+                      : ""}
+                  </span>
+                </span>
               )}
-              <span>
-                {liveWeather.label}
-                {typeof liveWeather.tempC === "number"
-                  ? ` ${liveWeather.tempC}°C`
-                  : ""}
-              </span>
+              {infoPrefs.date && (
+                <>
+                  {infoPrefs.weather && riverAtmosphere && liveWeather && (
+                    <span className="opacity-35">·</span>
+                  )}
+                  <span>{todayInfo.dateLabel}</span>
+                </>
+              )}
+              {infoPrefs.lunar && todayInfo.lunarLabel && (
+                <>
+                  {((infoPrefs.weather && riverAtmosphere && liveWeather) ||
+                    infoPrefs.date) && <span className="opacity-35">·</span>}
+                  <span>{todayInfo.lunarLabel}</span>
+                </>
+              )}
+              {infoPrefs.festival && todayInfo.festivalLabel && (
+                <>
+                  {((infoPrefs.weather && riverAtmosphere && liveWeather) ||
+                    infoPrefs.date ||
+                    (infoPrefs.lunar && Boolean(todayInfo.lunarLabel))) && (
+                    <span className="opacity-35">·</span>
+                  )}
+                  <span className="font-medium text-primary">
+                    {todayInfo.festivalLabel}
+                  </span>
+                </>
+              )}
             </span>
           )}
         </div>
+
+        {/* Right-click checklist popover for Weather / Date / Lunar / Festival */}
+        {infoMenuPos && (
+          <div
+            style={{ left: infoMenuPos.left, bottom: infoMenuPos.bottom }}
+            onClick={(e) => e.stopPropagation()}
+            className="fixed z-50 w-36 rounded-lg border border-border bg-popover p-1 shadow-popover-soft"
+          >
+            {(
+              [
+                { key: "weather", label: "天气" },
+                { key: "date", label: "日期" },
+                { key: "lunar", label: "农历" },
+                { key: "festival", label: "节日" },
+              ] as const
+            ).map((item) => {
+              const checked = infoPrefs[item.key];
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => toggleInfoPref(item.key)}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs text-popover-foreground transition-colors hover:bg-accent"
+                >
+                  <span
+                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border transition-colors ${
+                      checked
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-muted-foreground/45 bg-transparent"
+                    }`}
+                  >
+                    {checked && <Check className="h-2.5 w-2.5 stroke-[2.8]" />}
+                  </span>
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="flex items-center gap-1 shrink-0">
           {!collapsed && (

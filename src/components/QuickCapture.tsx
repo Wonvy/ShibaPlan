@@ -7,6 +7,7 @@ import {
   WorkspaceData,
 } from "../types";
 import { getCachedWeatherSync } from "../lib/atmosphere";
+import { ColumnSelect } from "./ui/column-select";
 import {
   hideCaptureWindow,
   isTauriRuntime,
@@ -271,17 +272,12 @@ export const QuickCapture: React.FC = () => {
               </button>
 
               {alsoCreateTask && (
-                <select
+                <ColumnSelect
+                  columns={columns}
                   value={targetColId}
-                  onChange={(e) => setTargetColId(e.target.value)}
-                  className="rounded-md bg-[#111113] px-2 py-1 text-xs text-zinc-300 ring-1 ring-white/[0.08] focus:outline-none"
-                >
-                  {columns.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setTargetColId}
+                  compact
+                />
               )}
             </>
           )}

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CheckCircle2,
   Clock,
@@ -19,6 +20,7 @@ import {
   EFFORT_MINUTES,
   EffortSize,
   TaskItem,
+  TaskPriorityColor,
   WorkspaceData,
 } from "../types";
 import {
@@ -37,7 +39,13 @@ import {
   formatClock,
 } from "./kanban/constants";
 import { useStableCallback } from "./kanban/useStableCallback";
-import { buildTasksFromDroppedItems } from "./kanban/dropUtils";
+import {
+  buildTasksFromResolvedItems,
+  getTaskAttachments,
+  isOsFileDrag,
+  mergeTaskAttachments,
+  resolveDroppedOsItems,
+} from "./kanban/dropUtils";
 import { TaskCardActions } from "./kanban/TaskCard";
 import { KanbanColumn, KanbanColumnActions } from "./kanban/KanbanColumn";
 import { DoneTasksView } from "./kanban/DoneTasksView";
@@ -150,8 +158,31 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   }, [layoutMode]);
 
   const startCanvasPan = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (layoutMode !== "canvas") return;
     const isMiddle = e.button === 1;
+
+    // Row mode: middle-mouse drag smoothly scrolls the board horizontally
+    if (layoutMode === "row") {
+      if (!isMiddle) return;
+      const el = canvasRef.current;
+      if (!el) return;
+      e.preventDefault();
+      setIsPanning(true);
+      const startX = e.clientX;
+      const originScrollLeft = el.scrollLeft;
+
+      const onMove = (ev: MouseEvent) => {
+        el.scrollLeft = originScrollLeft - (ev.clientX - startX);
+      };
+      const onUp = () => {
+        setIsPanning(false);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+      return;
+    }
+
     const isEmptyClick =
       e.button === 0 &&
       (spacePressed ||
@@ -311,9 +342,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const isBoardCanvasVisible =
     boardTab === "all" && (workspace.columns.length > 0 || creatingCol);
 
-  // Non-passive wheel handler:
-  // - Shift + wheel scrolls horizontally in row mode (or pans horizontally in canvas mode)
-  // - Canvas mode zoom on Ctrl/Meta + wheel or wheel on empty canvas
+  // Non-passive wheel handler (strict modifier isolation — zero conflict with card scrolling):
+  // - Plain wheel: strictly scrolls column cards only (never zooms or hijacks board)
+  // - Shift + wheel: horizontal board scroll (row mode) or horizontal pan (canvas mode)
+  // - Ctrl/Meta + wheel: zoom in canvas mode
   useEffect(() => {
     const el = canvasRef.current;
     if (!el || !isBoardCanvasVisible) return;
@@ -332,11 +364,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         return;
       }
 
-      if (layoutMode !== "canvas") return;
-      const insideColumnScroll = Boolean(
-        (e.target as HTMLElement | null)?.closest("[data-column-scroll]")
-      );
-      if (e.ctrlKey || e.metaKey || !insideColumnScroll) {
+      if (layoutMode === "canvas" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         const rect = el.getBoundingClientRect();
         const factor = e.deltaY < 0 ? 1.09 : 0.91;
@@ -405,8 +433,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       e.preventDefault();
       e.stopPropagation();
       setColContextMenu(null);
-      const menuW = 184;
-      const menuH = menu.kind === "card" ? 290 : 180;
+      const menuW = 228;
+      const menuH = menu.kind === "card" ? 345 : 180;
       const x = Math.min(e.clientX, window.innerWidth - menuW - 12);
       const y = Math.min(e.clientY, window.innerHeight - menuH - 12);
       setAreaContextMenu({ ...menu, x, y });
@@ -795,15 +823,15 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   }, []);
 
   const handleImageHover = useCallback(
-    (src: string, e: React.MouseEvent<HTMLImageElement>) => {
+    (src: string, e: React.MouseEvent<HTMLElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
-      const previewW = 360;
-      const previewH = 280;
+      const previewW = 440;
+      const previewH = 380;
       let x = rect.right + 12;
       if (x + previewW > window.innerWidth - 16) {
         x = Math.max(16, rect.left - previewW - 12);
       }
-      let y = rect.top - 20;
+      let y = Math.max(16, rect.top - 24);
       if (y + previewH > window.innerHeight - 16) {
         y = Math.max(16, window.innerHeight - previewH - 16);
       }
@@ -816,31 +844,39 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     setHoveredImage(null);
   }, []);
 
-  const loadFolder = useCallback(async (taskId: string, folderPath: string) => {
-    setLoadingFolders((prev) => ({ ...prev, [taskId]: true }));
-    try {
-      const entries = await listFolderEntries(folderPath);
-      setFolderFiles((prev) => ({ ...prev, [taskId]: entries }));
-    } catch (err) {
-      console.error("Failed to list folder:", err);
-      setFolderFiles((prev) => ({ ...prev, [taskId]: [] }));
-    } finally {
-      setLoadingFolders((prev) => ({ ...prev, [taskId]: false }));
-    }
-  }, []);
+  const loadFolder = useCallback(
+    async (folderPath: string, fallbackEntries?: FolderEntry[]) => {
+      setLoadingFolders((prev) => ({ ...prev, [folderPath]: true }));
+      try {
+        const entries = await listFolderEntries(folderPath);
+        setFolderFiles((prev) => ({ ...prev, [folderPath]: entries }));
+      } catch (err) {
+        console.error("Failed to list folder:", err);
+        setFolderFiles((prev) => ({
+          ...prev,
+          [folderPath]: fallbackEntries ?? prev[folderPath] ?? [],
+        }));
+      } finally {
+        setLoadingFolders((prev) => ({ ...prev, [folderPath]: false }));
+      }
+    },
+    []
+  );
 
-  const toggleFolderExpand = useStableCallback((task: TaskItem) => {
-    if (!task.folderPath) return;
-    const nextOpen = !expandedFolders[task.id];
-    setExpandedFolders((prev) => ({ ...prev, [task.id]: nextOpen }));
-    if (nextOpen && !folderFiles[task.id]) {
-      if (isTauriRuntime()) {
-        loadFolder(task.id, task.folderPath);
-      } else if (task.cachedFiles) {
-        setFolderFiles((prev) => ({ ...prev, [task.id]: task.cachedFiles! }));
+  const toggleFolderExpand = useStableCallback(
+    (folderPath: string, cachedFiles?: FolderEntry[]) => {
+      if (!folderPath) return;
+      const nextOpen = !expandedFolders[folderPath];
+      setExpandedFolders((prev) => ({ ...prev, [folderPath]: nextOpen }));
+      if (nextOpen && !folderFiles[folderPath]) {
+        if (isTauriRuntime()) {
+          void loadFolder(folderPath, cachedFiles);
+        } else if (cachedFiles) {
+          setFolderFiles((prev) => ({ ...prev, [folderPath]: cachedFiles }));
+        }
       }
     }
-  });
+  );
 
   // Native OS Folder/File Drag-and-Drop listener (Rust WindowEvent::DragDrop -> "os-drag-drop")
   useEffect(() => {
@@ -895,10 +931,14 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
               newTasks.push({
                 id: uid("task"),
                 title: info.name,
-                notes: info.path,
                 columnId: targetColId,
-                folderPath: info.is_dir ? info.path : undefined,
-                filePath: info.is_dir ? undefined : info.path,
+                attachments: [
+                  {
+                    path: info.path,
+                    name: info.name,
+                    is_dir: info.is_dir,
+                  },
+                ],
                 importance: 2,
                 effort: "S",
                 estimatedMinutes: EFFORT_MINUTES.S,
@@ -933,6 +973,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
   // Schedule / Edit card modal state (form fields live inside TaskEditorDialog)
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
+  const [creatingTaskColId, setCreatingTaskColId] = useState<string | null>(
+    null
+  );
 
   // Inline card rename state
   const [renamingTaskId, setRenamingTaskId] = useState<string | null>(null);
@@ -965,12 +1008,46 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   );
 
   const openTaskEditor = useCallback((task: TaskItem) => {
+    setCreatingTaskColId(null);
     setEditingTask(task);
+  }, []);
+
+  const openAddTaskModal = useCallback((colId: string) => {
+    setEditingTask(null);
+    setCreatingTaskColId(colId);
   }, []);
 
   const closeTaskEditor = useCallback(() => {
     setEditingTask(null);
+    setCreatingTaskColId(null);
   }, []);
+
+  const handleCreateTaskFromModal = useStableCallback(
+    (colId: string, fields: TaskEditFields) => {
+      const ws = workspaceRef.current;
+      const newTask: TaskItem = {
+        id: uid("task"),
+        title: fields.title,
+        notes: fields.notes,
+        dueDate: fields.dueDate,
+        startTime: fields.startTime,
+        imagePreview: fields.imagePreview,
+        attachments: fields.attachments,
+        columnId: colId,
+        importance: 2,
+        effort: "S",
+        estimatedMinutes: EFFORT_MINUTES.S,
+        actualMinutes: 0,
+        status: "todo",
+        createdAt: new Date().toISOString(),
+      };
+      onUpdateRef.current({
+        ...ws,
+        tasks: [newTask, ...ws.tasks],
+      });
+      setCreatingTaskColId(null);
+    }
+  );
 
   const handleSaveTaskEdit = useStableCallback((fields: TaskEditFields) => {
     if (!editingTask) return;
@@ -986,12 +1063,37 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
               dueDate: fields.dueDate,
               startTime: fields.startTime,
               imagePreview: fields.imagePreview,
+              attachments: fields.attachments,
+              folderPath: undefined,
+              filePath: undefined,
             }
           : t
       ),
     });
     setEditingTask(null);
   });
+
+  const removeTaskAttachment = useStableCallback(
+    (taskId: string, targetPath: string) => {
+      const ws = workspaceRef.current;
+      const lower = targetPath.trim().toLowerCase();
+      onUpdateRef.current({
+        ...ws,
+        tasks: ws.tasks.map((t) => {
+          if (t.id !== taskId) return t;
+          const remaining = getTaskAttachments(t).filter(
+            (a) => a.path.trim().toLowerCase() !== lower
+          );
+          return {
+            ...t,
+            attachments: remaining.length > 0 ? remaining : undefined,
+            folderPath: undefined,
+            filePath: undefined,
+          };
+        }),
+      });
+    }
+  );
 
   // Hover-to-paste: when mouse hovers a column and user presses Ctrl+V, insert & open editor
   useEffect(() => {
@@ -1070,9 +1172,14 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         const folderTask: TaskItem = {
           id: uid("task"),
           title: pathInfo.name,
-          notes: pathInfo.path,
           columnId: hoveredColId,
-          folderPath: pathInfo.path,
+          attachments: [
+            {
+              path: pathInfo.path,
+              name: pathInfo.name,
+              is_dir: true,
+            },
+          ],
           importance: 2,
           effort: "S",
           estimatedMinutes: EFFORT_MINUTES.S,
@@ -1312,6 +1419,18 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     });
   });
 
+  const setTaskPriorityColor = useStableCallback(
+    (task: TaskItem, color: TaskPriorityColor | undefined) => {
+      const ws = workspaceRef.current;
+      onUpdateRef.current({
+        ...ws,
+        tasks: ws.tasks.map((t) =>
+          t.id === task.id ? { ...t, priorityColor: color } : t
+        ),
+      });
+    }
+  );
+
   const cycleEffort = useStableCallback((task: TaskItem) => {
     const ws = workspaceRef.current;
     const order: EffortSize[] = ["S", "M", "L"];
@@ -1329,6 +1448,26 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       ),
     });
   });
+
+  const setEstimatedMinutes = useStableCallback(
+    (task: TaskItem, minutes: number) => {
+      const ws = workspaceRef.current;
+      const nextEffort: EffortSize =
+        minutes <= 45 ? "S" : minutes <= 120 ? "M" : "L";
+      onUpdateRef.current({
+        ...ws,
+        tasks: ws.tasks.map((t) =>
+          t.id === task.id
+            ? {
+                ...t,
+                effort: nextEffort,
+                estimatedMinutes: minutes,
+              }
+            : t
+        ),
+      });
+    }
+  );
 
   const deleteTask = useStableCallback((id: string) => {
     const ws = workspaceRef.current;
@@ -1352,42 +1491,50 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     ) => {
       const ws = workspaceRef.current;
 
-      // 0. Check if OS files or folders were dropped via HTML5 DataTransfer (works in Browser & WebView)
-      const dtItems = e.dataTransfer.items;
-      const dtFiles = e.dataTransfer.files;
-      if (
-        !dragTaskId &&
-        !e.dataTransfer.getData("application/x-shibaplan-idea") &&
-        !e.dataTransfer.getData("application/x-shibaplan-task") &&
-        !e.dataTransfer.getData("application/x-shibaplan-column") &&
-        ((dtItems && dtItems.length > 0) || (dtFiles && dtFiles.length > 0))
-      ) {
-        const entries: FileSystemEntry[] = [];
-        if (dtItems) {
-          for (let i = 0; i < dtItems.length; i++) {
-            const item = dtItems[i];
-            if (
-              item.kind === "file" &&
-              typeof item.webkitGetAsEntry === "function"
-            ) {
-              const entry = item.webkitGetAsEntry();
-              if (entry) entries.push(entry);
-            }
-          }
-        }
+      // 0. Check if OS files or folders were dropped via HTML5 DataTransfer (works in Browser & WebView2)
+      if (!dragTaskId && isOsFileDrag(e.dataTransfer)) {
+        const dropPromise = resolveDroppedOsItems(e.dataTransfer);
+        void dropPromise.then((items) => {
+          if (items.length === 0) return;
+          const cur = workspaceRef.current;
 
-        const fileList = Array.from(dtFiles || []);
-        void buildTasksFromDroppedItems(entries, fileList, targetColId).then(
-          (created) => {
-            if (created.length > 0) {
-              const cur = workspaceRef.current;
-              onUpdateRef.current({
-                ...cur,
-                tasks: [...created, ...cur.tasks],
-              });
-            }
+          // If dropped directly onto an existing task card, attach all dropped
+          // folders & files to that card's `attachments` list (shown as footer icon/menu)
+          // without altering the card's text or creating a new card.
+          if (targetTaskId) {
+            const incoming = items.map((it) => ({
+              path: it.path,
+              name: it.name,
+              is_dir: it.is_dir,
+            }));
+            const firstImg = items.find((it) => it.imagePreview)?.imagePreview;
+            const updatedTasks = cur.tasks.map((t) => {
+              if (t.id !== targetTaskId) return t;
+              const merged = mergeTaskAttachments(
+                getTaskAttachments(t),
+                incoming
+              );
+              return {
+                ...t,
+                attachments: merged,
+                imagePreview: t.imagePreview ?? firstImg,
+              };
+            });
+            onUpdateRef.current({
+              ...cur,
+              tasks: updatedTasks,
+            });
+            return;
           }
-        );
+
+          const created = buildTasksFromResolvedItems(items, targetColId);
+          if (created.length > 0) {
+            onUpdateRef.current({
+              ...cur,
+              tasks: [...created, ...cur.tasks],
+            });
+          }
+        });
 
         setDragTaskId(null);
         setDragOverColId(null);
@@ -1552,9 +1699,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       toggleFolderExpand,
       toggleCardCollapse,
       loadFolder,
+      removeTaskAttachment,
       onImageHover: handleImageHover,
       onImageLeave: handleImageLeave,
       cycleEffort,
+      setEstimatedMinutes,
       openTaskEditor,
       startRename: startRenameTask,
       commitRename: commitRenameTask,
@@ -1573,9 +1722,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       toggleFolderExpand,
       toggleCardCollapse,
       loadFolder,
+      removeTaskAttachment,
       handleImageHover,
       handleImageLeave,
       cycleEffort,
+      setEstimatedMinutes,
       openTaskEditor,
       startRenameTask,
       commitRenameTask,
@@ -1705,6 +1856,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       commitRenameColumn: handleRenameColumn,
       cancelRenameColumn,
       startAddTask,
+      openAddTaskModal,
       setDraftTaskTitle,
       commitAddTask: handleAddTask,
       cancelAddTask,
@@ -1731,6 +1883,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       handleRenameColumn,
       cancelRenameColumn,
       startAddTask,
+      openAddTaskModal,
       handleAddTask,
       cancelAddTask,
       requestDeleteColumn,
@@ -1767,7 +1920,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Unified Linear View Sub-Toolbar */}
-      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-background px-3 sm:px-5">
+      <div className="relative flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-background px-3 sm:px-5">
         {activeTask ? (
           <div className="flex flex-1 items-center justify-between gap-3 rounded-md border border-primary/40 bg-card px-2.5 py-1">
             <div className="flex items-center gap-2 min-w-0">
@@ -1802,7 +1955,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             </div>
           </div>
         ) : (
-          <div className="flex items-center rounded-md border border-border bg-surface p-0.5">
+          <div className="flex items-center rounded-md border border-border bg-surface p-0.5 sm:absolute sm:left-1/2 sm:-translate-x-1/2">
             <button
               onClick={() => setBoardTab("all")}
               className={`flex h-6 items-center gap-1.5 rounded-[4px] px-2.5 text-xs font-medium transition-colors ${
@@ -1831,7 +1984,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         )}
 
         {boardTab === "all" && (
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             {/* Layout Mode Switcher: Row vs Freeform Canvas */}
             <div className="flex items-center rounded-md border border-border bg-surface p-0.5">
               <button
@@ -1933,7 +2086,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     ? "cursor-grab"
                     : "cursor-default"
                 }`
-              : "flex flex-1 gap-3 sm:gap-4 overflow-x-auto overflow-y-hidden pb-1 snap-x snap-mandatory sm:snap-none"
+              : `flex flex-1 gap-3 sm:gap-4 overflow-x-auto overflow-y-hidden pb-1 snap-x snap-mandatory sm:snap-none ${
+                  isPanning ? "cursor-grabbing select-none" : ""
+                }`
           }
         >
           <div
@@ -2181,6 +2336,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           openTaskEditor={openTaskEditor}
           startFocus={handleStartFocus}
           toggleStar={toggleStar}
+          setTaskPriorityColor={setTaskPriorityColor}
           toggleDone={toggleDone}
           duplicateTask={duplicateTask}
           moveTaskToRiver={moveTaskToRiver}
@@ -2220,19 +2376,21 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         />
       )}
 
-      {/* Hover Large Image Preview */}
-      {hoveredImage && (
-        <div
-          style={{ left: hoveredImage.x, top: hoveredImage.y }}
-          className="pointer-events-none fixed z-50 rounded-2xl bg-[#18181b]/95 p-2 ring-1 ring-white/[0.15] shadow-2xl backdrop-blur-md"
-        >
-          <img
-            src={hoveredImage.src}
-            alt="large preview"
-            className="max-h-[320px] max-w-[380px] rounded-xl object-contain"
-          />
-        </div>
-      )}
+      {/* Hover Large Image Preview (Portaled to top layer so never clipped) */}
+      {hoveredImage &&
+        createPortal(
+          <div
+            style={{ left: hoveredImage.x, top: hoveredImage.y }}
+            className="pointer-events-none fixed z-[9999] rounded-xl border border-border bg-popover/95 p-2 shadow-popover-soft backdrop-blur-md"
+          >
+            <img
+              src={hoveredImage.src}
+              alt="large preview"
+              className="max-h-[420px] max-w-[480px] rounded-lg object-contain"
+            />
+          </div>,
+          document.body
+        )}
 
       {/* Confirm Delete Card Modal */}
       <ConfirmDeleteTaskDialog
@@ -2249,11 +2407,13 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         onConfirm={(col) => handleDeleteColumn(col.id)}
       />
 
-      {/* Card Time & Detail Editor Modal */}
+      {/* Card Time & Detail Editor Modal (Edit or Create) */}
       <TaskEditorDialog
         task={editingTask}
+        creatingInColId={creatingTaskColId}
         onClose={closeTaskEditor}
         onSave={handleSaveTaskEdit}
+        onCreate={handleCreateTaskFromModal}
       />
       </div>
     </div>

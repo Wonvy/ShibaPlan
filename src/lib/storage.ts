@@ -399,6 +399,67 @@ export async function openPathInOs(targetPath: string): Promise<void> {
   await invoke("open_path_in_os", { targetPath });
 }
 
+const fileIconCache = new Map<string, string | null>();
+const fileIconInflight = new Map<string, Promise<string | null>>();
+
+function getIconCacheKey(path: string, isDir: boolean): string {
+  const lower = path.trim().toLowerCase();
+  if (isDir) return `dir:${lower}`;
+  const dot = lower.lastIndexOf(".");
+  const slash = Math.max(lower.lastIndexOf("/"), lower.lastIndexOf("\\"));
+  const ext = dot > slash ? lower.slice(dot) : "";
+  if (
+    !ext ||
+    ext === ".exe" ||
+    ext === ".lnk" ||
+    ext === ".ico" ||
+    ext === ".url"
+  ) {
+    return `file:${lower}`;
+  }
+  return `ext:${ext}`;
+}
+
+export function getCachedFileIconSync(
+  path: string,
+  isDir: boolean
+): string | null | undefined {
+  return fileIconCache.get(getIconCacheKey(path, isDir));
+}
+
+export async function getFileIconDataUrl(
+  path: string,
+  isDir: boolean
+): Promise<string | null> {
+  if (!isTauriRuntime() || !path.trim()) return null;
+  const key = getIconCacheKey(path, isDir);
+  if (fileIconCache.has(key)) {
+    return fileIconCache.get(key) ?? null;
+  }
+  const existing = fileIconInflight.get(key);
+  if (existing) return existing;
+
+  const task = import("@tauri-apps/api/core")
+    .then(({ invoke }) =>
+      invoke<string | null>("get_file_icon_data_url", { path, isDir })
+    )
+    .then((url) => {
+      const normalized = url && url.startsWith("data:") ? url : null;
+      fileIconCache.set(key, normalized);
+      return normalized;
+    })
+    .catch(() => {
+      fileIconCache.set(key, null);
+      return null;
+    })
+    .finally(() => {
+      fileIconInflight.delete(key);
+    });
+
+  fileIconInflight.set(key, task);
+  return task;
+}
+
 export async function hideCaptureWindow(): Promise<void> {
   if (!isTauriRuntime()) return;
   const { invoke } = await import("@tauri-apps/api/core");

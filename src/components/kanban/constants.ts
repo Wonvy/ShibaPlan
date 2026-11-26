@@ -1,4 +1,46 @@
-import { EffortSize } from "../../types";
+import { EffortSize, TaskPriorityColor } from "../../types";
+
+export const TASK_PRIORITY_COLORS: {
+  id: TaskPriorityColor;
+  label: string;
+  dotClass: string;
+  cardClass: string;
+  pillActiveClass: string;
+}[] = [
+  {
+    id: "urgent",
+    label: "紧急",
+    dotClass: "bg-rose-400",
+    cardClass:
+      "border-rose-500/30 bg-rose-500/[0.08] shadow-card-rest hover:border-rose-400/45 hover:bg-rose-500/[0.12]",
+    pillActiveClass:
+      "border-rose-400/50 bg-rose-500/15 text-rose-400",
+  },
+  {
+    id: "important",
+    label: "重要",
+    dotClass: "bg-amber-400",
+    cardClass:
+      "border-amber-500/30 bg-amber-500/[0.08] shadow-card-rest hover:border-amber-400/45 hover:bg-amber-500/[0.12]",
+    pillActiveClass:
+      "border-amber-400/50 bg-amber-500/15 text-amber-400",
+  },
+  {
+    id: "normal",
+    label: "关注",
+    dotClass: "bg-sky-400",
+    cardClass:
+      "border-sky-500/30 bg-sky-500/[0.08] shadow-card-rest hover:border-sky-400/45 hover:bg-sky-500/[0.12]",
+    pillActiveClass:
+      "border-sky-400/50 bg-sky-500/15 text-sky-400",
+  },
+];
+
+export const TASK_PRIORITY_CARD_CLASS: Record<TaskPriorityColor, string> = {
+  urgent: TASK_PRIORITY_COLORS[0].cardClass,
+  important: TASK_PRIORITY_COLORS[1].cardClass,
+  normal: TASK_PRIORITY_COLORS[2].cardClass,
+};
 
 export type TranslateFn = (
   key: string,
