@@ -78,7 +78,7 @@ export default defineConfig({
           { text: "首页", link: "/" },
           { text: "使用指南", link: "/guide/getting-started" },
           { text: "接口与协议", link: "/api/overview" },
-          { text: "OpenAPI 规范", link: "/openapi/shibaplan-openapi.zh.yaml", target: "_blank" },
+          { text: "OpenAPI 规范", link: "/api/openapi" },
           { text: "版本下载", link: "https://github.com/Wonvy/ShibaPlan/releases" },
         ],
         sidebar: {
@@ -113,6 +113,7 @@ export default defineConfig({
                 { text: "外部推送 Webhook API", link: "/api/push-webhook" },
                 { text: "标准数据源协议 (v1)", link: "/api/info-protocol" },
                 { text: "局域网同步与数据模型", link: "/api/lan-workspace-api" },
+                { text: "OpenAPI 3.1 规范全文", link: "/api/openapi" },
               ],
             },
           ],
@@ -144,7 +145,7 @@ export default defineConfig({
           { text: "Home", link: "/en/" },
           { text: "User Guide", link: "/en/guide/getting-started" },
           { text: "API Reference", link: "/en/api/overview" },
-          { text: "OpenAPI Spec", link: "/openapi/shibaplan-openapi.en.yaml", target: "_blank" },
+          { text: "OpenAPI Spec", link: "/en/api/openapi" },
           { text: "Releases", link: "https://github.com/Wonvy/ShibaPlan/releases" },
         ],
         sidebar: {
@@ -179,6 +180,7 @@ export default defineConfig({
                 { text: "External Push Webhook API", link: "/en/api/push-webhook" },
                 { text: "Info Source Protocol (v1)", link: "/en/api/info-protocol" },
                 { text: "LAN Sync & Data Schema", link: "/en/api/lan-workspace-api" },
+                { text: "Full OpenAPI 3.1 Spec", link: "/en/api/openapi" },
               ],
             },
           ],
