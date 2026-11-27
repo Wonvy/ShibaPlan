@@ -354,10 +354,19 @@ export function findFreePixelSlot(
 export function snapMovePixelRect(
   raw: PixelRect,
   others: PixelRect[],
-  opts: { snapEnabled: boolean; bypassSnap: boolean; gridStep?: number }
+  opts: {
+    snapEnabled: boolean;
+    bypassSnap: boolean;
+    gridStep?: number;
+    maxWidth?: number;
+  }
 ): { rect: PixelRect; guides: SnapGuide[] } {
+  const maxX =
+    typeof opts.maxWidth === "number" && opts.maxWidth > 0
+      ? Math.max(0, opts.maxWidth - raw.w)
+      : Number.POSITIVE_INFINITY;
   const clamped: PixelRect = {
-    x: Math.max(0, raw.x),
+    x: Math.max(0, Math.min(maxX, raw.x)),
     y: Math.max(0, raw.y),
     w: raw.w,
     h: raw.h,
@@ -387,6 +396,21 @@ export function snapMovePixelRect(
     };
   }
 
+  // Right canvas edge snap
+  if (Number.isFinite(maxX) && Math.abs(clamped.x - maxX) <= SNAP_THRESHOLD) {
+    const diff = Math.abs(clamped.x - maxX);
+    if (diff < bestDx) {
+      bestDx = diff;
+      snappedX = maxX;
+      bestXGuide = {
+        orientation: "v",
+        pos: Math.round(opts.maxWidth!),
+        start: clamped.y,
+        end: clamped.y + clamped.h,
+      };
+    }
+  }
+
   for (const o of others) {
     const oRight = o.x + o.w;
     const oCenter = o.x + o.w / 2;
@@ -400,7 +424,7 @@ export function snapMovePixelRect(
       { cx: o.x - clamped.w, guidePos: o.x },
     ];
     for (const chk of checks) {
-      if (chk.cx < 0) continue;
+      if (chk.cx < 0 || chk.cx > maxX) continue;
       const diff = Math.abs(clamped.x - chk.cx);
       if (diff < bestDx) {
         bestDx = diff;
@@ -420,7 +444,9 @@ export function snapMovePixelRect(
     guides.push(bestXGuide);
   } else if (opts.gridStep && opts.gridStep > 0) {
     const nearest = Math.round(clamped.x / opts.gridStep) * opts.gridStep;
-    if (Math.abs(clamped.x - nearest) <= 4) snappedX = nearest;
+    if (Math.abs(clamped.x - nearest) <= 4 && nearest >= 0 && nearest <= maxX) {
+      snappedX = nearest;
+    }
   }
 
   // --- Y Axis Candidates ---
@@ -490,11 +516,15 @@ export function snapResizePixelRect(
   raw: PixelRect,
   edge: "e" | "s" | "se" | "w" | "n",
   others: PixelRect[],
-  opts: { snapEnabled: boolean; bypassSnap: boolean }
+  opts: { snapEnabled: boolean; bypassSnap: boolean; maxWidth?: number }
 ): { rect: PixelRect; guides: SnapGuide[] } {
   let x = Math.max(0, raw.x);
   let y = Math.max(0, raw.y);
-  let w = Math.max(MIN_WIDGET_PX_W, raw.w);
+  const maxAllowedW =
+    typeof opts.maxWidth === "number" && opts.maxWidth > 0
+      ? Math.max(MIN_WIDGET_PX_W, opts.maxWidth - x)
+      : Number.POSITIVE_INFINITY;
+  let w = Math.min(maxAllowedW, Math.max(MIN_WIDGET_PX_W, raw.w));
   let h = Math.max(MIN_WIDGET_PX_H, raw.h);
 
   const guides: SnapGuide[] = [];
@@ -520,6 +550,20 @@ export function snapResizePixelRect(
     let bestDiff = SNAP_THRESHOLD + 1;
     let bestRight = rawRight;
     let guide: SnapGuide | null = null;
+    if (
+      typeof opts.maxWidth === "number" &&
+      opts.maxWidth - x >= MIN_WIDGET_PX_W &&
+      Math.abs(rawRight - opts.maxWidth) <= SNAP_THRESHOLD
+    ) {
+      bestDiff = Math.abs(rawRight - opts.maxWidth);
+      bestRight = opts.maxWidth;
+      guide = {
+        orientation: "v",
+        pos: Math.round(opts.maxWidth),
+        start: y,
+        end: y + h,
+      };
+    }
     for (const o of others) {
       const oRight = o.x + o.w;
       const targets = [
@@ -528,7 +572,12 @@ export function snapResizePixelRect(
         { pos: o.x, label: undefined },
       ];
       for (const t of targets) {
-        if (t.pos - x < MIN_WIDGET_PX_W) continue;
+        if (
+          t.pos - x < MIN_WIDGET_PX_W ||
+          (typeof opts.maxWidth === "number" && t.pos > opts.maxWidth)
+        ) {
+          continue;
+        }
         const diff = Math.abs(rawRight - t.pos);
         if (diff < bestDiff) {
           bestDiff = diff;
@@ -543,7 +592,7 @@ export function snapResizePixelRect(
         }
       }
     }
-    w = Math.max(MIN_WIDGET_PX_W, bestRight - x);
+    w = Math.min(maxAllowedW, Math.max(MIN_WIDGET_PX_W, bestRight - x));
     if (guide) guides.push(guide);
   }
 

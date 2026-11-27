@@ -18,6 +18,7 @@ jobs:
       version: ${{ steps.check.outputs.version }}
       tag: ${{ steps.check.outputs.tag }}
       should_release: ${{ steps.check.outputs.should_release }}
+      release_id: ${{ steps.ensure_draft.outputs.release_id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,6 +44,58 @@ jobs:
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "New version ${TAG} detected on main; triggering release build."
           fi
+
+      - name: Ensure single draft release
+        id: ensure_draft
+        if: steps.check.outputs.should_release == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = "${{ steps.check.outputs.tag }}";
+            const version = "${{ steps.check.outputs.version }}";
+            const { owner, repo } = context.repo;
+
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner,
+              repo,
+              per_page: 30,
+            });
+
+            let target = releases.find((r) => r.tag_name === tag && r.draft);
+            if (!target) {
+              const published = releases.find((r) => r.tag_name === tag && !r.draft);
+              if (published) {
+                target = published;
+              }
+            }
+
+            if (!target) {
+              const body = [
+                `## ShibaPlan v${version}`,
+                "",
+                "Cross-platform desktop installers for Windows, macOS (Apple Silicon & Intel), and Linux.  ",
+                "跨平台桌面端安装包（支持 Windows、macOS Apple 芯片 / Intel 及 Linux）。",
+                "",
+                "See the assets below to download and install.",
+              ].join("\n");
+
+              const created = await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: tag,
+                target_commitish: context.sha,
+                name: `ShibaPlan ${tag}`,
+                body,
+                draft: true,
+                prerelease: false,
+              });
+              target = created.data;
+              core.info(`Created single draft release ${tag} (id: ${target.id}).`);
+            } else {
+              core.info(`Reusing existing release ${tag} (id: ${target.id}, draft: ${target.draft}).`);
+            }
+
+            core.setOutput("release_id", String(target.id));
 
   publish-tauri:
     needs: prepare-release
@@ -103,18 +156,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v__VERSION__
-          releaseName: "ShibaPlan v__VERSION__"
-          releaseBody: |
-            ## ShibaPlan v__VERSION__
-
-            Cross-platform desktop installers for Windows, macOS (Apple Silicon & Intel), and Linux.  
-            跨平台桌面端安装包（支持 Windows、macOS Apple 芯片 / Intel 及 Linux）。
-
-            See the assets below to download and install.
-          releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
 
   publish-release:
@@ -122,32 +165,161 @@ jobs:
     if: needs.prepare-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Publish draft GitHub Release
+      - name: Generate merged latest.json and publish GitHub Release
         uses: actions/github-script@v7
         with:
           script: |
+            const releaseId = Number("${{ needs.prepare-release.outputs.release_id }}");
+            const version = "${{ needs.prepare-release.outputs.version }}";
             const tag = "${{ needs.prepare-release.outputs.tag }}";
             const { owner, repo } = context.repo;
-            const { data: releases } = await github.rest.repos.listReleases({
+
+            const { data: release } = await github.rest.repos.getRelease({
               owner,
               repo,
-              per_page: 20,
+              release_id: releaseId,
             });
-            const draft = releases.find((r) => r.tag_name === tag && r.draft);
-            if (!draft) {
-              const existing = releases.find((r) => r.tag_name === tag);
-              if (existing) {
-                core.info(`Release ${tag} is already published.`);
-                return;
+
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
+              owner,
+              repo,
+              release_id: releaseId,
+              per_page: 100,
+            });
+
+            core.info(`Found ${assets.length} assets on release ${tag} (id: ${releaseId})`);
+
+            const readSig = async (assetName) => {
+              const sigAsset = assets.find((a) => a.name === `${assetName}.sig`);
+              if (!sigAsset) return null;
+              const res = await github.rest.repos.getReleaseAsset({
+                owner,
+                repo,
+                asset_id: sigAsset.id,
+                headers: { accept: "application/octet-stream" },
+              });
+              const text =
+                typeof res.data === "string"
+                  ? res.data
+                  : Buffer.from(res.data).toString("utf8");
+              return text.trim();
+            };
+
+            const assetUrl = (assetName) =>
+              `https://github.com/${owner}/${repo}/releases/download/${tag}/${encodeURIComponent(assetName)}`;
+
+            const platforms = {};
+
+            const nsisAsset = assets.find((a) => a.name.endsWith("-setup.exe"));
+            if (nsisAsset) {
+              const sig = await readSig(nsisAsset.name);
+              if (sig) {
+                platforms["windows-x86_64-nsis"] = { signature: sig, url: assetUrl(nsisAsset.name) };
+                platforms["windows-x86_64"] = { signature: sig, url: assetUrl(nsisAsset.name) };
               }
-              core.setFailed(`Draft release for ${tag} not found.`);
+            }
+
+            const msiAsset =
+              assets.find((a) => a.name.endsWith("_zh-CN.msi")) ||
+              assets.find((a) => a.name.endsWith(".msi"));
+            if (msiAsset) {
+              const sig = await readSig(msiAsset.name);
+              if (sig) {
+                platforms["windows-x86_64-msi"] = { signature: sig, url: assetUrl(msiAsset.name) };
+                if (!platforms["windows-x86_64"]) {
+                  platforms["windows-x86_64"] = { signature: sig, url: assetUrl(msiAsset.name) };
+                }
+              }
+            }
+
+            const macArmAsset = assets.find((a) => a.name.endsWith("_aarch64.app.tar.gz"));
+            if (macArmAsset) {
+              const sig = await readSig(macArmAsset.name);
+              if (sig) {
+                platforms["darwin-aarch64"] = { signature: sig, url: assetUrl(macArmAsset.name) };
+                platforms["darwin-aarch64-app"] = { signature: sig, url: assetUrl(macArmAsset.name) };
+              }
+            }
+
+            const macX64Asset = assets.find((a) => a.name.endsWith("_x64.app.tar.gz"));
+            if (macX64Asset) {
+              const sig = await readSig(macX64Asset.name);
+              if (sig) {
+                platforms["darwin-x86_64"] = { signature: sig, url: assetUrl(macX64Asset.name) };
+                platforms["darwin-x86_64-app"] = { signature: sig, url: assetUrl(macX64Asset.name) };
+              }
+            }
+
+            const appImageAsset = assets.find((a) => a.name.endsWith("_amd64.AppImage"));
+            if (appImageAsset) {
+              const sig = await readSig(appImageAsset.name);
+              if (sig) {
+                platforms["linux-x86_64"] = { signature: sig, url: assetUrl(appImageAsset.name) };
+                platforms["linux-x86_64-appimage"] = { signature: sig, url: assetUrl(appImageAsset.name) };
+              }
+            }
+
+            const debAsset = assets.find((a) => a.name.endsWith("_amd64.deb"));
+            if (debAsset) {
+              const sig = await readSig(debAsset.name);
+              if (sig) {
+                platforms["linux-x86_64-deb"] = { signature: sig, url: assetUrl(debAsset.name) };
+              }
+            }
+
+            const rpmAsset = assets.find((a) => a.name.endsWith(".x86_64.rpm"));
+            if (rpmAsset) {
+              const sig = await readSig(rpmAsset.name);
+              if (sig) {
+                platforms["linux-x86_64-rpm"] = { signature: sig, url: assetUrl(rpmAsset.name) };
+              }
+            }
+
+            const keys = Object.keys(platforms);
+            core.info(`Generated latest.json platforms: ${keys.join(", ")}`);
+            if (keys.length === 0) {
+              core.setFailed("No signed updater assets found to build latest.json.");
               return;
             }
+
+            const latestJson = JSON.stringify(
+              {
+                version,
+                notes: release.body || `## ShibaPlan v${version}`,
+                pub_date: new Date().toISOString(),
+                platforms,
+              },
+              null,
+              2
+            );
+
+            const oldLatest = assets.find((a) => a.name === "latest.json");
+            if (oldLatest) {
+              await github.rest.repos.deleteReleaseAsset({
+                owner,
+                repo,
+                asset_id: oldLatest.id,
+              });
+            }
+
+            await github.rest.repos.uploadReleaseAsset({
+              owner,
+              repo,
+              release_id: releaseId,
+              name: "latest.json",
+              data: latestJson,
+              headers: {
+                "content-type": "application/json",
+                "content-length": Buffer.byteLength(latestJson, "utf8"),
+              },
+            });
+
             await github.rest.repos.updateRelease({
               owner,
               repo,
-              release_id: draft.id,
+              release_id: releaseId,
               draft: false,
               make_latest: "true",
             });
-            core.info(`Successfully published release ${tag} (id: ${draft.id}).`);
+
+            core.info(`Successfully published release ${tag} (id: ${releaseId}).`);

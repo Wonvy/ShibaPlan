@@ -129,17 +129,20 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
   const [renamingBoardId, setRenamingBoardId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
-  // Canvas measurement
+  // Canvas measurement: observe outer scroll container (never inner content!) to avoid feedback loop
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(1100);
 
   useEffect(() => {
-    const el = gridContainerRef.current;
+    const el = canvasScrollRef.current;
     if (!el) return;
     const updateWidth = () => {
-      const w = el.clientWidth;
-      if (w > 0) setContainerWidth(w);
+      const cs = window.getComputedStyle(el);
+      const padX =
+        (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      const w = Math.floor(el.clientWidth - padX);
+      if (w > 120) setContainerWidth(w);
     };
     updateWidth();
     const ro = new ResizeObserver(updateWidth);
@@ -170,18 +173,18 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
     [workspace.infoWidgets, activeBoard.id]
   );
 
-  // Base resting PixelRect map for every widget on the current board
+  // Base resting PixelRect map for every widget on the current board (clamped inside canvas width)
   const baseRects = useMemo(() => {
     const map = new Map<string, PixelRect>();
     const forceGrid = layoutMode !== "free";
     for (const w of boardWidgets) {
-      map.set(
-        w.id,
-        getWidgetPixelRect(w, colWidth, rowHeight, GRID_GAP, forceGrid)
-      );
+      const r = getWidgetPixelRect(w, colWidth, rowHeight, GRID_GAP, forceGrid);
+      const clampedW = Math.min(r.w, Math.max(MIN_WIDGET_PX_W, containerWidth));
+      const clampedX = Math.max(0, Math.min(r.x, Math.max(0, containerWidth - clampedW)));
+      map.set(w.id, { ...r, x: clampedX, w: clampedW });
     }
     return map;
-  }, [boardWidgets, colWidth, rowHeight, layoutMode]);
+  }, [boardWidgets, colWidth, rowHeight, layoutMode, containerWidth]);
 
   const [interaction, setInteraction] = useState<ActiveInteraction | null>(
     null
@@ -301,7 +304,10 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
         moved = true;
 
         const rawRect: PixelRect = {
-          x: Math.max(0, origRect.x + dx),
+          x: Math.max(
+            0,
+            Math.min(Math.max(0, containerWidth - origRect.w), origRect.x + dx)
+          ),
           y: Math.max(0, origRect.y + dy),
           w: origRect.w,
           h: origRect.h,
@@ -316,6 +322,7 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
             snapEnabled: useSnap,
             bypassSnap: ev.altKey,
             gridStep: DOT_GRID_STEP,
+            maxWidth: containerWidth,
           });
 
           let previewRects = new Map(baseRectsRef.current);
@@ -383,6 +390,8 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        window.removeEventListener("blur", onUp);
         const cur = interactionRef.current;
         setInteraction(null);
         if (!cur || !moved) return;
@@ -429,8 +438,10 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
 
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      window.addEventListener("blur", onUp);
     },
-    [colWidth, rowHeight, gridCols, replaceBoardWidgets]
+    [colWidth, rowHeight, gridCols, containerWidth, replaceBoardWidgets]
   );
 
   // 1:1 Pointer-Synchronized 5-Edge Resize Handler
@@ -470,7 +481,10 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
         let nextH = origRect.h;
 
         if (edge === "e" || edge === "se") {
-          nextW = Math.max(MIN_WIDGET_PX_W, origRect.w + dx);
+          nextW = Math.min(
+            Math.max(MIN_WIDGET_PX_W, containerWidth - origRect.x),
+            Math.max(MIN_WIDGET_PX_W, origRect.w + dx)
+          );
         }
         if (edge === "s" || edge === "se") {
           nextH = Math.max(MIN_WIDGET_PX_H, origRect.h + dy);
@@ -496,6 +510,7 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
           const snapped = snapResizePixelRect(rawRect, edge, otherRects, {
             snapEnabled: useSnap,
             bypassSnap: ev.altKey,
+            maxWidth: containerWidth,
           });
 
           let previewRects = new Map(baseRectsRef.current);
@@ -564,6 +579,8 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        window.removeEventListener("blur", onUp);
         const cur = interactionRef.current;
         setInteraction(null);
         if (!cur || !changed) return;
@@ -610,18 +627,18 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
 
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      window.addEventListener("blur", onUp);
     },
-    [colWidth, rowHeight, gridCols, replaceBoardWidgets]
+    [colWidth, rowHeight, gridCols, containerWidth, replaceBoardWidgets]
   );
 
   const activeRects = interaction ? interaction.previewRects : baseRects;
 
-  const { canvasHeight, canvasMinWidth, canvasRows } = useMemo(() => {
+  const { canvasHeight, canvasRows } = useMemo(() => {
     let maxBottom = 520;
-    let maxRight = 0;
     for (const r of activeRects.values()) {
       maxBottom = Math.max(maxBottom, r.y + r.h + 120);
-      maxRight = Math.max(maxRight, r.x + r.w + 40);
     }
     const rows = Math.max(
       10,
@@ -629,7 +646,6 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
     );
     return {
       canvasHeight: maxBottom,
-      canvasMinWidth: maxRight,
       canvasRows: rows,
     };
   }, [activeRects, rowHeight]);
@@ -1192,14 +1208,13 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
       <div
         ref={canvasScrollRef}
         onContextMenu={handleCanvasContextMenu}
-        className="relative flex-1 overflow-auto p-4 sm:p-5"
+        className="relative flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5"
       >
         <div
           ref={gridContainerRef}
           className="relative w-full"
           style={{
             minHeight: Math.max(480, canvasHeight),
-            minWidth: canvasMinWidth > 0 ? canvasMinWidth : undefined,
           }}
         >
           {/* Background Reference Layer */}
