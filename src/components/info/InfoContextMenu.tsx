@@ -1,17 +1,24 @@
 import React from "react";
 import {
+  AppWindow,
   ArrowUpRight,
   BookOpen,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Download,
+  ExternalLink,
   Eye,
   EyeOff,
   FileCode2,
   FolderOpen,
   Frame,
+  Globe,
   LayoutGrid,
   LogOut,
   Maximize2,
+  Monitor,
+  MonitorSmartphone,
   Pause,
   Pencil,
   Play,
@@ -19,8 +26,10 @@ import {
   Radio,
   RefreshCw,
   RotateCcw,
+  Smartphone,
   Sparkles,
   Square,
+  Tablet,
   Terminal,
   ToggleRight,
   Trash2,
@@ -30,13 +39,16 @@ import {
 import {
   InfoControlType,
   InfoDisplayView,
+  InfoWebDeviceMode,
   InfoWidget,
 } from "../../types";
+import { WEB_DEVICE_PRESETS } from "../../lib/infoGrid";
 import {
   buildPushCodeSnippets,
   buildPushUrl,
   INFO_DISPLAY_VIEW_OPTIONS,
 } from "../../lib/infoProtocol";
+import { renderWebDeviceIcon } from "./InfoWidgetCard";
 
 export type InfoMenuState =
   | { kind: "widget"; widgetId: string; x: number; y: number }
@@ -60,6 +72,15 @@ interface InfoContextMenuProps {
   onRunWidget: (w: InfoWidget) => void;
   onCancelWidget: (w: InfoWidget) => void;
   onEditWidget: (w: InfoWidget) => void;
+  onRenameWidget?: (w: InfoWidget) => void;
+  onOpenWebUrl?: (w: InfoWidget) => void;
+  onRefreshWebMeta?: (w: InfoWidget) => void;
+  onToggleWebMode?: (w: InfoWidget) => void;
+  onChangeWebDeviceMode?: (
+    w: InfoWidget,
+    mode: InfoWebDeviceMode,
+    resizeCard?: boolean
+  ) => void;
   onViewLogs: (w: InfoWidget) => void;
   onCopyPlainText: (w: InfoWidget) => void;
   onCopyRawOutput: (w: InfoWidget) => void;
@@ -69,6 +90,7 @@ interface InfoContextMenuProps {
   onSetAccent: (w: InfoWidget, color?: string) => void;
   onSetDisplayView: (w: InfoWidget, view: InfoDisplayView) => void;
   onToggleHideHeader: (w: InfoWidget) => void;
+  onToggleCollapse?: (w: InfoWidget) => void;
   onResetWidgetSize: (w: InfoWidget) => void;
   onArrangeContainer?: (w: InfoWidget) => void;
   onDetachFromContainer?: (w: InfoWidget) => void;
@@ -76,6 +98,7 @@ interface InfoContextMenuProps {
   onDeleteWidget: (w: InfoWidget) => void;
   // Canvas actions
   onAddAtPos: (worldX: number, worldY: number) => void;
+  onAddWebAtPos?: (worldX: number, worldY: number) => void;
   onAddBlankContainer: (worldX: number, worldY: number) => void;
   onAddControlAtPos: (
     controlType: InfoControlType,
@@ -115,6 +138,11 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
   onRunWidget,
   onCancelWidget,
   onEditWidget,
+  onRenameWidget,
+  onOpenWebUrl,
+  onRefreshWebMeta,
+  onToggleWebMode,
+  onChangeWebDeviceMode,
   onViewLogs,
   onCopyPlainText,
   onCopyRawOutput,
@@ -124,12 +152,14 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
   onSetAccent,
   onSetDisplayView,
   onToggleHideHeader,
+  onToggleCollapse,
   onResetWidgetSize,
   onArrangeContainer,
   onDetachFromContainer,
   onCloneWidget,
   onDeleteWidget,
   onAddAtPos,
+  onAddWebAtPos,
   onAddBlankContainer,
   onAddControlAtPos,
   onRefreshAll,
@@ -156,6 +186,8 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
 
   const isContainer = widget?.source.kind === "container";
   const isControl = widget?.source.kind === "control";
+  const isWeb = widget?.source.kind === "web";
+  const isWebEmbed = isWeb && widget?.source.webDisplayMode === "embed";
 
   return (
     <div
@@ -166,7 +198,7 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
     >
       {menu.kind === "widget" && widget && (
         <>
-          {!isContainer && !isControl && (
+          {!isContainer && !isControl && !isWeb && (
             <>
               {widget.source.kind === "push" ? (
                 <>
@@ -224,6 +256,104 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
             </>
           )}
 
+          {isWeb && (
+            <>
+              <button
+                type="button"
+                onClick={run(() => onOpenWebUrl?.(widget))}
+                className={ITEM_CLS}
+              >
+                <ExternalLink className="h-3.5 w-3.5 text-primary" />
+                <span>打开网页</span>
+              </button>
+              {onRenameWidget && (
+                <button
+                  type="button"
+                  onClick={run(() => onRenameWidget(widget))}
+                  className={ITEM_CLS}
+                >
+                  <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span>重命名</span>
+                </button>
+              )}
+              {onRefreshWebMeta && (
+                <button
+                  type="button"
+                  onClick={run(() => onRefreshWebMeta(widget))}
+                  className={ITEM_CLS}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span>刷新图标与名称</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={run(() => {
+                  const u = widget.source.url?.trim() ?? "";
+                  if (u) {
+                    navigator.clipboard.writeText(u).catch(() => {});
+                    onNotify?.("已复制网页链接");
+                  }
+                })}
+                className={ITEM_CLS}
+              >
+                <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>复制链接</span>
+              </button>
+              {onToggleWebMode && (
+                <button
+                  type="button"
+                  onClick={run(() => onToggleWebMode(widget))}
+                  className={ITEM_CLS}
+                >
+                  {isWebEmbed ? (
+                    <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                  ) : (
+                    <AppWindow className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                  <span>
+                    {isWebEmbed ? "切换为快捷书签" : "切换为内嵌网页"}
+                  </span>
+                </button>
+              )}
+              {isWebEmbed && onChangeWebDeviceMode && (
+                <div className="my-1 border-y border-border/60 px-1.5 py-1.5">
+                  <div className="mb-1 text-[10px] font-medium text-muted-foreground">
+                    模拟设备
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {WEB_DEVICE_PRESETS.map((preset) => {
+                      const active =
+                        (widget.source.webDeviceMode ?? "auto") === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={run(() =>
+                            onChangeWebDeviceMode(
+                              widget,
+                              preset.id,
+                              preset.id !== "auto"
+                            )
+                          )}
+                          title={preset.desc}
+                          className={`flex flex-col items-center justify-center gap-0.5 rounded px-1 py-1 text-[10px] transition-colors ${
+                            active
+                              ? "bg-primary text-primary-foreground font-medium"
+                              : "bg-background/60 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          }`}
+                        >
+                          {renderWebDeviceIcon(preset.id, "h-3 w-3")}
+                          <span>{preset.shortLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
           {isContainer && onArrangeContainer && (
             <button
               type="button"
@@ -232,6 +362,17 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
             >
               <LayoutGrid className="h-3.5 w-3.5 text-primary" />
               <span>整理容器内卡片</span>
+            </button>
+          )}
+
+          {!isWeb && onRenameWidget && (
+            <button
+              type="button"
+              onClick={run(() => onRenameWidget(widget))}
+              className={ITEM_CLS}
+            >
+              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+              <span>重命名</span>
             </button>
           )}
 
@@ -246,11 +387,13 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
                 ? "设置空白卡片标题与样式"
                 : isControl
                   ? "编辑微组件"
-                  : "编辑数据源与任务"}
+                  : isWeb
+                    ? "编辑网页卡片"
+                    : "编辑数据源与任务"}
             </span>
           </button>
 
-          {!isContainer && !isControl && (
+          {!isContainer && !isControl && !isWeb && (
             <>
               <button
                 type="button"
@@ -353,7 +496,7 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
           </div>
 
           {/* Display View Switch (regular cards only) */}
-          {!isContainer && !isControl && (
+          {!isContainer && !isControl && !isWeb && (
             <div className="space-y-1 px-2 py-1.5">
               <span className="block text-[11px] text-muted-foreground">
                 展示版式
@@ -393,29 +536,50 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={run(() => onToggleHideHeader(widget))}
-            className={ITEM_CLS}
-          >
-            {widget.appearance?.hideHeader ? (
-              <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-            ) : (
-              <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
-            )}
-            <span>
-              {widget.appearance?.hideHeader ? "显示标题栏" : "隐藏标题栏（极简）"}
-            </span>
-          </button>
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onClick={run(() => onToggleCollapse(widget))}
+              className={ITEM_CLS}
+            >
+              {widget.appearance?.collapsed ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+              <span>
+                {widget.appearance?.collapsed ? "展开卡片" : "折叠卡片"}
+              </span>
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={run(() => onResetWidgetSize(widget))}
-            className={ITEM_CLS}
-          >
-            <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
-            <span>恢复默认尺寸 (380×260)</span>
-          </button>
+          {!isControl && !(isWeb && !isWebEmbed) && (
+            <button
+              type="button"
+              onClick={run(() => onToggleHideHeader(widget))}
+              className={ITEM_CLS}
+            >
+              {widget.appearance?.hideHeader ? (
+                <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+              <span>
+                {widget.appearance?.hideHeader ? "显示标题栏" : "隐藏标题栏（极简）"}
+              </span>
+            </button>
+          )}
+
+          {!isWeb && !isControl && (
+            <button
+              type="button"
+              onClick={run(() => onResetWidgetSize(widget))}
+              className={ITEM_CLS}
+            >
+              <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />
+              <span>恢复默认尺寸 (380×260)</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -449,6 +613,17 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
             <Plus className="h-3.5 w-3.5 text-primary" />
             <span>在此处新建信息卡片</span>
           </button>
+
+          {onAddWebAtPos && (
+            <button
+              type="button"
+              onClick={run(() => onAddWebAtPos(menu.worldX, menu.worldY))}
+              className={ITEM_CLS}
+            >
+              <Globe className="h-3.5 w-3.5 text-sky-500" />
+              <span>在此处新建网页卡片</span>
+            </button>
+          )}
 
           <button
             type="button"

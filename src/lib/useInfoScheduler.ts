@@ -357,7 +357,10 @@ export function useInfoScheduler({
       widget: InfoWidget,
       trigger: "manual" | "schedule" | "startup" = "manual"
     ): Promise<InfoRunResult | null> => {
-      if (widget.source.kind === "container") {
+      if (
+        widget.source.kind === "container" ||
+        widget.source.kind === "web"
+      ) {
         return null;
       }
       if (widget.source.kind === "control") {
@@ -507,6 +510,7 @@ export function useInfoScheduler({
           w.source.kind !== "push" &&
           w.source.kind !== "container" &&
           w.source.kind !== "control" &&
+          w.source.kind !== "web" &&
           (boardId ? w.boardId === boardId : true)
       );
       if (list.length === 0) {
@@ -529,6 +533,7 @@ export function useInfoScheduler({
         w.source.kind !== "push" &&
         w.source.kind !== "container" &&
         w.source.kind !== "control" &&
+        w.source.kind !== "web" &&
         w.schedule.runOnStartup &&
         !w.schedule.paused &&
         !startupRanRef.current.has(w.id)
@@ -562,6 +567,7 @@ export function useInfoScheduler({
           w.source.kind === "push" ||
           w.source.kind === "container" ||
           w.source.kind === "control" ||
+          w.source.kind === "web" ||
           w.schedule.paused
         ) {
           continue;

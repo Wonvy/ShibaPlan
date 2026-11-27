@@ -162,7 +162,12 @@ export type InfoSourceKind =
   | "http"
   | "push"
   | "container"
-  | "control";
+  | "control"
+  | "web";
+
+export type InfoWebDisplayMode = "bookmark" | "embed";
+
+export type InfoWebDeviceMode = "auto" | "mobile" | "tablet" | "desktop";
 
 export type InfoControlType = "switch" | "icon";
 
@@ -241,6 +246,10 @@ export interface InfoWidgetSource {
   controlLabelPosition?: "bottom" | "right";
   controlActionKind?: InfoControlActionKind;
   controlTarget?: string;
+  // Website widget fields (when kind === "web")
+  webFavicon?: string;
+  webDisplayMode?: InfoWebDisplayMode;
+  webDeviceMode?: InfoWebDeviceMode;
 }
 
 export interface InfoPushServerConfig {
@@ -255,6 +264,7 @@ export interface InfoWidgetAppearance {
   hideHeader?: boolean;
   compactPadding?: boolean;
   displayView?: InfoDisplayView;
+  collapsed?: boolean;
 }
 
 export interface InfoWidget {

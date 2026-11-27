@@ -29,6 +29,8 @@ import {
   InfoScheduleMode,
   InfoScriptLang,
   InfoSourceKind,
+  InfoWebDeviceMode,
+  InfoWebDisplayMode,
   InfoWidget,
   InfoWidgetSource,
 } from "../../types";
@@ -48,8 +50,11 @@ import {
 } from "../../lib/infoProtocol";
 import {
   cancelInfoRun,
+  fetchWebMetadata,
+  getHostnameLabel,
   getInfoScriptsDir,
   InfoRunResult,
+  normalizeWebUrl,
   openInCodeEditor,
   pickScriptFile,
   readScriptFile,
@@ -64,12 +69,18 @@ import {
   DEFAULT_CONTROL_ICON_W,
   DEFAULT_CONTROL_SWITCH_H,
   DEFAULT_CONTROL_SWITCH_W,
+  DEFAULT_WEB_BOOKMARK_H,
+  DEFAULT_WEB_BOOKMARK_W,
+  DEFAULT_WEB_EMBED_H,
+  DEFAULT_WEB_EMBED_W,
   DEFAULT_WIDGET_PX_H,
   DEFAULT_WIDGET_PX_W,
+  getWebDevicePreset,
   getWidgetPixelRect,
   gridLayoutToPixelRect,
   MIN_WIDGET_PX_H,
   MIN_WIDGET_PX_W,
+  WEB_DEVICE_PRESETS,
 } from "../../lib/infoGrid";
 import { isTauriRuntime, revealPathInOs, uid } from "../../lib/storage";
 import {
@@ -85,6 +96,7 @@ import { CodeEditor } from "./CodeEditor";
 import { CONTROL_ICON_OPTIONS, renderControlIcon } from "./controlIcons";
 import { DisplayViewThumbnail } from "./DisplayViewThumbnails";
 import { InfoContentRenderer } from "./InfoContentRenderer";
+import { WebEmbedViewport, WebFavicon } from "./InfoWidgetCard";
 
 interface InfoWidgetEditorDialogProps {
   open: boolean;
@@ -293,6 +305,14 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
   const [controlActionKind, setControlActionKind] =
     useState<InfoControlActionKind>("script");
   const [controlTarget, setControlTarget] = useState("");
+
+  // Website widget fields (when kind === "web")
+  const [webFavicon, setWebFavicon] = useState("");
+  const [webDisplayMode, setWebDisplayMode] =
+    useState<InfoWebDisplayMode>("bookmark");
+  const [webDeviceMode, setWebDeviceMode] = useState<InfoWebDeviceMode>("auto");
+  const [fetchingWebMeta, setFetchingWebMeta] = useState(false);
+
   const browserFileInputRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef(title);
   titleRef.current = title;
@@ -415,7 +435,9 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
     if (editingWidget) {
       const k = editingWidget.source.kind;
       setEditorMode(
-        k === "script" || k === "container" || k === "control" ? "simple" : "pro"
+        k === "script" || k === "container" || k === "control" || k === "web"
+          ? "simple"
+          : "pro"
       );
       setWidgetId(editingWidget.id);
       setTitle(
@@ -454,6 +476,10 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
       );
       setControlActionKind(editingWidget.source.controlActionKind ?? "none");
       setControlTarget(editingWidget.source.controlTarget ?? "");
+      setWebFavicon(editingWidget.source.webFavicon ?? "");
+      setWebDisplayMode(editingWidget.source.webDisplayMode ?? "bookmark");
+      setWebDeviceMode(editingWidget.source.webDeviceMode ?? "auto");
+      setFetchingWebMeta(false);
       setEnvPairs(recordToPairs(editingWidget.source.env));
       setParamPairs(recordToPairs(editingWidget.source.params));
       setTimeoutSec(editingWidget.source.timeoutSec ?? 30);
@@ -524,6 +550,10 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
       setControlLabelPosition("bottom");
       setControlActionKind("script");
       setControlTarget("");
+      setWebFavicon("");
+      setWebDisplayMode("bookmark");
+      setWebDeviceMode("auto");
+      setFetchingWebMeta(false);
       setEnvPairs([]);
       setParamPairs([]);
       setTimeoutSec(30);
@@ -537,14 +567,18 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
           ? DEFAULT_CONTAINER_PX_W
           : startKind === "control"
             ? DEFAULT_CONTROL_SWITCH_W
-            : DEFAULT_WIDGET_PX_W
+            : startKind === "web"
+              ? DEFAULT_WEB_BOOKMARK_W
+              : DEFAULT_WIDGET_PX_W
       );
       setPxH(
         startKind === "container"
           ? DEFAULT_CONTAINER_PX_H
           : startKind === "control"
             ? DEFAULT_CONTROL_SWITCH_H
-            : DEFAULT_WIDGET_PX_H
+            : startKind === "web"
+              ? DEFAULT_WEB_BOOKMARK_H
+              : DEFAULT_WIDGET_PX_H
       );
       setAccentColor(undefined);
       setHideHeader(false);
@@ -585,6 +619,16 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
   const buildSource = (): InfoWidgetSource => {
     if (kind === "container") {
       return { kind: "container" };
+    }
+    if (kind === "web") {
+      const normalizedUrl = normalizeWebUrl(httpUrl) ?? httpUrl.trim();
+      return {
+        kind: "web",
+        url: normalizedUrl,
+        webFavicon: webFavicon.trim() || undefined,
+        webDisplayMode,
+        webDeviceMode: webDisplayMode === "embed" ? webDeviceMode : undefined,
+      };
     }
     if (kind === "control") {
       const hasControlScript = Boolean(scriptPath.trim() || inlineCode.trim());
@@ -948,7 +992,49 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
     onNotify?.(`已填入模板「${tpl.name}」`);
   };
 
+  const handleFetchWebMeta = async (rawUrl?: string) => {
+    const targetRaw = (rawUrl ?? httpUrl).trim();
+    const normalized = normalizeWebUrl(targetRaw);
+    if (!normalized) {
+      if (!rawUrl) onNotify?.("请输入有效的 http:// 或 https:// 网页链接");
+      return;
+    }
+    setHttpUrl(normalized);
+    setFetchingWebMeta(true);
+    try {
+      const meta = await fetchWebMetadata(normalized);
+      const fav = meta.faviconDataUrl || meta.faviconUrl || "";
+      if (fav) setWebFavicon(fav);
+      if (meta.title?.trim()) {
+        setTitle((cur) => {
+          const prevTrim = cur.trim();
+          const curHost = getHostnameLabel(normalized);
+          if (!prevTrim || prevTrim === curHost) {
+            return meta.title!.trim();
+          }
+          return cur;
+        });
+      }
+      if (!rawUrl) {
+        onNotify?.(
+          meta.title?.trim()
+            ? `已识别网站「${meta.title.trim()}」`
+            : "已尝试抓取网站图标"
+        );
+      }
+    } finally {
+      setFetchingWebMeta(false);
+    }
+  };
+
   const handleCommit = async (runAfterSave: boolean) => {
+    if (kind === "web") {
+      const normalized = normalizeWebUrl(httpUrl);
+      if (!normalized) {
+        onNotify?.("请输入有效的网页链接（例如 https://github.com）");
+        return;
+      }
+    }
     if (kind === "script" && !scriptPath.trim() && !inlineCode.trim()) {
       onNotify?.("请先拖入或选择本地脚本文件，或切换至专业模式编写脚本");
       return;
@@ -1088,7 +1174,10 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                     onClick={() => {
                       setEditorMode(m.id);
                       setHoverHint(null);
-                      if (m.id === "pro" && kind === "container") {
+                      if (
+                        m.id === "pro" &&
+                        (kind === "container" || kind === "web")
+                      ) {
                         setKind("script");
                       }
                       if (
@@ -1158,10 +1247,16 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                           hint: "运行本地脚本并按所选版式展示结果",
                         },
                         {
+                          id: "web",
+                          label: "网页",
+                          icon: Globe,
+                          hint: "网站快捷书签或内嵌网页卡片，支持粘贴链接自动获取图标与网站名称",
+                        },
+                        {
                           id: "control",
                           label: "开关 / 图标",
                           icon: ToggleRight,
-                          hint: "点击触发本地脚本、命令或链接的开关/图标，可拖入空白容器分组",
+                          hint: "点击触发本地脚本、命令或路径的开关/图标，可拖入空白容器分组",
                         },
                         {
                           id: "container",
@@ -1184,6 +1279,17 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                               if (t.id === "container") {
                                 setPxW(DEFAULT_CONTAINER_PX_W);
                                 setPxH(DEFAULT_CONTAINER_PX_H);
+                              } else if (t.id === "web") {
+                                setPxW(
+                                  webDisplayMode === "embed"
+                                    ? DEFAULT_WEB_EMBED_W
+                                    : DEFAULT_WEB_BOOKMARK_W
+                                );
+                                setPxH(
+                                  webDisplayMode === "embed"
+                                    ? DEFAULT_WEB_EMBED_H
+                                    : DEFAULT_WEB_BOOKMARK_H
+                                );
                               } else if (t.id === "control") {
                                 setPxW(
                                   controlType === "icon"
@@ -1201,7 +1307,7 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                               }
                             }
                           }}
-                          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
                             active
                               ? "bg-primary text-primary-foreground"
                               : "text-muted-foreground hover:text-foreground"
@@ -1214,6 +1320,125 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                     })}
                   </div>
                 </div>
+
+                {kind === "web" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium text-muted-foreground">
+                        网页形态
+                      </span>
+                      <div className="inline-flex w-48 rounded-md border border-border bg-background p-0.5">
+                        {(
+                          [
+                            {
+                              id: "bookmark",
+                              label: "快捷书签",
+                              hint: "展示网站图标与名称，点击卡片在浏览器中打开",
+                            },
+                            {
+                              id: "embed",
+                              label: "内嵌网页",
+                              hint: "直接在画布卡片内加载预览该网页（部分站点禁止 iframe 嵌入）",
+                            },
+                          ] as const
+                        ).map((wm) => (
+                          <button
+                            key={wm.id}
+                            type="button"
+                            {...hintProps(wm.hint)}
+                            onClick={() => {
+                              setWebDisplayMode(wm.id);
+                              if (!editingWidget) {
+                                const embedPreset =
+                                  getWebDevicePreset(webDeviceMode);
+                                setPxW(
+                                  wm.id === "embed"
+                                    ? embedPreset.cardWidth
+                                    : DEFAULT_WEB_BOOKMARK_W
+                                );
+                                setPxH(
+                                  wm.id === "embed"
+                                    ? embedPreset.cardHeight
+                                    : DEFAULT_WEB_BOOKMARK_H
+                                );
+                              }
+                            }}
+                            className={`flex-1 rounded py-1 text-[11px] font-medium transition-colors ${
+                              webDisplayMode === wm.id
+                                ? "bg-primary text-primary-foreground"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {wm.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {webDisplayMode === "embed" && (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-medium text-muted-foreground">
+                          模拟设备
+                        </span>
+                        <div className="inline-flex w-48 rounded-md border border-border bg-background p-0.5">
+                          {WEB_DEVICE_PRESETS.map((preset) => (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              {...hintProps(preset.desc)}
+                              onClick={() => {
+                                setWebDeviceMode(preset.id);
+                                if (preset.id !== "auto") {
+                                  setPxW(preset.cardWidth);
+                                  setPxH(preset.cardHeight);
+                                }
+                              }}
+                              className={`flex-1 rounded py-1 text-[11px] font-medium transition-colors ${
+                                webDeviceMode === preset.id
+                                  ? "bg-primary text-primary-foreground"
+                                  : "text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              {preset.shortLabel}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                      <div className="flex items-center gap-1.5">
+                        {ACCENT_COLORS.map((c, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setAccentColor(c)}
+                            style={{ backgroundColor: c ?? "transparent" }}
+                            className={`h-3.5 w-3.5 rounded-full border border-border transition-transform hover:scale-110 ${
+                              accentColor === c
+                                ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
+                                : ""
+                            }`}
+                            {...hintProps(c ? `强调色：${c}` : "强调色：无")}
+                          />
+                        ))}
+                      </div>
+
+                      <div
+                        {...hintProps("网站图标将自动识别，也可随时右键「刷新图标与名称」")}
+                        className="flex items-center gap-1.5 rounded-md border border-border/70 bg-surface/40 px-2 py-1 text-[11px] text-muted-foreground"
+                      >
+                        <WebFavicon
+                          url={normalizeWebUrl(httpUrl) ?? httpUrl}
+                          favicon={webFavicon}
+                          className="h-3.5 w-3.5"
+                          iconClassName="h-3.5 w-3.5"
+                        />
+                        <span>{webFavicon ? "已识别图标" : "自动图标"}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {kind === "container" && (
                   <div
@@ -1448,8 +1673,58 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                 )}
               </div>
 
+              {/* Website URL Section (Below Display Settings for kind === "web") */}
+              {kind === "web" && (
+                <div className="space-y-2 border-t border-border/50 pt-3.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-foreground">网页地址</span>
+                    {fetchingWebMeta && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-primary">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>正在获取图标与标题...</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      value={httpUrl}
+                      onChange={(e) => setHttpUrl(e.target.value)}
+                      onPaste={(e) => {
+                        const pasted =
+                          e.clipboardData?.getData("text/plain")?.trim() ?? "";
+                        const norm = normalizeWebUrl(pasted);
+                        if (norm) {
+                          window.setTimeout(() => {
+                            void handleFetchWebMeta(norm);
+                          }, 0);
+                        }
+                      }}
+                      placeholder="粘贴或输入网页链接，如 https://github.com"
+                      className="h-8 flex-1 font-mono text-[11.5px]"
+                      {...hintProps("粘贴或输入链接后可点击右侧「自动识别」获取网站名称与图标")}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={fetchingWebMeta || !normalizeWebUrl(httpUrl)}
+                      onClick={() => void handleFetchWebMeta()}
+                      className="h-8 shrink-0 gap-1 px-2.5 text-[11px]"
+                      {...hintProps("自动抓取值网页标题与 favicon 图标")}
+                    >
+                      {fetchingWebMeta ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Globe className="h-3 w-3 text-primary" />
+                      )}
+                      <span>自动识别</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Script / Trigger Section (Below Display Settings) */}
-              {kind !== "container" && (
+              {kind !== "container" && kind !== "web" && (
                 <div className="space-y-2 border-t border-border/50 pt-3.5">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-1.5">
@@ -1477,7 +1752,6 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                           [
                             { id: "script", label: "脚本" },
                             { id: "command", label: "命令" },
-                            { id: "url", label: "网址" },
                             { id: "path", label: "路径" },
                           ] as const
                         ).map((act) => {
@@ -1619,7 +1893,7 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                 </div>
               )}
 
-              {kind !== "container" && kind !== "control" && (
+              {kind !== "container" && kind !== "control" && kind !== "web" && (
               <>
 
               {/* 2. Schedule / Runtime Frequency */}
@@ -2808,6 +3082,99 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
                             拖入卡片 / 开关 / 图标
                           </div>
                         </div>
+                      ) : kind === "web" ? (
+                        (() => {
+                          const previewUrl =
+                            normalizeWebUrl(httpUrl) ?? httpUrl.trim();
+                          const previewHost = previewUrl
+                            ? getHostnameLabel(previewUrl)
+                            : "example.com";
+                          const previewTitle = title.trim() || previewHost;
+                          if (webDisplayMode === "embed") {
+                            const devicePreset = getWebDevicePreset(webDeviceMode);
+                            return (
+                              <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-card-rest">
+                                {accentColor && (
+                                  <div
+                                    className="h-[2.5px] w-full shrink-0"
+                                    style={{ backgroundColor: accentColor }}
+                                  />
+                                )}
+                                <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-surface/55 px-3 text-xs font-semibold">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <WebFavicon
+                                      url={previewUrl}
+                                      favicon={webFavicon}
+                                      className="h-3.5 w-3.5"
+                                      iconClassName="h-3.5 w-3.5"
+                                    />
+                                    <span className="truncate">{previewTitle}</span>
+                                  </div>
+                                  {webDeviceMode !== "auto" && (
+                                    <span className="shrink-0 rounded bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">
+                                      {devicePreset.shortLabel}
+                                    </span>
+                                  )}
+                                </div>
+                                <WebEmbedViewport
+                                  url={previewUrl}
+                                  title={previewTitle}
+                                  deviceMode={webDeviceMode}
+                                  interactive={false}
+                                  fallbackWidth={Math.max(120, pxW - 2)}
+                                  fallbackHeight={Math.max(80, pxH - 36)}
+                                  emptyText="请输入网页链接以预览"
+                                />
+                              </div>
+                            );
+                          }
+                          const isCompactTile =
+                            pxW < 136 || pxH >= pxW * 0.85;
+                          return (
+                            <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-card-rest">
+                              {accentColor && (
+                                <div
+                                  className="h-[2.5px] w-full shrink-0"
+                                  style={{ backgroundColor: accentColor }}
+                                />
+                              )}
+                              <div
+                                className={`flex flex-1 items-center ${
+                                  isCompactTile
+                                    ? "flex-col justify-center gap-1.5 px-2.5 py-2 text-center"
+                                    : "flex-row gap-2.5 px-3 py-2 text-left"
+                                }`}
+                              >
+                                <div
+                                  className={`flex shrink-0 items-center justify-center rounded-xl border border-border/70 bg-surface/70 shadow-sm ${
+                                    isCompactTile ? "h-9 w-9" : "h-8 w-8"
+                                  }`}
+                                >
+                                  <WebFavicon
+                                    url={previewUrl}
+                                    favicon={webFavicon}
+                                    className={isCompactTile ? "h-5 w-5" : "h-4.5 w-4.5"}
+                                    iconClassName={isCompactTile ? "h-5 w-5" : "h-4 w-4"}
+                                  />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div
+                                    className={`truncate font-medium text-foreground ${
+                                      isCompactTile ? "text-[11px]" : "text-xs"
+                                    }`}
+                                  >
+                                    {previewTitle}
+                                  </div>
+                                  {!isCompactTile && (
+                                    <div className="truncate font-mono text-[10px] text-muted-foreground">
+                                      {previewHost}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()
                       ) : kind === "control" ? (
                         <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-card-rest">
                           {accentColor && (
@@ -3059,6 +3426,7 @@ export const InfoWidgetEditorDialog: React.FC<InfoWidgetEditorDialogProps> = ({
             </Button>
             {kind === "push" ||
             kind === "container" ||
+            kind === "web" ||
             (kind === "control" &&
               !(
                 (controlActionKind === "script" &&

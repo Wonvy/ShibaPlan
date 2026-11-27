@@ -1,4 +1,4 @@
-import type { InfoWidget, InfoWidgetLayout } from "../types";
+import type { InfoWebDeviceMode, InfoWidget, InfoWidgetLayout } from "../types";
 
 export const DEFAULT_GRID_COLS = 12;
 export const DEFAULT_ROW_HEIGHT = 52;
@@ -17,8 +17,69 @@ export const DEFAULT_CONTROL_SWITCH_W = 136;
 export const DEFAULT_CONTROL_SWITCH_H = 72;
 export const DEFAULT_CONTROL_ICON_W = 76;
 export const DEFAULT_CONTROL_ICON_H = 72;
+export const DEFAULT_WEB_BOOKMARK_W = 196;
+export const DEFAULT_WEB_BOOKMARK_H = 68;
+export const DEFAULT_WEB_EMBED_W = 460;
+export const DEFAULT_WEB_EMBED_H = 340;
+
+export interface WebDevicePreset {
+  id: InfoWebDeviceMode;
+  label: string;
+  shortLabel: string;
+  width: number | null;
+  cardWidth: number;
+  cardHeight: number;
+  desc: string;
+}
+
+export const WEB_DEVICE_PRESETS: readonly WebDevicePreset[] = [
+  {
+    id: "auto",
+    label: "自适应",
+    shortLabel: "自适应",
+    width: null,
+    cardWidth: DEFAULT_WEB_EMBED_W,
+    cardHeight: DEFAULT_WEB_EMBED_H,
+    desc: "跟随卡片尺寸",
+  },
+  {
+    id: "mobile",
+    label: "手机",
+    shortLabel: "手机",
+    width: 390,
+    cardWidth: 392,
+    cardHeight: 720,
+    desc: "390px 手机视口 (392×720)",
+  },
+  {
+    id: "tablet",
+    label: "平板 (iPad)",
+    shortLabel: "iPad",
+    width: 768,
+    cardWidth: 580,
+    cardHeight: 760,
+    desc: "768px 平板视口 (580×760)",
+  },
+  {
+    id: "desktop",
+    label: "桌面",
+    shortLabel: "桌面",
+    width: 1280,
+    cardWidth: 680,
+    cardHeight: 460,
+    desc: "1280px PC 视口缩放 (680×460)",
+  },
+] as const;
+
+export function getWebDevicePreset(mode?: InfoWebDeviceMode): WebDevicePreset {
+  return (
+    WEB_DEVICE_PRESETS.find((item) => item.id === mode) ??
+    WEB_DEVICE_PRESETS[0]
+  );
+}
 export const MIN_WIDGET_PX_W = 64;
 export const MIN_WIDGET_PX_H = 44;
+export const COLLAPSED_WIDGET_PX_H = 40;
 export const SNAP_THRESHOLD = 8;
 export const SNAP_GAP = 16;
 export const DOT_GRID_STEP = 20;

@@ -29,6 +29,7 @@ import {
   InfoPushServerConfig,
   InfoScriptLang,
   InfoSourceKind,
+  InfoWebDeviceMode,
   InfoWidget,
   WorkspaceData,
 } from "../types";
@@ -43,17 +44,23 @@ import {
   applyPixelRectToLayout,
   arrangeWidgetsInsideContainer,
   autoArrangeFreeformWidgets,
+  COLLAPSED_WIDGET_PX_H,
   DEFAULT_CONTAINER_PX_H,
   DEFAULT_CONTAINER_PX_W,
   DEFAULT_CONTROL_ICON_H,
   DEFAULT_CONTROL_ICON_W,
   DEFAULT_CONTROL_SWITCH_H,
   DEFAULT_CONTROL_SWITCH_W,
+  DEFAULT_WEB_BOOKMARK_H,
+  DEFAULT_WEB_BOOKMARK_W,
+  DEFAULT_WEB_EMBED_H,
+  DEFAULT_WEB_EMBED_W,
   DEFAULT_WIDGET_PX_H,
   DEFAULT_WIDGET_PX_W,
   DOT_GRID_STEP,
   findFreePixelSlot,
   findTargetContainerId,
+  getWebDevicePreset,
   getWidgetPixelRect,
   gridLayoutToPixelRect,
   MIN_WIDGET_PX_H,
@@ -72,9 +79,13 @@ import {
   parseInfoOutput,
 } from "../lib/infoProtocol";
 import {
+  extractWebUrlsFromText,
+  fetchWebMetadata,
+  getHostnameLabel,
   getInfoScriptsDir,
   InfoPushServerStatus,
   InfoWidgetRuntimeState,
+  normalizeWebUrl,
   readScriptFile,
 } from "../lib/infoRunner";
 import { Button } from "./ui/button";
@@ -88,9 +99,107 @@ import { InfoPushServerDialog } from "./info/InfoPushServerDialog";
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2.0;
 const DEFAULT_PAN = { x: 24, y: 24 };
+const INFO_ACTIVE_BOARD_KEY = "shibaplan_info_active_board_v1";
+const INFO_VIEWPORTS_KEY = "shibaplan_info_viewports_v1";
+
+interface SavedBoardViewport {
+  pan: { x: number; y: number };
+  zoom: number;
+}
 
 function clampZoom(z: number): number {
   return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(z.toFixed(3))));
+}
+
+function readSavedBoardId(): string | null {
+  try {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem(INFO_ACTIVE_BOARD_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function readSavedViewports(): Record<string, SavedBoardViewport> {
+  try {
+    if (typeof window === "undefined") return {};
+    const raw = window.localStorage.getItem(INFO_VIEWPORTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: Record<string, SavedBoardViewport> = {};
+    for (const [id, v] of Object.entries(parsed)) {
+      if (
+        v &&
+        typeof v === "object" &&
+        typeof (v as SavedBoardViewport).zoom === "number" &&
+        Number.isFinite((v as SavedBoardViewport).zoom) &&
+        (v as SavedBoardViewport).pan &&
+        typeof (v as SavedBoardViewport).pan.x === "number" &&
+        Number.isFinite((v as SavedBoardViewport).pan.x) &&
+        typeof (v as SavedBoardViewport).pan.y === "number" &&
+        Number.isFinite((v as SavedBoardViewport).pan.y)
+      ) {
+        out[id] = {
+          pan: {
+            x: Math.round((v as SavedBoardViewport).pan.x),
+            y: Math.round((v as SavedBoardViewport).pan.y),
+          },
+          zoom: clampZoom((v as SavedBoardViewport).zoom),
+        };
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeSavedBoardViewport(
+  boardId: string,
+  pan: { x: number; y: number },
+  zoom: number
+): void {
+  try {
+    if (typeof window === "undefined" || !boardId) return;
+    if (
+      !Number.isFinite(pan.x) ||
+      !Number.isFinite(pan.y) ||
+      !Number.isFinite(zoom)
+    ) {
+      return;
+    }
+    const existing = readSavedViewports();
+    existing[boardId] = {
+      pan: { x: Math.round(pan.x), y: Math.round(pan.y) },
+      zoom: clampZoom(zoom),
+    };
+    window.localStorage.setItem(INFO_VIEWPORTS_KEY, JSON.stringify(existing));
+  } catch {
+    // ignore storage quota / private mode errors
+  }
+}
+
+function hasVisibleWidgetInViewport(
+  rects: PixelRect[],
+  pan: { x: number; y: number },
+  zoom: number,
+  vw: number,
+  vh: number
+): boolean {
+  const margin = 24;
+  return rects.some((r) => {
+    const sx1 = r.x * zoom + pan.x;
+    const sy1 = r.y * zoom + pan.y;
+    const sx2 = (r.x + r.w) * zoom + pan.x;
+    const sy2 = (r.y + r.h) * zoom + pan.y;
+    return (
+      sx2 > margin &&
+      sx1 < vw - margin &&
+      sy2 > margin &&
+      sy1 < vh - margin
+    );
+  });
 }
 
 function canScrollableAncestorHandleWheel(
@@ -175,7 +284,10 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
     [workspace.infoBoards]
   );
 
-  const [activeBoardId, setActiveBoardId] = useState<string>(boards[0].id);
+  const [activeBoardId, setActiveBoardId] = useState<string>(() => {
+    const saved = readSavedBoardId();
+    return saved && boards.some((b) => b.id === saved) ? saved : boards[0].id;
+  });
   const activeBoard = useMemo(
     () => boards.find((b) => b.id === activeBoardId) ?? boards[0],
     [boards, activeBoardId]
@@ -187,13 +299,30 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
     }
   }, [boards, activeBoardId]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(INFO_ACTIVE_BOARD_KEY, activeBoard.id);
+    } catch {
+      // ignore storage failure
+    }
+  }, [activeBoard.id]);
+
   const [renamingBoardId, setRenamingBoardId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [renamingWidgetId, setRenamingWidgetId] = useState<string | null>(null);
+  const renamingWidgetIdRef = useRef<string | null>(null);
+  renamingWidgetIdRef.current = renamingWidgetId;
 
   // Infinite Canvas Viewport (pan + zoom)
   const viewportRef = useRef<HTMLDivElement>(null);
-  const [pan, setPan] = useState<{ x: number; y: number }>(DEFAULT_PAN);
-  const [zoom, setZoom] = useState<number>(1);
+  const [pan, setPan] = useState<{ x: number; y: number }>(() => {
+    const saved = readSavedViewports()[activeBoard.id];
+    return saved?.pan ?? DEFAULT_PAN;
+  });
+  const [zoom, setZoom] = useState<number>(() => {
+    const saved = readSavedViewports()[activeBoard.id];
+    return saved?.zoom ?? 1;
+  });
   const [isPanning, setIsPanning] = useState(false);
   const [spacePressed, setSpacePressed] = useState(false);
 
@@ -201,6 +330,7 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
   panRef.current = pan;
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  const viewportReadyForBoardRef = useRef<string | null>(null);
 
   const snapEnabled = activeBoard.snapEnabled ?? true;
   const [editMode, setEditMode] = useState(false);
@@ -222,6 +352,40 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
     }
     return map;
   }, [boardWidgets]);
+
+  const collapsedContainerIds = useMemo(
+    () =>
+      new Set(
+        boardWidgets
+          .filter((w) => w.source.kind === "container" && w.appearance?.collapsed)
+          .map((w) => w.id)
+      ),
+    [boardWidgets]
+  );
+
+  const hiddenWidgetIds = useMemo(
+    () =>
+      new Set(
+        boardWidgets
+          .filter(
+            (w) =>
+              w.source.kind !== "container" &&
+              Boolean(w.parentId) &&
+              collapsedContainerIds.has(w.parentId!)
+          )
+          .map((w) => w.id)
+      ),
+    [boardWidgets, collapsedContainerIds]
+  );
+
+  const hiddenWidgetIdsRef = useRef(hiddenWidgetIds);
+  hiddenWidgetIdsRef.current = hiddenWidgetIds;
+
+  const getVisualPixelRect = useCallback(
+    (w: InfoWidget, base: PixelRect): PixelRect =>
+      w.appearance?.collapsed ? { ...base, h: COLLAPSED_WIDGET_PX_H } : base,
+    []
+  );
 
   const [interaction, setInteraction] = useState<ActiveInteraction | null>(
     null
@@ -328,44 +492,118 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
     setZoom(1);
   }, []);
 
+  const getVisibleVisualRects = useCallback(() => {
+    return boardWidgetsRef.current
+      .filter((w) => !hiddenWidgetIdsRef.current.has(w.id))
+      .map((w) =>
+        getVisualPixelRect(w, baseRectsRef.current.get(w.id) ?? getWidgetPixelRect(w))
+      );
+  }, [getVisualPixelRect]);
+
+  const fitWidgetsInView = useCallback(
+    (maxZoom = 1.2) => {
+      const rects = getVisibleVisualRects();
+      if (rects.length === 0) {
+        resetView();
+        return;
+      }
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const r of rects) {
+        minX = Math.min(minX, r.x);
+        minY = Math.min(minY, r.y);
+        maxX = Math.max(maxX, r.x + r.w);
+        maxY = Math.max(maxY, r.y + r.h);
+      }
+
+      const el = viewportRef.current;
+      const vw = el?.clientWidth ?? 1000;
+      const vh = el?.clientHeight ?? 650;
+      const pad = 48;
+      const spanW = Math.max(1, maxX - minX);
+      const spanH = Math.max(1, maxY - minY);
+      const nextZoom = clampZoom(
+        Math.min(maxZoom, (vw - pad * 2) / spanW, (vh - pad * 2) / spanH)
+      );
+
+      const contentW = spanW * nextZoom;
+      const contentH = spanH * nextZoom;
+      const nextPan = {
+        x: Math.round((vw - contentW) / 2 - minX * nextZoom),
+        y: Math.round((vh - contentH) / 2 - minY * nextZoom),
+      };
+      panRef.current = nextPan;
+      zoomRef.current = nextZoom;
+      setZoom(nextZoom);
+      setPan(nextPan);
+    },
+    [resetView]
+  );
+
   const fitAllWidgets = useCallback(() => {
-    const rects = Array.from(baseRectsRef.current.values());
-    if (rects.length === 0) {
-      resetView();
-      return;
-    }
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const r of rects) {
-      minX = Math.min(minX, r.x);
-      minY = Math.min(minY, r.y);
-      maxX = Math.max(maxX, r.x + r.w);
-      maxY = Math.max(maxY, r.y + r.h);
-    }
+    fitWidgetsInView(1.2);
+  }, [fitWidgetsInView]);
 
-    const el = viewportRef.current;
-    const vw = el?.clientWidth ?? 1000;
-    const vh = el?.clientHeight ?? 650;
-    const pad = 48;
-    const spanW = Math.max(1, maxX - minX);
-    const spanH = Math.max(1, maxY - minY);
-    const nextZoom = clampZoom(
-      Math.min(1.2, (vw - pad * 2) / spanW, (vh - pad * 2) / spanH)
-    );
+  // Restore saved camera per board (or center widgets if none / all off-screen), and flush on leave/switch
+  useEffect(() => {
+    const boardId = activeBoard.id;
+    let rafId = 0;
 
-    const contentW = spanW * nextZoom;
-    const contentH = spanH * nextZoom;
-    const nextPan = {
-      x: Math.round((vw - contentW) / 2 - minX * nextZoom),
-      y: Math.round((vh - contentH) / 2 - minY * nextZoom),
+    const syncViewport = (): boolean => {
+      const el = viewportRef.current;
+      if (!el || el.clientWidth <= 0 || el.clientHeight <= 0) {
+        return false;
+      }
+      const rects = getVisibleVisualRects();
+      const saved = readSavedViewports()[boardId];
+      if (
+        saved &&
+        (rects.length === 0 ||
+          hasVisibleWidgetInViewport(
+            rects,
+            saved.pan,
+            saved.zoom,
+            el.clientWidth,
+            el.clientHeight
+          ))
+      ) {
+        panRef.current = saved.pan;
+        zoomRef.current = saved.zoom;
+        setPan(saved.pan);
+        setZoom(saved.zoom);
+      } else if (rects.length > 0) {
+        fitWidgetsInView(1);
+      } else {
+        resetView();
+      }
+      viewportReadyForBoardRef.current = boardId;
+      return true;
     };
-    panRef.current = nextPan;
-    zoomRef.current = nextZoom;
-    setZoom(nextZoom);
-    setPan(nextPan);
-  }, [resetView]);
+
+    if (!syncViewport()) {
+      rafId = window.requestAnimationFrame(() => {
+        syncViewport();
+      });
+    }
+
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      if (viewportReadyForBoardRef.current === boardId) {
+        writeSavedBoardViewport(boardId, panRef.current, zoomRef.current);
+      }
+    };
+  }, [activeBoard.id, fitWidgetsInView, resetView]);
+
+  // Debounced persist camera changes for the active board
+  useEffect(() => {
+    if (viewportReadyForBoardRef.current !== activeBoard.id) return;
+    const timer = window.setTimeout(() => {
+      writeSavedBoardViewport(activeBoard.id, pan, zoom);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [activeBoard.id, pan, zoom]);
 
   const focusRectInViewport = useCallback((rect: PixelRect) => {
     const el = viewportRef.current;
@@ -558,14 +796,18 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      const origRect =
+      const origLayoutRect =
         baseRectsRef.current.get(widget.id) ?? getWidgetPixelRect(widget);
+      const origRect = getVisualPixelRect(widget, origLayoutRect);
       const startClientX = e.clientX;
       const startClientY = e.clientY;
       const startZoom = zoomRef.current;
 
       const useSnap = activeBoardRef.current.snapEnabled ?? true;
       const isContainer = widget.source.kind === "container";
+      const widgetById = new Map(
+        boardWidgetsRef.current.map((bw) => [bw.id, bw])
+      );
       const childIds = isContainer
         ? new Set(
             boardWidgetsRef.current
@@ -577,7 +819,10 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
         ? []
         : boardWidgetsRef.current
             .filter(
-              (w) => w.source.kind === "container" && w.id !== widget.id
+              (w) =>
+                w.source.kind === "container" &&
+                w.id !== widget.id &&
+                !w.appearance?.collapsed
             )
             .map((w) => ({
               id: w.id,
@@ -607,8 +852,16 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
 
         const otherItems: Array<{ id: string; rect: PixelRect }> = [];
         for (const [id, r] of baseRectsRef.current.entries()) {
-          if (id !== widget.id && !childIds.has(id)) {
-            otherItems.push({ id, rect: r });
+          if (
+            id !== widget.id &&
+            !childIds.has(id) &&
+            !hiddenWidgetIdsRef.current.has(id)
+          ) {
+            const otherW = widgetById.get(id);
+            otherItems.push({
+              id,
+              rect: otherW ? getVisualPixelRect(otherW, r) : r,
+            });
           }
         }
 
@@ -664,9 +917,14 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
           const nextWidgets = boardWidgetsRef.current.map((w) => {
             if (w.id === widget.id || childIds.has(w.id)) {
               const r = cur.previewRects.get(w.id);
-              return r
-                ? { ...w, layout: applyPixelRectToLayout(w.layout, r) }
-                : w;
+              if (!r) return w;
+              const savedH = w.appearance?.collapsed
+                ? getWidgetPixelRect(w).h
+                : r.h;
+              return {
+                ...w,
+                layout: applyPixelRectToLayout(w.layout, { ...r, h: savedH }),
+              };
             }
             return w;
           });
@@ -681,11 +939,19 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
           ...boardWidgetsRef.current.filter((w) => w.id !== widget.id),
           ...boardWidgetsRef.current
             .filter((w) => w.id === widget.id)
-            .map((w) => ({
-              ...w,
-              parentId: nextParentId,
-              layout: applyPixelRectToLayout(w.layout, draggedRect),
-            })),
+            .map((w) => {
+              const savedH = w.appearance?.collapsed
+                ? getWidgetPixelRect(w).h
+                : draggedRect.h;
+              return {
+                ...w,
+                parentId: nextParentId,
+                layout: applyPixelRectToLayout(w.layout, {
+                  ...draggedRect,
+                  h: savedH,
+                }),
+              };
+            }),
         ];
         replaceBoardWidgets(nextWidgets);
       };
@@ -705,13 +971,17 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      const origRect =
+      const origLayoutRect =
         baseRectsRef.current.get(widget.id) ?? getWidgetPixelRect(widget);
+      const origRect = getVisualPixelRect(widget, origLayoutRect);
       const startClientX = e.clientX;
       const startClientY = e.clientY;
       const startZoom = zoomRef.current;
 
       const useSnap = activeBoardRef.current.snapEnabled ?? true;
+      const widgetById = new Map(
+        boardWidgetsRef.current.map((bw) => [bw.id, bw])
+      );
 
       let changed = false;
 
@@ -749,7 +1019,13 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
 
         const otherItems: Array<{ id: string; rect: PixelRect }> = [];
         for (const [id, r] of baseRectsRef.current.entries()) {
-          if (id !== widget.id) otherItems.push({ id, rect: r });
+          if (id !== widget.id && !hiddenWidgetIdsRef.current.has(id)) {
+            const otherW = widgetById.get(id);
+            otherItems.push({
+              id,
+              rect: otherW ? getVisualPixelRect(otherW, r) : r,
+            });
+          }
         }
 
         const snapped = snapResizePixelRect(
@@ -787,11 +1063,19 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
 
         const resizedRect = cur.previewRects.get(widget.id);
         if (!resizedRect) return;
-        const nextWidgets = boardWidgetsRef.current.map((w) =>
-          w.id === widget.id
-            ? { ...w, layout: applyPixelRectToLayout(w.layout, resizedRect) }
-            : w
-        );
+        const nextWidgets = boardWidgetsRef.current.map((w) => {
+          if (w.id !== widget.id) return w;
+          const savedH = w.appearance?.collapsed
+            ? getWidgetPixelRect(w).h
+            : resizedRect.h;
+          return {
+            ...w,
+            layout: applyPixelRectToLayout(w.layout, {
+              ...resizedRect,
+              h: savedH,
+            }),
+          };
+        });
         replaceBoardWidgets(nextWidgets);
       };
 
@@ -953,6 +1237,181 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
     [clientToWorld, getPreferredWorldOrigin, focusRectInViewport]
   );
 
+  // Create web bookmark card(s) directly from pasted URL(s) and auto-fetch title + favicon
+  const createWebWidgetsFromUrls = useCallback(
+    async (urls: string[], preferredWorldX?: number, preferredWorldY?: number) => {
+      const normalizedUrls = Array.from(
+        new Set(
+          urls
+            .map((raw) => normalizeWebUrl(raw))
+            .filter((u): u is string => Boolean(u))
+        )
+      );
+      if (normalizedUrls.length === 0) return;
+
+      const anchor =
+        typeof preferredWorldX === "number" && typeof preferredWorldY === "number"
+          ? { x: preferredWorldX, y: preferredWorldY }
+          : getPreferredWorldOrigin(DEFAULT_WEB_BOOKMARK_W, DEFAULT_WEB_BOOKMARK_H);
+
+      const ws = workspaceRef.current;
+      const curBoard = activeBoardRef.current;
+      const occupied: PixelRect[] = Array.from(baseRectsRef.current.values());
+      const now = new Date().toISOString();
+      const created: InfoWidget[] = [];
+
+      for (const url of normalizedUrls) {
+        const slot = findFreePixelSlot(
+          occupied,
+          DEFAULT_WEB_BOOKMARK_W,
+          DEFAULT_WEB_BOOKMARK_H,
+          anchor.x,
+          anchor.y,
+          SNAP_GAP
+        );
+        const rect: PixelRect = {
+          x: slot.x,
+          y: slot.y,
+          w: DEFAULT_WEB_BOOKMARK_W,
+          h: DEFAULT_WEB_BOOKMARK_H,
+        };
+        occupied.push(rect);
+
+        const initialTitle = getHostnameLabel(url);
+        created.push({
+          id: uid("info"),
+          boardId: curBoard.id,
+          title: initialTitle,
+          source: {
+            kind: "web",
+            url,
+            webDisplayMode: "bookmark",
+          },
+          schedule: {
+            mode: "manual",
+          },
+          layout: {
+            x: 0,
+            y: 0,
+            w: 3,
+            h: 1,
+            minW: 1,
+            minH: 1,
+            px: rect.x,
+            py: rect.y,
+            pw: rect.w,
+            ph: rect.h,
+          },
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      onUpdateRef.current({
+        ...ws,
+        infoWidgets: [...(ws.infoWidgets ?? []), ...created],
+      });
+      setEditMode(true);
+      focusRectInViewport(getWidgetPixelRect(created[created.length - 1]));
+
+      onNotifyRef.current(
+        created.length === 1
+          ? `已创建网页卡片「${created[0].title}」，正在获取图标与名称`
+          : `已创建 ${created.length} 张网页卡片，正在获取图标与名称`
+      );
+
+      // Fetch website title & favicon in parallel, preserving any user rename made meanwhile
+      const initialTitleMap = new Map(created.map((w) => [w.id, w.title]));
+      const metaEntries = await Promise.all(
+        created.map(async (w) => {
+          try {
+            const meta = await fetchWebMetadata(w.source.url ?? "");
+            return { id: w.id, meta };
+          } catch {
+            return { id: w.id, meta: null };
+          }
+        })
+      );
+
+      const metaById = new Map(
+        metaEntries
+          .filter((entry) => entry.meta !== null)
+          .map((entry) => [entry.id, entry.meta!])
+      );
+      if (metaById.size === 0) return;
+
+      const latestWs = workspaceRef.current;
+      const doneAt = new Date().toISOString();
+      let changed = false;
+      const updatedWidgets = (latestWs.infoWidgets ?? []).map((w) => {
+        const meta = metaById.get(w.id);
+        if (!meta) return w;
+        const initialTitle = initialTitleMap.get(w.id);
+        const userRenamed = initialTitle !== undefined && w.title !== initialTitle;
+        const nextTitle =
+          !userRenamed && meta.title ? meta.title : w.title;
+        const nextFavicon =
+          meta.faviconDataUrl || meta.faviconUrl || w.source.webFavicon;
+        if (nextTitle === w.title && nextFavicon === w.source.webFavicon) {
+          return w;
+        }
+        changed = true;
+        return {
+          ...w,
+          title: nextTitle,
+          source: {
+            ...w.source,
+            webFavicon: nextFavicon,
+          },
+          updatedAt: doneAt,
+        };
+      });
+
+      if (changed) {
+        onUpdateRef.current({
+          ...latestWs,
+          infoWidgets: updatedWidgets,
+        });
+      }
+    },
+    [getPreferredWorldOrigin, focusRectInViewport]
+  );
+
+  // Paste URL(s) anywhere on the Info canvas to create web cards directly
+  useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) => {
+      const el = target instanceof HTMLElement ? target : null;
+      if (!el) return false;
+      const tag = el.tagName;
+      return (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        el.isContentEditable
+      );
+    };
+
+    const onPaste = (e: ClipboardEvent) => {
+      if (
+        anyDialogOpen ||
+        renamingBoardId ||
+        renamingWidgetIdRef.current ||
+        isTypingTarget(e.target) ||
+        isTypingTarget(document.activeElement)
+      ) {
+        return;
+      }
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      const urls = extractWebUrlsFromText(text);
+      if (urls.length === 0) return;
+      e.preventDefault();
+      void createWebWidgetsFromUrls(urls);
+    };
+
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [anyDialogOpen, renamingBoardId, createWebWidgetsFromUrls]);
+
   // Native OS File Drag-and-Drop listener (Tauri WindowEvent::DragDrop -> "os-drag-drop")
   useEffect(() => {
     if (!isTauriRuntime() || anyDialogOpen) {
@@ -1093,13 +1552,17 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
         ? DEFAULT_CONTAINER_PX_W
         : preferredKind === "control"
           ? DEFAULT_CONTROL_SWITCH_W
-          : DEFAULT_WIDGET_PX_W;
+          : preferredKind === "web"
+            ? DEFAULT_WEB_BOOKMARK_W
+            : DEFAULT_WIDGET_PX_W;
     const defH =
       preferredKind === "container"
         ? DEFAULT_CONTAINER_PX_H
         : preferredKind === "control"
           ? DEFAULT_CONTROL_SWITCH_H
-          : DEFAULT_WIDGET_PX_H;
+          : preferredKind === "web"
+            ? DEFAULT_WEB_BOOKMARK_H
+            : DEFAULT_WIDGET_PX_H;
     const fallback = getPreferredWorldOrigin(defW, defH);
     const pxSlot = findFreePixelSlot(
       Array.from(baseRects.values()),
@@ -1245,6 +1708,194 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
     focusRectInViewport({ x: slot.x, y: slot.y, w, h });
     onNotify(controlType === "switch" ? "已新建开关元件（右键可绑定脚本）" : "已新建图标按钮（右键可绑定操作）");
   };
+
+  const handleOpenWebUrl = useCallback((widget: InfoWidget) => {
+    const raw = widget.source.url?.trim() ?? "";
+    const url = normalizeWebUrl(raw) ?? raw;
+    if (!url) {
+      onNotifyRef.current("该网页卡片未配置网址");
+      return;
+    }
+    void openExternalUrl(url).catch((err) => {
+      onNotifyRef.current(
+        `打开网址失败: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  }, []);
+
+  const handleCommitRenameWidget = useCallback(
+    (widget: InfoWidget, nextTitle: string) => {
+      setRenamingWidgetId(null);
+      const trimmed = nextTitle.trim();
+      if (!trimmed || trimmed === widget.title) return;
+      const ws = workspaceRef.current;
+      const now = new Date().toISOString();
+      onUpdateRef.current({
+        ...ws,
+        infoWidgets: (ws.infoWidgets ?? []).map((w) =>
+          w.id === widget.id ? { ...w, title: trimmed, updatedAt: now } : w
+        ),
+      });
+      onNotifyRef.current(`已重命名为「${trimmed}」`);
+    },
+    []
+  );
+
+  const handleRefreshWebMeta = useCallback(async (widget: InfoWidget) => {
+    const raw = widget.source.url?.trim() ?? "";
+    const url = normalizeWebUrl(raw) ?? raw;
+    if (!url) {
+      onNotifyRef.current("请先配置网页地址");
+      return;
+    }
+    try {
+      const meta = await fetchWebMetadata(url);
+      const ws = workspaceRef.current;
+      const now = new Date().toISOString();
+      const nextFavicon =
+        meta.faviconDataUrl || meta.faviconUrl || widget.source.webFavicon;
+      const nextTitle = meta.title || widget.title;
+      onUpdateRef.current({
+        ...ws,
+        infoWidgets: (ws.infoWidgets ?? []).map((w) =>
+          w.id === widget.id
+            ? {
+                ...w,
+                title: nextTitle,
+                source: {
+                  ...w.source,
+                  url: meta.url || url,
+                  webFavicon: nextFavicon,
+                },
+                updatedAt: now,
+              }
+            : w
+        ),
+      });
+      onNotifyRef.current(
+        meta.title || nextFavicon
+          ? `已刷新「${nextTitle || getHostnameLabel(url)}」的图标与名称`
+          : "未获取到新的图标或名称"
+      );
+    } catch (err) {
+      onNotifyRef.current(
+        `获取网页信息失败: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }, []);
+
+  const handleToggleWebMode = useCallback(
+    (widget: InfoWidget) => {
+      const nextMode =
+        widget.source.webDisplayMode === "embed" ? "bookmark" : "embed";
+      const curR = baseRectsRef.current.get(widget.id) ?? getWidgetPixelRect(widget);
+      const nextW =
+        nextMode === "embed"
+          ? Math.max(curR.w, DEFAULT_WEB_EMBED_W)
+          : DEFAULT_WEB_BOOKMARK_W;
+      const nextH =
+        nextMode === "embed"
+          ? Math.max(curR.h, DEFAULT_WEB_EMBED_H)
+          : DEFAULT_WEB_BOOKMARK_H;
+      const now = new Date().toISOString();
+      replaceBoardWidgets(
+        boardWidgetsRef.current.map((w) =>
+          w.id === widget.id
+            ? {
+                ...w,
+                source: {
+                  ...w.source,
+                  webDisplayMode: nextMode,
+                },
+                layout: applyPixelRectToLayout(w.layout, {
+                  x: curR.x,
+                  y: curR.y,
+                  w: nextW,
+                  h: nextH,
+                }),
+                updatedAt: now,
+              }
+            : w
+        )
+      );
+      setEditMode(true);
+      if (nextMode === "embed") {
+        focusRectInViewport({ x: curR.x, y: curR.y, w: nextW, h: nextH });
+      }
+      onNotifyRef.current(
+        nextMode === "embed" ? "已切换为内嵌网页视图" : "已切换为快捷书签视图"
+      );
+    },
+    [replaceBoardWidgets, focusRectInViewport]
+  );
+
+  const handleChangeWebDeviceMode = useCallback(
+    (
+      widget: InfoWidget,
+      mode: InfoWebDeviceMode,
+      resizeCard = mode !== "auto"
+    ) => {
+      const preset = getWebDevicePreset(mode);
+      const shouldResize = resizeCard && mode !== "auto";
+      const curR =
+        baseRectsRef.current.get(widget.id) ?? getWidgetPixelRect(widget);
+      const ws = workspaceRef.current;
+      const now = new Date().toISOString();
+      onUpdateRef.current({
+        ...ws,
+        infoWidgets: (ws.infoWidgets ?? []).map((w) =>
+          w.id === widget.id
+            ? {
+                ...w,
+                source: {
+                  ...w.source,
+                  webDeviceMode: mode,
+                },
+                layout: shouldResize
+                  ? applyPixelRectToLayout(w.layout, {
+                      x: curR.x,
+                      y: curR.y,
+                      w: preset.cardWidth,
+                      h: preset.cardHeight,
+                    })
+                  : w.layout,
+                updatedAt: now,
+              }
+            : w
+        ),
+      });
+      if (shouldResize) {
+        setEditMode(true);
+      }
+      onNotifyRef.current(
+        shouldResize
+          ? `已切换为${preset.label}，卡片尺寸已调整为 ${preset.cardWidth}×${preset.cardHeight}（可继续拖拽缩放）`
+          : `已切换为${preset.label}${preset.width ? ` (${preset.width}px)` : ""}`
+      );
+    },
+    []
+  );
+
+  const handleToggleCollapseWidget = useCallback((widget: InfoWidget) => {
+    const ws = workspaceRef.current;
+    const nextCollapsed = !widget.appearance?.collapsed;
+    const now = new Date().toISOString();
+    onUpdateRef.current({
+      ...ws,
+      infoWidgets: (ws.infoWidgets ?? []).map((w) =>
+        w.id === widget.id
+          ? {
+              ...w,
+              appearance: {
+                ...(w.appearance ?? {}),
+                collapsed: nextCollapsed ? true : undefined,
+              },
+              updatedAt: now,
+            }
+          : w
+      ),
+    });
+  }, []);
 
   const handleToggleControl = useCallback(
     (widget: InfoWidget) => {
@@ -1561,10 +2212,13 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
       }
     }
     return {
-      orderedWidgets: [...containers, ...nonContainers],
+      orderedWidgets: [
+        ...containers,
+        ...nonContainers.filter((w) => !hiddenWidgetIds.has(w.id)),
+      ],
       childCountByContainer: counts,
     };
-  }, [boardWidgets]);
+  }, [boardWidgets, hiddenWidgetIds]);
 
   // Synced viewport dot-matrix background
   const dotStepScreen = Math.max(8, DOT_GRID_STEP * zoom);
@@ -1933,8 +2587,9 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
 
           {/* Widgets (containers rendered before non-containers for clear stacking order) */}
           {orderedWidgets.map((widget) => {
-            const pixelRect =
+            const baseRect =
               activeRects.get(widget.id) ?? getWidgetPixelRect(widget);
+            const pixelRect = getVisualPixelRect(widget, baseRect);
 
             return (
               <InfoWidgetCard
@@ -1965,6 +2620,12 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
                 onTriggerControl={handleTriggerControl}
                 onRun={(w) => void onRunWidget(w, "manual")}
                 onCancel={(w) => void onCancelWidget(w.id)}
+                isRenaming={renamingWidgetId === widget.id}
+                onCommitRename={handleCommitRenameWidget}
+                onCancelRename={() => setRenamingWidgetId(null)}
+                onToggleCollapse={handleToggleCollapseWidget}
+                onOpenWebUrl={handleOpenWebUrl}
+                onChangeWebDeviceMode={handleChangeWebDeviceMode}
                 onEdit={(w) => {
                   setEditingWidget(w);
                   setInitialNewPos(undefined);
@@ -2130,6 +2791,11 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
             setInitialNewKind(undefined);
             setEditorOpen(true);
           }}
+          onRenameWidget={(w) => setRenamingWidgetId(w.id)}
+          onOpenWebUrl={handleOpenWebUrl}
+          onRefreshWebMeta={(w) => void handleRefreshWebMeta(w)}
+          onToggleWebMode={handleToggleWebMode}
+          onChangeWebDeviceMode={handleChangeWebDeviceMode}
           onViewLogs={(w) => setLogWidgetId(w.id)}
           onCopyPlainText={(w) => {
             const res = runtimeMap[w.id]?.lastResult;
@@ -2252,6 +2918,7 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
               ),
             });
           }}
+          onToggleCollapse={handleToggleCollapseWidget}
           onResetWidgetSize={(w) => {
             const curR = baseRects.get(w.id) ?? getWidgetPixelRect(w);
             const resetW =
@@ -2261,7 +2928,11 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
                   ? w.source.controlType === "icon"
                     ? DEFAULT_CONTROL_ICON_W
                     : DEFAULT_CONTROL_SWITCH_W
-                  : DEFAULT_WIDGET_PX_W;
+                  : w.source.kind === "web"
+                    ? w.source.webDisplayMode === "embed"
+                      ? getWebDevicePreset(w.source.webDeviceMode).cardWidth
+                      : DEFAULT_WEB_BOOKMARK_W
+                    : DEFAULT_WIDGET_PX_W;
             const resetH =
               w.source.kind === "container"
                 ? DEFAULT_CONTAINER_PX_H
@@ -2269,7 +2940,11 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
                   ? w.source.controlType === "icon"
                     ? DEFAULT_CONTROL_ICON_H
                     : DEFAULT_CONTROL_SWITCH_H
-                  : DEFAULT_WIDGET_PX_H;
+                  : w.source.kind === "web"
+                    ? w.source.webDisplayMode === "embed"
+                      ? getWebDevicePreset(w.source.webDeviceMode).cardHeight
+                      : DEFAULT_WEB_BOOKMARK_H
+                    : DEFAULT_WIDGET_PX_H;
             replaceBoardWidgets(
               boardWidgets.map((item) =>
                 item.id === w.id
@@ -2309,9 +2984,24 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
             replaceBoardWidgets(
               boardWidgets.map((item) => {
                 const r = arranged.get(item.id);
+                const clearedCollapse =
+                  item.id === container.id && item.appearance?.collapsed
+                    ? {
+                        appearance: {
+                          ...(item.appearance ?? {}),
+                          collapsed: undefined,
+                        },
+                      }
+                    : {};
                 return r
-                  ? { ...item, layout: applyPixelRectToLayout(item.layout, r) }
-                  : item;
+                  ? {
+                      ...item,
+                      ...clearedCollapse,
+                      layout: applyPixelRectToLayout(item.layout, r),
+                    }
+                  : item.id === container.id && item.appearance?.collapsed
+                    ? { ...item, ...clearedCollapse }
+                    : item;
               })
             );
             onNotify("已整理容器内卡片");
@@ -2370,6 +3060,7 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
             );
           }}
           onAddAtPos={(wx, wy) => openNewWidgetDialog(wx, wy)}
+          onAddWebAtPos={(wx, wy) => openNewWidgetDialog(wx, wy, "web")}
           onAddBlankContainer={(wx, wy) => handleAddBlankContainer(wx, wy)}
           onAddControlAtPos={(ct, wx, wy) => handleAddControlAtPos(ct, wx, wy)}
           onRefreshAll={() => void onRunAllWidgets(activeBoard.id)}

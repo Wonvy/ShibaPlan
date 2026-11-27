@@ -338,3 +338,103 @@ export async function sendTestPush(
     timeoutSec: 10,
   });
 }
+
+export interface WebMetadataResult {
+  url: string;
+  title?: string;
+  faviconDataUrl?: string;
+  faviconUrl?: string;
+}
+
+export function normalizeWebUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed || /\s/.test(trimmed)) return null;
+
+  let candidate = trimmed;
+  if (!/^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(candidate)) {
+    // Allow clean bare domains such as "github.com/Wonvy/ShibaPlan" or "localhost:5173"
+    if (
+      /^(localhost(:\d+)?|(\d{1,3}\.){3}\d{1,3}(:\d+)?|([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?)([/?#].*)?$/.test(
+        candidate
+      )
+    ) {
+      candidate = /^localhost|^(\d{1,3}\.){3}\d{1,3}/.test(candidate)
+        ? `http://${candidate}`
+        : `https://${candidate}`;
+    } else {
+      return null;
+    }
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    if (!parsed.hostname) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function extractWebUrlsFromText(text: string): string[] {
+  const parts = text
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0 || parts.length > 8) return [];
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    const normalized = normalizeWebUrl(part);
+    if (!normalized) {
+      return [];
+    }
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      urls.push(normalized);
+    }
+  }
+  return urls;
+}
+
+export function getHostnameLabel(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "") || url;
+  } catch {
+    return url;
+  }
+}
+
+export function getFallbackFaviconUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(
+      parsed.hostname
+    )}&sz=64`;
+  } catch {
+    return "";
+  }
+}
+
+export async function fetchWebMetadata(
+  rawUrl: string
+): Promise<WebMetadataResult> {
+  const normalized = normalizeWebUrl(rawUrl) ?? rawUrl.trim();
+  if (isTauriRuntime()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      return await invoke<WebMetadataResult>("fetch_web_metadata", {
+        url: normalized,
+      });
+    } catch {
+      // Fall back gracefully
+    }
+  }
+  return {
+    url: normalized,
+    title: getHostnameLabel(normalized),
+    faviconUrl: getFallbackFaviconUrl(normalized),
+  };
+}

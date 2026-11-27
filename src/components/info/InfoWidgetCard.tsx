@@ -1,17 +1,37 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
+  Check,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Copy,
+  ExternalLink,
+  Frame,
+  Globe,
   Loader2,
+  Monitor,
+  MonitorSmartphone,
   MoreVertical,
   Pause,
   Play,
   Radio,
+  RefreshCw,
+  Smartphone,
   Square,
+  Tablet,
 } from "lucide-react";
-import { InfoCardStatus, InfoWidget } from "../../types";
-import { InfoWidgetRuntimeState } from "../../lib/infoRunner";
-import { PixelRect } from "../../lib/infoGrid";
+import { InfoCardStatus, InfoWebDeviceMode, InfoWidget } from "../../types";
+import {
+  getFallbackFaviconUrl,
+  getHostnameLabel,
+  InfoWidgetRuntimeState,
+} from "../../lib/infoRunner";
+import {
+  getWebDevicePreset,
+  PixelRect,
+  WEB_DEVICE_PRESETS,
+} from "../../lib/infoGrid";
 import {
   buildPushUrl,
   describeSchedule,
@@ -19,6 +39,183 @@ import {
 } from "../../lib/infoProtocol";
 import { renderControlIcon } from "./controlIcons";
 import { InfoContentRenderer } from "./InfoContentRenderer";
+
+export const WebFavicon: React.FC<{
+  url?: string;
+  favicon?: string;
+  className?: string;
+  iconClassName?: string;
+}> = ({ url = "", favicon, className = "h-5 w-5", iconClassName = "h-4 w-4" }) => {
+  const candidates = useMemo(() => {
+    const list: string[] = [];
+    if (favicon?.trim()) list.push(favicon.trim());
+    try {
+      if (url) {
+        const parsed = new URL(url);
+        const ico = `${parsed.origin}/favicon.ico`;
+        if (!list.includes(ico)) list.push(ico);
+        const s2 = getFallbackFaviconUrl(url);
+        if (s2 && !list.includes(s2)) list.push(s2);
+      }
+    } catch {
+      // ignore invalid url
+    }
+    return list;
+  }, [url, favicon]);
+
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    setStep(0);
+  }, [url, favicon]);
+
+  const src = candidates[step];
+  if (!src) {
+    return <Globe className={`${iconClassName} shrink-0 text-primary`} />;
+  }
+
+  return (
+    <img
+      src={src}
+      alt=""
+      draggable={false}
+      onError={() => setStep((s) => s + 1)}
+      className={`${className} shrink-0 rounded object-contain`}
+    />
+  );
+};
+
+export function renderWebDeviceIcon(
+  mode: InfoWebDeviceMode,
+  className = "h-3 w-3"
+) {
+  switch (mode) {
+    case "mobile":
+      return <Smartphone className={className} />;
+    case "tablet":
+      return <Tablet className={className} />;
+    case "desktop":
+      return <Monitor className={className} />;
+    default:
+      return <MonitorSmartphone className={className} />;
+  }
+}
+
+export const WebEmbedViewport: React.FC<{
+  url: string;
+  title: string;
+  deviceMode?: InfoWebDeviceMode;
+  embedKey?: number;
+  interactive?: boolean;
+  fallbackWidth?: number;
+  fallbackHeight?: number;
+  emptyText?: string;
+}> = ({
+  url,
+  title,
+  deviceMode = "auto",
+  embedKey = 0,
+  interactive = true,
+  fallbackWidth = 460,
+  fallbackHeight = 300,
+  emptyText = "未配置网页链接",
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ w: number; h: number }>({
+    w: fallbackWidth,
+    h: fallbackHeight,
+  });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const updateSize = (width: number, height: number) => {
+      const nw = Math.round(width);
+      const nh = Math.round(height);
+      if (nw <= 20 || nh <= 20) return;
+      setSize((prev) =>
+        prev.w === nw && prev.h === nh ? prev : { w: nw, h: nh }
+      );
+    };
+    updateSize(el.clientWidth, el.clientHeight);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        updateSize(entry.contentRect.width, entry.contentRect.height);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  if (!url) {
+    return (
+      <div
+        ref={containerRef}
+        className="flex h-full min-h-0 flex-1 items-center justify-center bg-background text-xs text-muted-foreground"
+      >
+        {emptyText}
+      </div>
+    );
+  }
+
+  const preset = getWebDevicePreset(deviceMode);
+  if (preset.width == null) {
+    return (
+      <div
+        ref={containerRef}
+        className="relative min-h-0 flex-1 bg-background"
+      >
+        <iframe
+          key={`${embedKey}-${url}`}
+          src={url}
+          title={title}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+          className={`h-full w-full border-0 bg-white ${
+            interactive ? "" : "pointer-events-none"
+          }`}
+        />
+      </div>
+    );
+  }
+
+  const vpW = preset.width;
+  const scale = Math.max(0.15, Math.min(1, size.w / vpW));
+  const frameW = Math.min(size.w, Math.round(vpW * scale));
+  const vpH = Math.max(120, Math.ceil(size.h / scale));
+  const isFramed = frameW < size.w - 2;
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative flex min-h-0 flex-1 items-start justify-center overflow-hidden ${
+        isFramed ? "bg-muted/35" : "bg-background"
+      }`}
+    >
+      <div
+        style={{ width: frameW, height: size.h }}
+        className={`relative overflow-hidden bg-white ${
+          isFramed ? "border-x border-border/70 shadow-sm" : ""
+        }`}
+      >
+        <iframe
+          key={`${embedKey}-${url}`}
+          src={url}
+          title={title}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+          style={{
+            width: vpW,
+            height: vpH,
+            transform: `scale(${scale})`,
+            transformOrigin: "0 0",
+          }}
+          className={`block border-0 bg-white ${
+            interactive ? "" : "pointer-events-none"
+          }`}
+        />
+      </div>
+    </div>
+  );
+};
 
 export type ResizeEdge = "se" | "e" | "s" | "w" | "n";
 
@@ -35,6 +232,16 @@ interface InfoWidgetCardProps {
   isGroupMoving?: boolean;
   isResizing: boolean;
   anyInteracting: boolean;
+  isRenaming?: boolean;
+  onCommitRename?: (widget: InfoWidget, nextTitle: string) => void;
+  onCancelRename?: () => void;
+  onToggleCollapse?: (widget: InfoWidget) => void;
+  onOpenWebUrl?: (widget: InfoWidget) => void;
+  onChangeWebDeviceMode?: (
+    widget: InfoWidget,
+    mode: InfoWebDeviceMode,
+    resizeCard?: boolean
+  ) => void;
   onStartDrag: (e: React.PointerEvent, widget: InfoWidget) => void;
   onStartResize: (
     e: React.PointerEvent,
@@ -90,6 +297,12 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
   isGroupMoving = false,
   isResizing,
   anyInteracting,
+  isRenaming = false,
+  onCommitRename,
+  onCancelRename,
+  onToggleCollapse,
+  onOpenWebUrl,
+  onChangeWebDeviceMode,
   onStartDrag,
   onStartResize,
   onToggleControl,
@@ -118,17 +331,121 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
 
   const isContainer = widget.source.kind === "container";
   const isControl = widget.source.kind === "control";
+  const isWeb = widget.source.kind === "web";
+  const isWebEmbed = isWeb && widget.source.webDisplayMode === "embed";
+  const webDeviceMode: InfoWebDeviceMode = widget.source.webDeviceMode ?? "auto";
+  const activeDevicePreset = getWebDevicePreset(webDeviceMode);
+  const webUrl = widget.source.url?.trim() ?? "";
+  const webHost = webUrl ? getHostnameLabel(webUrl) : "未设置网址";
+  const webTitle = widget.title.trim() || webHost;
+
   const isRunning = Boolean(runtime?.running);
   const status: InfoCardStatus = parsed?.status ?? "info";
   const accent = widget.appearance?.accentColor;
   const controlDisplayLabel =
     widget.title.trim() || widget.source.controlLabel?.trim() || "";
   const hasVisibleTitle = Boolean(
-    (!isContainer && !isControl && parsed?.title?.trim()) || widget.title.trim()
+    isWebEmbed ||
+      (!isContainer && !isControl && !isWeb && parsed?.title?.trim()) ||
+      widget.title.trim()
   );
+  const isCollapsed = Boolean(widget.appearance?.collapsed);
   const effectiveHideHeader =
-    isControl || Boolean(widget.appearance?.hideHeader) || !hasVisibleTitle;
+    !isCollapsed &&
+    (isControl ||
+      (isWeb && !isWebEmbed) ||
+      (!isRenaming && (Boolean(widget.appearance?.hideHeader) || !hasVisibleTitle)));
   const activeTransform = isDragging || isResizing;
+
+  const [renameDraft, setRenameDraft] = useState(widget.title);
+  const [embedKey, setEmbedKey] = useState(0);
+  const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
+  const [syncCardSize, setSyncCardSize] = useState<boolean>(() => {
+    try {
+      const saved = window.localStorage.getItem(
+        "shibaplan:info:web-device-sync-size"
+      );
+      return saved === null ? true : saved === "true";
+    } catch {
+      return true;
+    }
+  });
+  const [deviceMenuPos, setDeviceMenuPos] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const deviceBtnRef = useRef<HTMLButtonElement>(null);
+  const deviceMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!deviceMenuOpen) return;
+    const onPointerDown = (ev: PointerEvent) => {
+      const target = ev.target as Node | null;
+      if (
+        (target && deviceBtnRef.current?.contains(target)) ||
+        (target && deviceMenuRef.current?.contains(target))
+      ) {
+        return;
+      }
+      setDeviceMenuOpen(false);
+    };
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setDeviceMenuOpen(false);
+    };
+    const closeMenu = () => setDeviceMenuOpen(false);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("wheel", closeMenu, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("wheel", closeMenu, true);
+    };
+  }, [deviceMenuOpen]);
+
+  useEffect(() => {
+    if (isRenaming) {
+      setRenameDraft(
+        widget.title ||
+          (isControl ? widget.source.controlLabel ?? "" : isWeb ? webHost : "")
+      );
+      window.requestAnimationFrame(() => {
+        renameInputRef.current?.focus();
+        renameInputRef.current?.select();
+      });
+    }
+  }, [isRenaming, widget.title, isControl, widget.source.controlLabel, isWeb, webHost]);
+
+  const submitRename = () => {
+    onCommitRename?.(widget, renameDraft);
+  };
+
+  const renderInlineRenameInput = (extraCls = "") => (
+    <input
+      ref={renameInputRef}
+      value={renameDraft}
+      onChange={(e) => setRenameDraft(e.target.value)}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onBlur={submitRename}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          submitRename();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onCancelRename?.();
+        }
+      }}
+      placeholder="输入卡片名称..."
+      className={`h-6 w-full min-w-0 rounded border border-primary/70 bg-background px-1.5 text-xs font-medium text-foreground focus:outline-none ${extraCls}`}
+    />
+  );
 
   const isPush = widget.source.kind === "push";
   const pushEndpoint = isPush
@@ -170,12 +487,16 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
     <div
       data-info-widget={widget.id}
       onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("button, a, input, select, pre, code, table")) return;
+        if (locked && !panMode && isCollapsed && onToggleCollapse) {
+          e.stopPropagation();
+          onToggleCollapse(widget);
+          return;
+        }
         if (!locked && !panMode) {
-          const target = e.target as HTMLElement;
-          if (!target.closest("button, a, input, select, pre, code, table")) {
-            e.stopPropagation();
-            onEdit(widget);
-          }
+          e.stopPropagation();
+          onEdit(widget);
         }
       }}
       onContextMenu={(e) => {
@@ -199,19 +520,55 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
         />
       )}
 
-      {/* Header (hidden when titleless or hideHeader is enabled) */}
+      {/* Header (always shown when collapsed; hidden when titleless or hideHeader is enabled while expanded) */}
       {!effectiveHideHeader ? (
         <div
           onPointerDown={(e) => {
             if (!locked && !panMode) onStartDrag(e, widget);
           }}
-          className={`flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-surface/55 px-3 select-none ${
+          className={`flex items-center justify-between gap-2 bg-surface/55 px-2.5 select-none ${
+            isCollapsed
+              ? "min-h-0 flex-1"
+              : "h-9 shrink-0 border-b border-border/60"
+          } ${
             locked || panMode ? "cursor-default" : "cursor-grab active:cursor-grabbing"
           }`}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            {!isContainer &&
-              (isRunning ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            {onToggleCollapse && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleCollapse(widget);
+                }}
+                title={isCollapsed ? "展开卡片" : "折叠卡片"}
+                aria-label={isCollapsed ? "展开卡片" : "折叠卡片"}
+                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
+            {isWeb ? (
+              <WebFavicon
+                url={webUrl}
+                favicon={widget.source.webFavicon}
+                className="h-3.5 w-3.5"
+                iconClassName="h-3.5 w-3.5"
+              />
+            ) : isContainer ? (
+              <Frame className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            ) : isControl ? (
+              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-primary">
+                {renderControlIcon(widget.source.controlIcon, "h-3.5 w-3.5")}
+              </span>
+            ) : (
+              isRunning ? (
                 <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
               ) : (
                 <span
@@ -220,11 +577,28 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
                     parsed ? STATUS_DOT_CLS[status] : "bg-muted-foreground/45"
                   }`}
                 />
-              ))}
-            <span className="truncate text-[12.5px] font-semibold text-foreground">
-              {(!isContainer && !isControl && parsed?.title) || widget.title}
-            </span>
-            {!isContainer && !isControl && parsed?.badge && (
+              )
+            )}
+            {isRenaming ? (
+              renderInlineRenameInput()
+            ) : (
+              <span className="truncate text-[12.5px] font-semibold text-foreground">
+                {isWeb
+                  ? webTitle
+                  : isContainer
+                    ? widget.title.trim() || "空白卡片"
+                    : isControl
+                      ? controlDisplayLabel ||
+                        (widget.source.controlType === "icon" ? "图标" : "开关")
+                      : parsed?.title || widget.title || "未命名卡片"}
+              </span>
+            )}
+            {isContainer && childCount > 0 && (
+              <span className="shrink-0 rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                {childCount} 项
+              </span>
+            )}
+            {!isContainer && !isControl && !isWeb && parsed?.badge && (
               <span className="shrink-0 rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
                 {parsed.badge}
               </span>
@@ -235,6 +609,141 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
             className="flex shrink-0 items-center gap-1"
             onPointerDown={(e) => e.stopPropagation()}
           >
+            {isWebEmbed && !isCollapsed && (
+              <>
+                <button
+                  ref={deviceBtnRef}
+                  type="button"
+                  onClick={() => {
+                    if (deviceMenuOpen) {
+                      setDeviceMenuOpen(false);
+                      return;
+                    }
+                    const rect = deviceBtnRef.current?.getBoundingClientRect();
+                    if (rect) {
+                      const menuW = 192;
+                      const left = Math.max(
+                        8,
+                        Math.min(rect.right - menuW, window.innerWidth - menuW - 8)
+                      );
+                      const top = Math.max(
+                        8,
+                        Math.min(rect.bottom + 4, window.innerHeight - 210)
+                      );
+                      setDeviceMenuPos({ left, top });
+                    }
+                    setDeviceMenuOpen(true);
+                  }}
+                  title={`模拟设备：${activeDevicePreset.label}${
+                    activeDevicePreset.width
+                      ? ` (${activeDevicePreset.width}px)`
+                      : ""
+                  }`}
+                  className={`inline-flex h-6 items-center justify-center rounded-md transition-colors ${
+                    webDeviceMode !== "auto"
+                      ? "gap-1 bg-primary/10 px-1.5 text-[10.5px] font-medium text-primary hover:bg-primary/15"
+                      : "w-6 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
+                  {renderWebDeviceIcon(webDeviceMode, "h-3 w-3")}
+                  {webDeviceMode !== "auto" && (
+                    <span>{activeDevicePreset.shortLabel}</span>
+                  )}
+                </button>
+                {deviceMenuOpen &&
+                  deviceMenuPos &&
+                  typeof document !== "undefined" &&
+                  createPortal(
+                    <div
+                      ref={deviceMenuRef}
+                      style={{
+                        left: deviceMenuPos.left,
+                        top: deviceMenuPos.top,
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      className="fixed z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-popover-soft"
+                    >
+                      <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                        模拟设备视口
+                      </div>
+                      {WEB_DEVICE_PRESETS.map((preset) => {
+                        const selected = webDeviceMode === preset.id;
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => {
+                              onChangeWebDeviceMode?.(
+                                widget,
+                                preset.id,
+                                syncCardSize && preset.id !== "auto"
+                              );
+                              setDeviceMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${
+                              selected
+                                ? "bg-primary/10 font-medium text-primary"
+                                : "text-popover-foreground hover:bg-accent"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              {renderWebDeviceIcon(preset.id, "h-3.5 w-3.5")}
+                              <span>{preset.label}</span>
+                            </span>
+                            <span className="flex items-center gap-1 font-mono text-[10px] text-muted-foreground">
+                              <span>
+                                {preset.width ? `${preset.width}px` : "默认"}
+                              </span>
+                              {selected && <Check className="h-3 w-3 text-primary" />}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      <label
+                        title="切换为手机 / iPad / 桌面模式时自动匹配对应卡片尺寸，之后仍可自由拖拽缩放"
+                        className="mt-1 flex cursor-pointer items-center gap-2 border-t border-border/60 px-2 pt-1.5 pb-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={syncCardSize}
+                          onChange={(e) => {
+                            const next = e.target.checked;
+                            setSyncCardSize(next);
+                            try {
+                              window.localStorage.setItem(
+                                "shibaplan:info:web-device-sync-size",
+                                String(next)
+                              );
+                            } catch {
+                              // ignore storage errors
+                            }
+                          }}
+                          className="h-3 w-3 rounded accent-primary"
+                        />
+                        <span>同步调整卡片尺寸</span>
+                      </label>
+                    </div>,
+                    document.body
+                  )}
+                <button
+                  type="button"
+                  onClick={() => setEmbedKey((k) => k + 1)}
+                  title="重新加载网页"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenWebUrl?.(widget)}
+                  title="在浏览器中打开"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+              </>
+            )}
             {isStalePush && (
               <span
                 title={`超过 ${widget.source.staleAfterMinutes} 分钟未收到推送`}
@@ -280,7 +789,7 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
             )}
 
             <div className="hidden items-center gap-0.5 group-hover:flex">
-              {!isContainer && !isControl && (
+              {!isContainer && !isControl && !isWeb && (
                 isPush ? (
                   <button
                     type="button"
@@ -327,7 +836,7 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
             </div>
           </div>
         </div>
-      ) : !isContainer && !isControl ? (
+      ) : !isContainer && !isControl && !isWeb ? (
         /* Compact floating quick-run bar when header is hidden on regular data cards */
         <div
           onPointerDown={(e) => {
@@ -361,11 +870,40 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
               <Play className="h-2.5 w-2.5" />
             )}
           </button>
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCollapse(widget);
+              }}
+              title="折叠卡片"
+              aria-label="折叠卡片"
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ChevronDown className="h-2.5 w-2.5" />
+            </button>
+          )}
         </div>
+      ) : isContainer && onToggleCollapse ? (
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleCollapse(widget);
+          }}
+          title="折叠空白卡片"
+          aria-label="折叠空白卡片"
+          className="absolute right-2 top-2 z-20 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/70 bg-popover/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur-sm transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
       ) : null}
 
       {/* Body Content */}
-      {isContainer ? (
+      {isCollapsed ? null : isContainer ? (
         <div
           onPointerDown={(e) => {
             if (!locked && !panMode) {
@@ -475,18 +1013,119 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
               )}
             </button>
           )}
-          {controlDisplayLabel && (
-            <span
-              className={`truncate text-[11px] font-medium text-muted-foreground ${
-                widget.source.controlLabelPosition === "right"
-                  ? "min-w-0 flex-1 text-left"
-                  : "max-w-full"
-              }`}
-            >
-              {controlDisplayLabel}
-            </span>
+          {isRenaming ? (
+            <div className="w-full max-w-[140px]">
+              {renderInlineRenameInput("text-center text-[11px]")}
+            </div>
+          ) : (
+            controlDisplayLabel && (
+              <span
+                className={`truncate text-[11px] font-medium text-muted-foreground ${
+                  widget.source.controlLabelPosition === "right"
+                    ? "min-w-0 flex-1 text-left"
+                    : "max-w-full"
+                }`}
+              >
+                {controlDisplayLabel}
+              </span>
+            )
           )}
         </div>
+      ) : isWebEmbed ? (
+        <WebEmbedViewport
+          url={webUrl}
+          title={webTitle}
+          deviceMode={webDeviceMode}
+          embedKey={embedKey}
+          interactive={!activeTransform && !anyInteracting}
+          fallbackWidth={Math.max(120, pixelRect.w - 2)}
+          fallbackHeight={Math.max(80, pixelRect.h - 38)}
+        />
+      ) : isWeb ? (
+        (() => {
+          const isCompactTile =
+            pixelRect.w < 136 || pixelRect.h >= pixelRect.w * 0.85;
+          return (
+            <div
+              onPointerDown={(e) => {
+                if (!locked && !panMode && !isRenaming) {
+                  const target = e.target as HTMLElement;
+                  if (!target.closest("button, a, input")) {
+                    onStartDrag(e, widget);
+                  }
+                }
+              }}
+              onClick={() => {
+                if (locked && !panMode && !isRenaming && webUrl) {
+                  onOpenWebUrl?.(widget);
+                }
+              }}
+              title={webUrl ? `${webTitle}\n${webUrl}` : webTitle}
+              className={`group/web relative flex min-h-0 flex-1 select-none ${
+                isCompactTile
+                  ? "flex-col items-center justify-center gap-1.5 px-2.5 py-2 text-center"
+                  : "flex-row items-center gap-2.5 px-3 py-2 text-left"
+              } ${
+                locked && !panMode
+                  ? "cursor-pointer transition-colors hover:bg-accent/35"
+                  : panMode
+                    ? "cursor-default"
+                    : "cursor-grab active:cursor-grabbing"
+              }`}
+            >
+              <div
+                className={`flex shrink-0 items-center justify-center rounded-xl border border-border/70 bg-surface/70 shadow-sm ${
+                  isCompactTile ? "h-9 w-9" : "h-8 w-8"
+                }`}
+              >
+                <WebFavicon
+                  url={webUrl}
+                  favicon={widget.source.webFavicon}
+                  className={isCompactTile ? "h-5 w-5" : "h-4.5 w-4.5"}
+                  iconClassName={isCompactTile ? "h-5 w-5" : "h-4 w-4"}
+                />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                {isRenaming ? (
+                  renderInlineRenameInput(
+                    isCompactTile ? "text-center text-[11px]" : ""
+                  )
+                ) : (
+                  <>
+                    <div
+                      className={`truncate font-medium text-foreground ${
+                        isCompactTile ? "text-[11px]" : "text-xs"
+                      }`}
+                    >
+                      {webTitle}
+                    </div>
+                    {!isCompactTile && (
+                      <div className="truncate font-mono text-[10px] text-muted-foreground">
+                        {webHost}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {!isCompactTile && !isRenaming && webUrl && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenWebUrl?.(widget);
+                  }}
+                  title="打开网页"
+                  className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/web:opacity-100"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          );
+        })()
       ) : (
         /* Body Content (allow drag on hidden-header mode empty area) */
         <div
@@ -527,40 +1166,46 @@ export const InfoWidgetCard: React.FC<InfoWidgetCardProps> = ({
         </div>
       )}
 
-      {/* 5-Edge Resize Handles (hidden when locked or panMode) */}
+      {/* 5-Edge Resize Handles (hidden when locked or panMode; vertical edges hidden when collapsed) */}
       {!locked && !panMode && (
         <>
-          <div
-            onPointerDown={(e) => onStartResize(e, widget, "n")}
-            title="向上调整高度"
-            className="absolute left-3 right-3 top-0 z-20 h-1 cursor-ns-resize opacity-0 transition-opacity hover:bg-primary/35 group-hover:opacity-100"
-          />
+          {!isCollapsed && (
+            <div
+              onPointerDown={(e) => onStartResize(e, widget, "n")}
+              title="向上调整高度"
+              className="absolute left-3 right-3 top-0 z-20 h-1 cursor-ns-resize opacity-0 transition-opacity hover:bg-primary/35 group-hover:opacity-100"
+            />
+          )}
           <div
             onPointerDown={(e) => onStartResize(e, widget, "w")}
             title="向左调整宽度"
-            className={`absolute bottom-3 left-0 ${
-              effectiveHideHeader ? "top-2.5" : "top-9"
-            } z-20 w-1.5 cursor-ew-resize opacity-0 transition-opacity hover:bg-primary/35 group-hover:opacity-100`}
+            className={`absolute ${
+              isCollapsed ? "bottom-1.5 top-1.5" : `bottom-3 ${effectiveHideHeader ? "top-2.5" : "top-9"}`
+            } left-0 z-20 w-1.5 cursor-ew-resize opacity-0 transition-opacity hover:bg-primary/35 group-hover:opacity-100`}
           />
           <div
             onPointerDown={(e) => onStartResize(e, widget, "e")}
             title="向右调整宽度"
-            className={`absolute bottom-3 right-0 ${
-              effectiveHideHeader ? "top-2.5" : "top-9"
-            } z-20 w-1.5 cursor-ew-resize opacity-0 transition-opacity hover:bg-primary/35 group-hover:opacity-100`}
+            className={`absolute ${
+              isCollapsed ? "bottom-1.5 top-1.5" : `bottom-3 ${effectiveHideHeader ? "top-2.5" : "top-9"}`
+            } right-0 z-20 w-1.5 cursor-ew-resize opacity-0 transition-opacity hover:bg-primary/35 group-hover:opacity-100`}
           />
-          <div
-            onPointerDown={(e) => onStartResize(e, widget, "s")}
-            title="向下调整高度"
-            className="absolute bottom-0 left-3 right-3 z-20 h-1.5 cursor-ns-resize opacity-0 transition-opacity hover:bg-primary/35 group-hover:opacity-100"
-          />
-          <div
-            onPointerDown={(e) => onStartResize(e, widget, "se")}
-            title="拖拽调整卡片大小"
-            className="absolute bottom-0.5 right-0.5 z-20 flex h-3.5 w-3.5 cursor-nwse-resize items-end justify-end p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-          >
-            <span className="h-2 w-2 rounded-br-[2px] border-b-2 border-r-2 border-muted-foreground/65" />
-          </div>
+          {!isCollapsed && (
+            <>
+              <div
+                onPointerDown={(e) => onStartResize(e, widget, "s")}
+                title="向下调整高度"
+                className="absolute bottom-0 left-3 right-3 z-20 h-1.5 cursor-ns-resize opacity-0 transition-opacity hover:bg-primary/35 group-hover:opacity-100"
+              />
+              <div
+                onPointerDown={(e) => onStartResize(e, widget, "se")}
+                title="拖拽调整卡片大小"
+                className="absolute bottom-0.5 right-0.5 z-20 flex h-3.5 w-3.5 cursor-nwse-resize items-end justify-end p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <span className="h-2 w-2 rounded-br-[2px] border-b-2 border-r-2 border-muted-foreground/65" />
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

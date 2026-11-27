@@ -1,3 +1,4 @@
+use base64::Engine;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -1509,4 +1510,366 @@ pub fn sync_info_push_rules(
             map.insert(key, tok);
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebMetadataResult {
+    pub url: String,
+    pub title: Option<String>,
+    pub favicon_data_url: Option<String>,
+    pub favicon_url: Option<String>,
+}
+
+fn split_url_origin(url: &str) -> Option<(String, String, String)> {
+    let scheme_end = url.find("://")?;
+    let scheme = &url[..scheme_end];
+    let after_scheme = &url[scheme_end + 3..];
+    let authority_end = after_scheme.find(['/', '?', '#']).unwrap_or(after_scheme.len());
+    let authority = &after_scheme[..authority_end];
+    if authority.is_empty() {
+        return None;
+    }
+    let host = authority
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(authority)
+        .split(':')
+        .next()
+        .unwrap_or(authority)
+        .to_string();
+    let origin = format!("{}://{}", scheme, authority);
+    Some((scheme.to_string(), origin, host))
+}
+
+fn resolve_web_asset_url(base_url: &str, href: &str) -> Option<String> {
+    let trimmed = href.trim();
+    if trimmed.is_empty() || trimmed.starts_with("data:") || trimmed.starts_with("javascript:") {
+        return None;
+    }
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return Some(trimmed.to_string());
+    }
+    let (scheme, origin, _) = split_url_origin(base_url)?;
+    if trimmed.starts_with("//") {
+        return Some(format!("{}:{}", scheme, trimmed));
+    }
+    if trimmed.starts_with('/') {
+        return Some(format!("{}{}", origin, trimmed));
+    }
+    let path_part = base_url.split(['?', '#']).next().unwrap_or(base_url);
+    let base_dir = if let Some(slash) = path_part.rfind('/') {
+        if slash > origin.len() {
+            &path_part[..=slash]
+        } else {
+            &origin
+        }
+    } else {
+        &origin
+    };
+    if base_dir.ends_with('/') {
+        Some(format!("{}{}", base_dir, trimmed))
+    } else {
+        Some(format!("{}/{}", base_dir, trimmed))
+    }
+}
+
+fn decode_html_entities(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        let after = &rest[amp + 1..];
+        if let Some(semi) = after.find(';') {
+            if semi <= 12 {
+                let entity = &after[..semi];
+                let decoded: Option<char> = if entity.eq_ignore_ascii_case("amp") {
+                    Some('&')
+                } else if entity.eq_ignore_ascii_case("lt") {
+                    Some('<')
+                } else if entity.eq_ignore_ascii_case("gt") {
+                    Some('>')
+                } else if entity.eq_ignore_ascii_case("quot") {
+                    Some('"')
+                } else if entity.eq_ignore_ascii_case("apos") || entity == "#39" {
+                    Some('\'')
+                } else if entity.eq_ignore_ascii_case("nbsp") {
+                    Some(' ')
+                } else if let Some(hex) = entity.strip_prefix("#x").or_else(|| entity.strip_prefix("#X")) {
+                    u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
+                } else if let Some(dec) = entity.strip_prefix('#') {
+                    dec.parse::<u32>().ok().and_then(char::from_u32)
+                } else {
+                    None
+                };
+                if let Some(ch) = decoded {
+                    out.push(ch);
+                    rest = &after[semi + 1..];
+                    continue;
+                }
+            }
+        }
+        out.push('&');
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+fn clean_html_text(raw: &str) -> Option<String> {
+    let decoded = decode_html_entities(raw);
+    let collapsed: String = decoded.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = collapsed.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.chars().take(120).collect())
+    }
+}
+
+fn extract_tag_attr(tag_raw: &str, attr_name: &str) -> Option<String> {
+    let lower = tag_raw.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let needle = attr_name.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        let rel = lower[pos..].find(attr_name)?;
+        let idx = pos + rel;
+        let prev_ok = idx == 0 || bytes[idx - 1].is_ascii_whitespace();
+        let after_name = idx + needle.len();
+        if prev_ok && after_name < bytes.len() {
+            let mut j = after_name;
+            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'=' {
+                j += 1;
+                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j >= bytes.len() {
+                    return None;
+                }
+                let q = bytes[j];
+                if q == b'"' || q == b'\'' {
+                    let val_start = j + 1;
+                    if let Some(end_rel) = tag_raw[val_start..].find(q as char) {
+                        return Some(tag_raw[val_start..val_start + end_rel].to_string());
+                    }
+                    return None;
+                } else {
+                    let val_start = j;
+                    let mut val_end = val_start;
+                    while val_end < bytes.len()
+                        && !bytes[val_end].is_ascii_whitespace()
+                        && bytes[val_end] != b'>'
+                    {
+                        val_end += 1;
+                    }
+                    return Some(tag_raw[val_start..val_end].to_string());
+                }
+            }
+        }
+        pos = after_name;
+    }
+    None
+}
+
+fn extract_html_title(html: &str, lower: &str) -> Option<String> {
+    if let Some(open_idx) = lower.find("<title") {
+        if let Some(gt_rel) = lower[open_idx..].find('>') {
+            let content_start = open_idx + gt_rel + 1;
+            if let Some(close_rel) = lower[content_start..].find("</title>") {
+                if let Some(cleaned) = clean_html_text(&html[content_start..content_start + close_rel]) {
+                    return Some(cleaned);
+                }
+            }
+        }
+    }
+
+    let mut pos = 0;
+    while let Some(rel) = lower[pos..].find("<meta") {
+        let tag_start = pos + rel;
+        let Some(gt_rel) = lower[tag_start..].find('>') else {
+            break;
+        };
+        let tag = &html[tag_start..=tag_start + gt_rel];
+        let prop = extract_tag_attr(tag, "property")
+            .or_else(|| extract_tag_attr(tag, "name"))
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if prop == "og:title" || prop == "twitter:title" || prop == "application-name" {
+            if let Some(content) = extract_tag_attr(tag, "content") {
+                if let Some(cleaned) = clean_html_text(&content) {
+                    return Some(cleaned);
+                }
+            }
+        }
+        pos = tag_start + gt_rel + 1;
+    }
+    None
+}
+
+fn extract_html_favicon_candidates(base_url: &str, html: &str, lower: &str) -> Vec<String> {
+    let mut candidates: Vec<(u8, String)> = Vec::new();
+    let mut pos = 0;
+    while let Some(rel) = lower[pos..].find("<link") {
+        let tag_start = pos + rel;
+        let Some(gt_rel) = lower[tag_start..].find('>') else {
+            break;
+        };
+        let tag = &html[tag_start..=tag_start + gt_rel];
+        if let Some(rel_attr) = extract_tag_attr(tag, "rel") {
+            let rel_lower = rel_attr.to_ascii_lowercase();
+            let tokens: Vec<&str> = rel_lower.split_whitespace().collect();
+            let priority = if tokens.contains(&"icon") {
+                0
+            } else if tokens.contains(&"apple-touch-icon") || tokens.contains(&"apple-touch-icon-precomposed") {
+                1
+            } else {
+                99
+            };
+            if priority < 99 {
+                if let Some(href) = extract_tag_attr(tag, "href") {
+                    let decoded_href = decode_html_entities(&href);
+                    if let Some(resolved) = resolve_web_asset_url(base_url, &decoded_href) {
+                        candidates.push((priority, resolved));
+                    }
+                }
+            }
+        }
+        pos = tag_start + gt_rel + 1;
+    }
+    candidates.sort_by_key(|(p, _)| *p);
+    candidates.into_iter().map(|(_, u)| u).collect()
+}
+
+fn sniff_image_mime(bytes: &[u8], url: &str) -> Option<&'static str> {
+    if bytes.is_empty() {
+        return None;
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if bytes.starts_with(b"\xFF\xD8\xFF") {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.starts_with(b"\x00\x00\x01\x00") || bytes.starts_with(b"\x00\x00\x02\x00") {
+        return Some("image/x-icon");
+    }
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]).to_ascii_lowercase();
+    if head.contains("<svg") {
+        return Some("image/svg+xml");
+    }
+    if head.contains("<html") || head.contains("<!doctype") {
+        return None;
+    }
+    let clean_url = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
+    if clean_url.ends_with(".svg") {
+        Some("image/svg+xml")
+    } else if clean_url.ends_with(".png") {
+        Some("image/png")
+    } else if clean_url.ends_with(".ico") {
+        Some("image/x-icon")
+    } else if clean_url.ends_with(".webp") {
+        Some("image/webp")
+    } else if clean_url.ends_with(".jpg") || clean_url.ends_with(".jpeg") {
+        Some("image/jpeg")
+    } else if clean_url.ends_with(".gif") {
+        Some("image/gif")
+    } else {
+        None
+    }
+}
+
+fn curl_fetch_bytes(url: &str, max_bytes: usize, timeout_secs: u64) -> Option<Vec<u8>> {
+    let curl_bin = if cfg!(target_os = "windows") {
+        "curl.exe"
+    } else {
+        "curl"
+    };
+    let mut cmd = Command::new(curl_bin);
+    apply_no_window(&mut cmd);
+    cmd.arg("-sSLf")
+        .arg("--max-time")
+        .arg(timeout_secs.to_string())
+        .arg("--max-redirs")
+        .arg("5")
+        .arg("-A")
+        .arg("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+        .arg("-H")
+        .arg("Accept-Language: zh-CN,zh;q=0.9,en;q=0.8")
+        .arg(url)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+
+    let output = cmd.output().ok()?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return None;
+    }
+    let mut bytes = output.stdout;
+    if bytes.len() > max_bytes {
+        bytes.truncate(max_bytes);
+    }
+    Some(bytes)
+}
+
+#[tauri::command]
+pub async fn fetch_web_metadata(url: String) -> Result<WebMetadataResult, String> {
+    tauri::async_runtime::spawn_blocking(move || fetch_web_metadata_impl(url))
+        .await
+        .map_err(|e| format!("后台任务执行失败: {}", e))?
+}
+
+fn fetch_web_metadata_impl(url: String) -> Result<WebMetadataResult, String> {
+    let trimmed = url.trim().to_string();
+    if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        return Err("仅支持 http:// 或 https:// 网页链接".to_string());
+    }
+
+    let (_, origin, host) = split_url_origin(&trimmed)
+        .ok_or_else(|| "无效的网页链接".to_string())?;
+
+    let mut title: Option<String> = None;
+    let mut favicon_candidates: Vec<String> = Vec::new();
+
+    if let Some(html_bytes) = curl_fetch_bytes(&trimmed, 256 * 1024, 6) {
+        let html = String::from_utf8_lossy(&html_bytes).into_owned();
+        let lower = html.to_ascii_lowercase();
+        title = extract_html_title(&html, &lower);
+        favicon_candidates = extract_html_favicon_candidates(&trimmed, &html, &lower);
+    }
+
+    let default_ico = format!("{}/favicon.ico", origin);
+    if !favicon_candidates.contains(&default_ico) {
+        favicon_candidates.push(default_ico.clone());
+    }
+    let s2_fallback = format!("https://www.google.com/s2/favicons?domain={}&sz=64", host);
+    favicon_candidates.push(s2_fallback);
+
+    let mut favicon_data_url: Option<String> = None;
+    let mut resolved_favicon_url: Option<String> = None;
+    for candidate in favicon_candidates.into_iter().take(6) {
+        if let Some(bytes) = curl_fetch_bytes(&candidate, 128 * 1024, 4) {
+            if let Some(mime) = sniff_image_mime(&bytes, &candidate) {
+                let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                favicon_data_url = Some(format!("data:{};base64,{}", mime, encoded));
+                resolved_favicon_url = Some(candidate);
+                break;
+            }
+        }
+    }
+
+    Ok(WebMetadataResult {
+        url: trimmed,
+        title,
+        favicon_data_url,
+        favicon_url: resolved_favicon_url.or(Some(default_ico)),
+    })
 }
