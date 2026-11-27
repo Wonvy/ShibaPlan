@@ -6,6 +6,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { InfoScriptLang } from "../../types";
+import { CustomSelect } from "../ui/custom-select";
 
 interface CodeEditorProps {
   value: string;
@@ -322,17 +323,13 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface/80 px-2.5 py-1.5 text-[11px]">
         <div className="flex items-center gap-2 min-w-0">
           {onLanguageChange ? (
-            <select
+            <CustomSelect
               value={language}
-              onChange={(e) => onLanguageChange(e.target.value as InfoScriptLang)}
-              className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px] font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            >
-              {LANG_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              options={LANG_OPTIONS}
+              onChange={(val) => onLanguageChange(val as InfoScriptLang)}
+              className="h-6 min-w-[92px] border-border px-2 text-[11px] font-medium"
+              ariaLabel="脚本语言"
+            />
           ) : (
             <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">
               {language.toUpperCase()}

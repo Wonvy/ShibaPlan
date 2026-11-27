@@ -52,6 +52,7 @@ import {
 } from "../lib/memo";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { Button } from "./ui/button";
+import { CustomSelect } from "./ui/custom-select";
 import {
   Dialog,
   DialogContent,
@@ -1338,23 +1339,18 @@ export const MemosView: React.FC<MemosViewProps> = ({
                   <div className="flex items-center gap-1.5">
                     <Folder className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-muted-foreground">文件夹</span>
-                    <select
+                    <CustomSelect
                       value={activeFolderValue}
-                      onChange={(e) =>
-                        moveMemoToFolder(
-                          activeMemo.id,
-                          e.target.value || undefined
-                        )
+                      onChange={(val) =>
+                        moveMemoToFolder(activeMemo.id, val || undefined)
                       }
-                      className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-ring/70 focus:outline-none"
-                    >
-                      <option value="">未分组</option>
-                      {folders.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.name}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: "", label: "未分组" },
+                        ...folders.map((f) => ({ value: f.id, label: f.name })),
+                      ]}
+                      className="h-7 min-w-[96px] border-border px-2 text-xs"
+                      ariaLabel="选择文件夹"
+                    />
                   </div>
                 )}
 
@@ -1429,23 +1425,27 @@ export const MemosView: React.FC<MemosViewProps> = ({
                 {activeMemo.expiresAt && (
                   <div className="flex items-center gap-1.5">
                     <span className="text-muted-foreground">周期</span>
-                    <select
-                      value={activeMemo.renewDays ?? ""}
-                      onChange={(e) => {
-                        const val = e.target.value;
+                    <CustomSelect
+                      value={
+                        activeMemo.renewDays !== undefined
+                          ? String(activeMemo.renewDays)
+                          : ""
+                      }
+                      onChange={(val) => {
                         patchMemo(activeMemo.id, {
                           renewDays: val ? Number(val) : undefined,
                         });
                       }}
-                      className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-ring/70 focus:outline-none"
-                    >
-                      <option value="">不自动续期</option>
-                      {RENEW_DAY_PRESETS.map((p) => (
-                        <option key={p.days} value={p.days}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: "", label: "不自动续期" },
+                        ...RENEW_DAY_PRESETS.map((p) => ({
+                          value: String(p.days),
+                          label: p.label,
+                        })),
+                      ]}
+                      className="h-7 min-w-[104px] border-border px-2 text-xs"
+                      ariaLabel="自动续期周期"
+                    />
 
                     <Button
                       type="button"

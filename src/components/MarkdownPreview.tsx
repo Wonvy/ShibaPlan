@@ -30,20 +30,29 @@ function isSafeImageUrl(url: string): boolean {
   );
 }
 
-const INLINE_TOKEN_RE =
-  /(`[^`\n]+`|!\[[^\]]*\]\([^)\n]+\)|\[[^\]]+\]\([^)\n]+\)|\*\*\*[^*\n]+\*\*\*|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\*[^*\n]+\*|https?:\/\/[^\s<>()]+)/g;
+const INLINE_TOKEN_RE_SOURCE =
+  "(`[^`\\n]+`|!\\[[^\\]]*\\]\\([^)\\n]+\\)|\\[[^\\]]+\\]\\([^)\\n]+\\)|\\*\\*\\*[^*\\n]+\\*\\*\\*|\\*\\*[^*\\n]+\\*\\*|~~[^~\\n]+~~|\\*[^*\\n]+\\*|https?:\\/\\/[^\\s<>()]+)";
 
 function renderInline(
   text: string,
-  keyPrefix: string
+  keyPrefix: string,
+  depth = 0
 ): React.ReactNode[] {
+  if (depth > 8) return [text];
+
   const nodes: React.ReactNode[] = [];
+  const tokenRe = new RegExp(INLINE_TOKEN_RE_SOURCE, "g");
   let lastIndex = 0;
   let matchIndex = 0;
 
-  INLINE_TOKEN_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
-  while ((match = INLINE_TOKEN_RE.exec(text)) !== null) {
+  while ((match = tokenRe.exec(text)) !== null) {
+    if (tokenRe.lastIndex === match.index) {
+      tokenRe.lastIndex++;
+      continue;
+    }
+    const nextLastIndex = tokenRe.lastIndex;
+
     if (match.index > lastIndex) {
       nodes.push(text.slice(lastIndex, match.index));
     }
@@ -89,7 +98,7 @@ function renderInline(
             }}
             className="text-primary underline-offset-2 hover:underline"
           >
-            {renderInline(linkMatch[1], `${key}-lbl`)}
+            {renderInline(linkMatch[1], `${key}-lbl`, depth + 1)}
           </a>
         );
       } else {
@@ -98,25 +107,25 @@ function renderInline(
     } else if (token.startsWith("***") && token.endsWith("***")) {
       nodes.push(
         <strong key={key} className="font-semibold italic text-foreground">
-          {token.slice(3, -3)}
+          {renderInline(token.slice(3, -3), `${key}-bi`, depth + 1)}
         </strong>
       );
     } else if (token.startsWith("**") && token.endsWith("**")) {
       nodes.push(
         <strong key={key} className="font-semibold text-foreground">
-          {renderInline(token.slice(2, -2), `${key}-b`)}
+          {renderInline(token.slice(2, -2), `${key}-b`, depth + 1)}
         </strong>
       );
     } else if (token.startsWith("~~") && token.endsWith("~~")) {
       nodes.push(
         <del key={key} className="text-muted-foreground line-through">
-          {renderInline(token.slice(2, -2), `${key}-s`)}
+          {renderInline(token.slice(2, -2), `${key}-s`, depth + 1)}
         </del>
       );
     } else if (token.startsWith("*") && token.endsWith("*")) {
       nodes.push(
         <em key={key} className="italic">
-          {renderInline(token.slice(1, -1), `${key}-i`)}
+          {renderInline(token.slice(1, -1), `${key}-i`, depth + 1)}
         </em>
       );
     } else if (
@@ -140,7 +149,7 @@ function renderInline(
       nodes.push(token);
     }
 
-    lastIndex = INLINE_TOKEN_RE.lastIndex;
+    lastIndex = nextLastIndex;
   }
 
   if (lastIndex < text.length) {

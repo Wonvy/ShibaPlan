@@ -1,14 +1,27 @@
-import { InfoLayoutMode, InfoWidget, InfoWidgetLayout } from "../types";
+import type { InfoWidget, InfoWidgetLayout } from "../types";
 
 export const DEFAULT_GRID_COLS = 12;
 export const DEFAULT_ROW_HEIGHT = 52;
 export const GRID_GAP = 12;
 
-export const MIN_WIDGET_PX_W = 220;
-export const MIN_WIDGET_PX_H = 120;
+// Legacy grid -> pixel fallback conversion constants
+export const LEGACY_COL_W = 92;
+export const LEGACY_ROW_H = 52;
+export const LEGACY_GAP = 12;
+
+export const DEFAULT_WIDGET_PX_W = 380;
+export const DEFAULT_WIDGET_PX_H = 260;
+export const DEFAULT_CONTAINER_PX_W = 420;
+export const DEFAULT_CONTAINER_PX_H = 280;
+export const DEFAULT_CONTROL_SWITCH_W = 136;
+export const DEFAULT_CONTROL_SWITCH_H = 72;
+export const DEFAULT_CONTROL_ICON_W = 76;
+export const DEFAULT_CONTROL_ICON_H = 72;
+export const MIN_WIDGET_PX_W = 64;
+export const MIN_WIDGET_PX_H = 44;
 export const SNAP_THRESHOLD = 8;
 export const SNAP_GAP = 16;
-export const DOT_GRID_STEP = 16;
+export const DOT_GRID_STEP = 20;
 
 export interface PixelRect {
   x: number;
@@ -25,694 +38,680 @@ export interface SnapGuide {
   label?: string;
 }
 
-// ============================================================================
-// Grid Coordinate Helpers (Used in "grid" / "compact" mode & mode conversion)
-// ============================================================================
+export type ResizeHandleEdge = "n" | "s" | "e" | "w" | "se";
 
-export function clampRect(
-  rect: InfoWidgetLayout,
-  cols = DEFAULT_GRID_COLS
-): InfoWidgetLayout {
-  const minW = Math.max(1, Math.min(cols, rect.minW ?? 2));
-  const minH = Math.max(1, rect.minH ?? 2);
-  const w = Math.max(minW, Math.min(cols, Math.round(rect.w)));
-  const h = Math.max(minH, Math.min(24, Math.round(rect.h)));
-  const x = Math.max(0, Math.min(cols - w, Math.round(rect.x)));
-  const y = Math.max(0, Math.round(rect.y));
-  return { ...rect, x, y, w, h, minW, minH };
-}
+export function gridLayoutToPixelRect(
+  layout: Pick<InfoWidgetLayout, "x" | "y" | "w" | "h" | "minW" | "minH">,
+  colW = LEGACY_COL_W,
+  rowH = LEGACY_ROW_H,
+  gap = LEGACY_GAP
+): PixelRect {
+  const gx = Number.isFinite(layout.x) ? layout.x : 0;
+  const gy = Number.isFinite(layout.y) ? layout.y : 0;
+  const gw = Math.max(layout.minW ?? 2, Number.isFinite(layout.w) ? layout.w : 4);
+  const gh = Math.max(layout.minH ?? 2, Number.isFinite(layout.h) ? layout.h : 4);
 
-export function rectsOverlap(a: InfoWidgetLayout, b: InfoWidgetLayout): boolean {
-  return (
-    a.x < b.x + b.w &&
-    a.x + a.w > b.x &&
-    a.y < b.y + b.h &&
-    a.y + a.h > b.y
-  );
-}
-
-export function findNearestFreeSlot(
-  widgets: InfoWidget[],
-  w: number,
-  h: number,
-  cols = DEFAULT_GRID_COLS,
-  preferredX = 0,
-  preferredY = 0
-): { x: number; y: number } {
-  const clampedW = Math.max(1, Math.min(cols, w));
-  const clampedH = Math.max(1, h);
-  const startX = Math.max(0, Math.min(cols - clampedW, Math.round(preferredX)));
-  const startY = Math.max(0, Math.round(preferredY));
-
-  const tryPos = (tx: number, ty: number) => {
-    const candidate: InfoWidgetLayout = { x: tx, y: ty, w: clampedW, h: clampedH };
-    return !widgets.some((item) => rectsOverlap(candidate, item.layout));
+  return {
+    x: Math.round(gx * (colW + gap)),
+    y: Math.round(gy * (rowH + gap)),
+    w: Math.max(MIN_WIDGET_PX_W, Math.round(gw * colW + Math.max(0, gw - 1) * gap)),
+    h: Math.max(MIN_WIDGET_PX_H, Math.round(gh * rowH + Math.max(0, gh - 1) * gap)),
   };
-
-  if (tryPos(startX, startY)) {
-    return { x: startX, y: startY };
-  }
-
-  const maxY = widgets.reduce((m, item) => Math.max(m, item.layout.y + item.layout.h), 0);
-  for (let y = 0; y <= maxY + 12; y++) {
-    for (let x = 0; x <= cols - clampedW; x++) {
-      if (tryPos(x, y)) {
-        return { x, y };
-      }
-    }
-  }
-  return { x: 0, y: maxY };
-}
-
-function compactUpward(
-  widgets: InfoWidget[],
-  cols: number,
-  pinnedId?: string
-): InfoWidget[] {
-  const sorted = [...widgets].sort((a, b) =>
-    a.layout.y !== b.layout.y
-      ? a.layout.y - b.layout.y
-      : a.layout.x - b.layout.x
-  );
-  const placed: InfoWidget[] = [];
-
-  for (const w of sorted) {
-    const cur = clampRect(w.layout, cols);
-    if (w.id === pinnedId) {
-      placed.push({ ...w, layout: cur });
-      continue;
-    }
-    let bestY = cur.y;
-    for (let tryY = 0; tryY < cur.y; tryY++) {
-      const candidate = { ...cur, y: tryY };
-      if (!placed.some((p) => rectsOverlap(candidate, p.layout))) {
-        bestY = tryY;
-        break;
-      }
-    }
-    placed.push({ ...w, layout: { ...cur, y: bestY } });
-  }
-
-  const map = new Map(placed.map((p) => [p.id, p]));
-  return widgets.map((w) => map.get(w.id) ?? w);
 }
 
 /**
- * Resolves grid collisions after moving or resizing `activeId` to `targetRect`.
+ * Returns the canvas world-space PixelRect for a widget.
+ * Preserves negative infinite-canvas coordinates verbatim once `px`/`py`/`pw`/`ph` exist,
+ * and falls back cleanly for legacy grid-based widgets.
  */
-export function resolveGridCollision(
-  widgets: InfoWidget[],
-  activeId: string,
-  targetRect: InfoWidgetLayout,
-  cols = DEFAULT_GRID_COLS,
-  mode: InfoLayoutMode = "free"
-): InfoWidget[] {
-  const clampedTarget = clampRect(targetRect, cols);
-  const activeWidget = widgets.find((w) => w.id === activeId);
-  if (!activeWidget) return widgets;
-
-  const placed: InfoWidget[] = [{ ...activeWidget, layout: clampedTarget }];
-  const others = widgets
-    .filter((w) => w.id !== activeId)
-    .sort((a, b) =>
-      a.layout.y !== b.layout.y
-        ? a.layout.y - b.layout.y
-        : a.layout.x - b.layout.x
-    );
-
-  for (const other of others) {
-    let cur = clampRect(other.layout, cols);
-    let guard = 0;
-    while (guard < 200) {
-      const blocker = placed.find((p) => rectsOverlap(cur, p.layout));
-      if (!blocker) break;
-      cur = { ...cur, y: blocker.layout.y + blocker.layout.h };
-      guard++;
-    }
-    placed.push({ ...other, layout: cur });
-  }
-
-  const resolvedMap = new Map(placed.map((p) => [p.id, p]));
-  const result = widgets.map((w) => resolvedMap.get(w.id) ?? w);
-
-  return mode === "compact" ? compactUpward(result, cols) : result;
-}
-
-export function autoArrangeWidgets(
-  widgets: InfoWidget[],
-  cols = DEFAULT_GRID_COLS,
-  colWidth?: number,
-  rowHeight = DEFAULT_ROW_HEIGHT,
-  gap = GRID_GAP
-): InfoWidget[] {
-  const sorted = [...widgets].sort((a, b) => {
-    const ay = a.layout.py ?? a.layout.y * (rowHeight + gap);
-    const by = b.layout.py ?? b.layout.y * (rowHeight + gap);
-    if (Math.abs(ay - by) > 12) return ay - by;
-    const ax = a.layout.px ?? a.layout.x;
-    const bx = b.layout.px ?? b.layout.x;
-    return ax - bx;
-  });
-  const placed: InfoWidget[] = [];
-  for (const w of sorted) {
-    const clamped = clampRect(w.layout, cols);
-    const slot = findNearestFreeSlot(placed, clamped.w, clamped.h, cols, 0, 0);
-    const nextLayout: InfoWidgetLayout = {
-      ...clamped,
-      x: slot.x,
-      y: slot.y,
-    };
-    if (colWidth && colWidth > 0) {
-      const pxRect = gridLayoutToPixelRect(nextLayout, colWidth, rowHeight, gap);
-      nextLayout.px = Math.round(pxRect.x);
-      nextLayout.py = Math.round(pxRect.y);
-      nextLayout.pw = Math.round(pxRect.w);
-      nextLayout.ph = Math.round(pxRect.h);
-    } else {
-      delete nextLayout.px;
-      delete nextLayout.py;
-      delete nextLayout.pw;
-      delete nextLayout.ph;
-    }
-    placed.push({ ...w, layout: nextLayout });
-  }
-  const map = new Map(placed.map((p) => [p.id, p]));
-  return widgets.map((w) => map.get(w.id) ?? w);
-}
-
-// ============================================================================
-// Pixel Geometry, Magnetic Snapping & Guide Lines (Free Placement Engine)
-// ============================================================================
-
-export function gridLayoutToPixelRect(
-  layout: InfoWidgetLayout,
-  colWidth: number,
-  rowHeight: number,
-  gap = GRID_GAP
-): PixelRect {
-  return {
-    x: Math.round(layout.x * (colWidth + gap)),
-    y: Math.round(layout.y * (rowHeight + gap)),
-    w: Math.max(
-      MIN_WIDGET_PX_W,
-      Math.round(layout.w * colWidth + Math.max(0, layout.w - 1) * gap)
-    ),
-    h: Math.max(
-      MIN_WIDGET_PX_H,
-      Math.round(layout.h * rowHeight + Math.max(0, layout.h - 1) * gap)
-    ),
-  };
-}
-
 export function getWidgetPixelRect(
-  widget: InfoWidget,
-  colWidth: number,
-  rowHeight: number,
-  gap = GRID_GAP,
-  forceGrid = false
+  widget: Pick<InfoWidget, "layout">,
+  colW = LEGACY_COL_W,
+  rowH = LEGACY_ROW_H,
+  gap = LEGACY_GAP
 ): PixelRect {
-  const l = widget.layout;
+  const { layout } = widget;
   if (
-    !forceGrid &&
-    typeof l.px === "number" &&
-    typeof l.py === "number" &&
-    typeof l.pw === "number" &&
-    typeof l.ph === "number"
+    typeof layout.px === "number" &&
+    Number.isFinite(layout.px) &&
+    typeof layout.py === "number" &&
+    Number.isFinite(layout.py) &&
+    typeof layout.pw === "number" &&
+    Number.isFinite(layout.pw) &&
+    typeof layout.ph === "number" &&
+    Number.isFinite(layout.ph)
   ) {
     return {
-      x: Math.max(0, l.px),
-      y: Math.max(0, l.py),
-      w: Math.max(MIN_WIDGET_PX_W, l.pw),
-      h: Math.max(MIN_WIDGET_PX_H, l.ph),
+      x: Math.round(layout.px),
+      y: Math.round(layout.py),
+      w: Math.max(MIN_WIDGET_PX_W, Math.round(layout.pw)),
+      h: Math.max(MIN_WIDGET_PX_H, Math.round(layout.ph)),
     };
   }
-  return gridLayoutToPixelRect(l, colWidth, rowHeight, gap);
+  return gridLayoutToPixelRect(layout, colW, rowH, gap);
 }
 
-export function syncLayoutFromPixelRect(
-  prev: InfoWidgetLayout,
-  rect: PixelRect,
-  colWidth: number,
-  rowHeight: number,
-  gap = GRID_GAP,
-  cols = DEFAULT_GRID_COLS
-): InfoWidgetLayout {
-  const stepX = Math.max(1, colWidth + gap);
-  const stepY = Math.max(1, rowHeight + gap);
-  const approxW = Math.max(1, Math.min(cols, Math.round((rect.w + gap) / stepX)));
-  const approxH = Math.max(1, Math.round((rect.h + gap) / stepY));
-  const approxX = Math.max(0, Math.min(cols - approxW, Math.round(rect.x / stepX)));
-  const approxY = Math.max(0, Math.round(rect.y / stepY));
+/**
+ * Finds the top-most blank container widget whose bounds cover the center point of `cardRect`.
+ */
+export function findTargetContainerId(
+  cardRect: PixelRect,
+  containers: Array<{ id: string; rect: PixelRect }>
+): string | undefined {
+  const cx = cardRect.x + cardRect.w / 2;
+  const cy = cardRect.y + cardRect.h / 2;
+  for (let i = containers.length - 1; i >= 0; i--) {
+    const { id, rect } = containers[i];
+    if (
+      cx >= rect.x &&
+      cx <= rect.x + rect.w &&
+      cy >= rect.y &&
+      cy <= rect.y + rect.h
+    ) {
+      return id;
+    }
+  }
+  return undefined;
+}
 
+/**
+ * Packs child cards row-by-row inside a container's inner bounds.
+ */
+export function arrangeWidgetsInsideContainer(
+  containerRect: PixelRect,
+  hasHeader: boolean,
+  children: Array<{ id: string; rect: PixelRect }>,
+  gap = 10,
+  pad = 12
+): Map<string, PixelRect> {
+  const sorted = [...children].sort(
+    (a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x
+  );
+  const startX = containerRect.x + pad;
+  const startY = containerRect.y + (hasHeader ? 36 + pad : pad);
+  const maxRight = containerRect.x + containerRect.w - pad;
+
+  const result = new Map<string, PixelRect>();
+  let curX = startX;
+  let curY = startY;
+  let rowMaxH = 0;
+
+  for (const child of sorted) {
+    if (curX > startX && curX + child.rect.w > maxRight) {
+      curX = startX;
+      curY += rowMaxH + gap;
+      rowMaxH = 0;
+    }
+    result.set(child.id, {
+      x: Math.round(curX),
+      y: Math.round(curY),
+      w: child.rect.w,
+      h: child.rect.h,
+    });
+    curX += child.rect.w + gap;
+    rowMaxH = Math.max(rowMaxH, child.rect.h);
+  }
+  return result;
+}
+
+export function applyPixelRectToLayout(
+  prev: InfoWidgetLayout,
+  rect: PixelRect
+): InfoWidgetLayout {
   return {
     ...prev,
-    x: approxX,
-    y: approxY,
-    w: approxW,
-    h: approxH,
-    px: Math.max(0, Math.round(rect.x)),
-    py: Math.max(0, Math.round(rect.y)),
+    px: Math.round(rect.x),
+    py: Math.round(rect.y),
     pw: Math.max(MIN_WIDGET_PX_W, Math.round(rect.w)),
     ph: Math.max(MIN_WIDGET_PX_H, Math.round(rect.h)),
   };
 }
 
-export function pixelRectsOverlap(a: PixelRect, b: PixelRect, pad = 0): boolean {
-  return (
-    a.x < b.x + b.w + pad &&
-    a.x + a.w + pad > b.x &&
-    a.y < b.y + b.h + pad &&
-    a.y + a.h + pad > b.y
+export const syncLayoutFromPixelRect = applyPixelRectToLayout;
+
+export function pixelRectsOverlap(
+  a: PixelRect,
+  b: PixelRect,
+  gap = 0
+): boolean {
+  return !(
+    a.x + a.w + gap <= b.x ||
+    b.x + b.w + gap <= a.x ||
+    a.y + a.h + gap <= b.y ||
+    b.y + b.h + gap <= a.y
   );
 }
 
+/**
+ * Pushes overlapping widgets downwards/sideways when overlap prevention is enabled.
+ * Infinite canvas: does not clamp coordinates to >= 0 or a container right edge.
+ */
 export function resolvePixelOverlap(
-  rects: Map<string, PixelRect>,
-  activeId: string,
+  movedId: string,
+  movedRect: PixelRect,
+  allRects: Array<{ id: string; rect: PixelRect }>,
   gap = SNAP_GAP
-): Map<string, PixelRect> {
-  const active = rects.get(activeId);
-  if (!active) return rects;
+): Array<{ id: string; rect: PixelRect }> {
+  const map = new Map<string, PixelRect>();
+  for (const item of allRects) {
+    map.set(item.id, { ...item.rect });
+  }
+  map.set(movedId, { ...movedRect });
 
-  const placed: { id: string; rect: PixelRect }[] = [
-    { id: activeId, rect: active },
-  ];
-  const others = Array.from(rects.entries())
-    .filter(([id]) => id !== activeId)
-    .map(([id, rect]) => ({ id, rect }))
-    .sort((a, b) =>
-      a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x
-    );
+  const ids = Array.from(map.keys());
+  // Sort deterministically by Y then X so pushes ripple cleanly downwards
+  ids.sort((a, b) => {
+    if (a === movedId) return -1;
+    if (b === movedId) return 1;
+    const ra = map.get(a)!;
+    const rb = map.get(b)!;
+    return ra.y - rb.y || ra.x - rb.x;
+  });
 
-  for (const item of others) {
-    let cur = { ...item.rect };
-    let guard = 0;
-    while (guard < 200) {
-      const blocker = placed.find((p) => pixelRectsOverlap(cur, p.rect, 2));
-      if (!blocker) break;
-      cur = { ...cur, y: Math.round(blocker.rect.y + blocker.rect.h + gap) };
-      guard++;
+  const maxIterations = Math.max(6, ids.length * 3);
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let changed = false;
+    for (let i = 0; i < ids.length; i++) {
+      const idA = ids[i];
+      const rectA = map.get(idA)!;
+      for (let j = i + 1; j < ids.length; j++) {
+        const idB = ids[j];
+        if (idB === movedId) continue;
+        const rectB = map.get(idB)!;
+        if (!pixelRectsOverlap(rectA, rectB, gap)) continue;
+
+        const overlapX = Math.min(
+          rectA.x + rectA.w + gap - rectB.x,
+          rectB.x + rectB.w + gap - rectA.x
+        );
+        const overlapY = Math.min(
+          rectA.y + rectA.h + gap - rectB.y,
+          rectB.y + rectB.h + gap - rectA.y
+        );
+
+        if (overlapX > 0 && overlapY > 0) {
+          if (overlapY <= overlapX || idA === movedId) {
+            rectB.y = Math.round(rectA.y + rectA.h + gap);
+          } else {
+            const centerA = rectA.x + rectA.w / 2;
+            const centerB = rectB.x + rectB.w / 2;
+            if (centerB >= centerA) {
+              rectB.x = Math.round(rectA.x + rectA.w + gap);
+            } else {
+              rectB.x = Math.round(rectA.x - rectB.w - gap);
+            }
+          }
+          changed = true;
+        }
+      }
     }
-    placed.push({ id: item.id, rect: cur });
+    if (!changed) break;
   }
 
-  const out = new Map<string, PixelRect>();
-  for (const p of placed) out.set(p.id, p.rect);
-  return out;
+  return Array.from(map.entries()).map(([id, rect]) => ({ id, rect }));
 }
 
+/**
+ * Finds the first non-overlapping free position on the infinite canvas around (preferredX, preferredY).
+ */
 export function findFreePixelSlot(
   existingRects: PixelRect[],
-  w: number,
-  h: number,
-  containerWidth: number,
+  w = DEFAULT_WIDGET_PX_W,
+  h = DEFAULT_WIDGET_PX_H,
   preferredX = 0,
   preferredY = 0,
-  gap = SNAP_GAP
+  gap = SNAP_GAP,
+  maxRowWidth = 1200
 ): { x: number; y: number } {
-  const maxW = Math.max(w, containerWidth);
-  const startX = Math.max(0, Math.min(maxW - w, Math.round(preferredX)));
-  const startY = Math.max(0, Math.round(preferredY));
+  const startX = Math.round(preferredX);
+  const startY = Math.round(preferredY);
 
-  const isFree = (cx: number, cy: number) =>
-    !existingRects.some((r) => pixelRectsOverlap({ x: cx, y: cy, w, h }, r, 4));
-
-  if (isFree(startX, startY)) {
+  const tryDirect = { x: startX, y: startY, w, h };
+  if (!existingRects.some((r) => pixelRectsOverlap(tryDirect, r, gap))) {
     return { x: startX, y: startY };
   }
 
-  const maxY = existingRects.reduce((m, r) => Math.max(m, r.y + r.h), 0);
-  const step = 24;
-  for (let y = 0; y <= maxY + h + gap * 4; y += step) {
-    for (let x = 0; x <= Math.max(0, containerWidth - w); x += step) {
-      if (isFree(x, y)) return { x, y };
+  const stepX = Math.max(40, Math.round((w + gap) / 2));
+  const stepY = 40;
+  const maxXOffset = Math.max(0, maxRowWidth - w);
+
+  for (let dy = 0; dy <= 4000; dy += stepY) {
+    for (let dx = 0; dx <= maxXOffset; dx += stepX) {
+      const cand: PixelRect = { x: startX + dx, y: startY + dy, w, h };
+      if (!existingRects.some((r) => pixelRectsOverlap(cand, r, gap))) {
+        return { x: cand.x, y: cand.y };
+      }
     }
   }
-  return { x: 0, y: maxY + gap };
+
+  let maxBottom = startY;
+  for (const r of existingRects) {
+    maxBottom = Math.max(maxBottom, r.y + r.h + gap);
+  }
+  return { x: startX, y: Math.round(maxBottom) };
 }
 
+interface AxisSnapCandidate {
+  target: number;
+  guidePos: number;
+  spanStart: number;
+  spanEnd: number;
+  label?: string;
+}
+
+/**
+ * Snaps a dragged card to other cards' edges/centers/gaps and the origin axis (0,0),
+ * or falls back to dot-grid step snapping. Works across infinite negative/positive space.
+ */
 export function snapMovePixelRect(
-  raw: PixelRect,
-  others: PixelRect[],
-  opts: {
-    snapEnabled: boolean;
-    bypassSnap: boolean;
+  movingId: string,
+  rawRect: PixelRect,
+  others: Array<{ id: string; rect: PixelRect }>,
+  options?: {
+    snapEnabled?: boolean;
+    altBypass?: boolean;
+    gap?: number;
+    threshold?: number;
     gridStep?: number;
-    maxWidth?: number;
   }
 ): { rect: PixelRect; guides: SnapGuide[] } {
-  const maxX =
-    typeof opts.maxWidth === "number" && opts.maxWidth > 0
-      ? Math.max(0, opts.maxWidth - raw.w)
-      : Number.POSITIVE_INFINITY;
-  const clamped: PixelRect = {
-    x: Math.max(0, Math.min(maxX, raw.x)),
-    y: Math.max(0, raw.y),
-    w: raw.w,
-    h: raw.h,
-  };
+  const w = Math.max(MIN_WIDGET_PX_W, Math.round(rawRect.w));
+  const h = Math.max(MIN_WIDGET_PX_H, Math.round(rawRect.h));
+  const rawX = Math.round(rawRect.x);
+  const rawY = Math.round(rawRect.y);
 
-  if (!opts.snapEnabled || opts.bypassSnap) {
-    return { rect: clamped, guides: [] };
+  const snapEnabled = options?.snapEnabled ?? true;
+  const altBypass = options?.altBypass ?? false;
+  if (!snapEnabled || altBypass) {
+    return { rect: { x: rawX, y: rawY, w, h }, guides: [] };
   }
+
+  const gap = options?.gap ?? SNAP_GAP;
+  const threshold = options?.threshold ?? SNAP_THRESHOLD;
+  const gridStep = options?.gridStep ?? DOT_GRID_STEP;
+
+  const filtered = others.filter((o) => o.id !== movingId);
+
+  const xCandidates: AxisSnapCandidate[] = [
+    {
+      target: 0,
+      guidePos: 0,
+      spanStart: Math.min(0, rawY) - 24,
+      spanEnd: Math.max(0, rawY + h) + 24,
+    },
+  ];
+  const yCandidates: AxisSnapCandidate[] = [
+    {
+      target: 0,
+      guidePos: 0,
+      spanStart: Math.min(0, rawX) - 24,
+      spanEnd: Math.max(0, rawX + w) + 24,
+    },
+  ];
+
+  for (const { rect: o } of filtered) {
+    const vStart = Math.min(rawY, o.y) - 12;
+    const vEnd = Math.max(rawY + h, o.y + o.h) + 12;
+    const hStart = Math.min(rawX, o.x) - 12;
+    const hEnd = Math.max(rawX + w, o.x + o.w) + 12;
+
+    // X alignment: left-left, right-right, center-center, left-right+gap, right-left-gap
+    xCandidates.push(
+      { target: o.x, guidePos: o.x, spanStart: vStart, spanEnd: vEnd },
+      { target: o.x + o.w - w, guidePos: o.x + o.w, spanStart: vStart, spanEnd: vEnd },
+      {
+        target: Math.round(o.x + o.w / 2 - w / 2),
+        guidePos: Math.round(o.x + o.w / 2),
+        spanStart: vStart,
+        spanEnd: vEnd,
+      },
+      {
+        target: o.x + o.w + gap,
+        guidePos: o.x + o.w + gap,
+        spanStart: vStart,
+        spanEnd: vEnd,
+        label: `${gap}px`,
+      },
+      {
+        target: o.x - gap - w,
+        guidePos: o.x - gap,
+        spanStart: vStart,
+        spanEnd: vEnd,
+        label: `${gap}px`,
+      }
+    );
+
+    // Y alignment: top-top, bottom-bottom, middle-middle, top-bottom+gap, bottom-top-gap
+    yCandidates.push(
+      { target: o.y, guidePos: o.y, spanStart: hStart, spanEnd: hEnd },
+      { target: o.y + o.h - h, guidePos: o.y + o.h, spanStart: hStart, spanEnd: hEnd },
+      {
+        target: Math.round(o.y + o.h / 2 - h / 2),
+        guidePos: Math.round(o.y + o.h / 2),
+        spanStart: hStart,
+        spanEnd: hEnd,
+      },
+      {
+        target: o.y + o.h + gap,
+        guidePos: o.y + o.h + gap,
+        spanStart: hStart,
+        spanEnd: hEnd,
+        label: `${gap}px`,
+      },
+      {
+        target: o.y - gap - h,
+        guidePos: o.y - gap,
+        spanStart: hStart,
+        spanEnd: hEnd,
+        label: `${gap}px`,
+      }
+    );
+  }
+
+  let bestX: { dist: number; cand: AxisSnapCandidate } | null = null;
+  for (const cand of xCandidates) {
+    const dist = Math.abs(rawX - cand.target);
+    if (dist <= threshold && (!bestX || dist < bestX.dist)) {
+      bestX = { dist, cand };
+    }
+  }
+
+  let bestY: { dist: number; cand: AxisSnapCandidate } | null = null;
+  for (const cand of yCandidates) {
+    const dist = Math.abs(rawY - cand.target);
+    if (dist <= threshold && (!bestY || dist < bestY.dist)) {
+      bestY = { dist, cand };
+    }
+  }
+
+  const snappedX = bestX
+    ? bestX.cand.target
+    : Math.round(rawX / gridStep) * gridStep;
+  const snappedY = bestY
+    ? bestY.cand.target
+    : Math.round(rawY / gridStep) * gridStep;
 
   const guides: SnapGuide[] = [];
-  let snappedX = clamped.x;
-  let snappedY = clamped.y;
-
-  // --- X Axis Candidates ---
-  let bestDx = SNAP_THRESHOLD + 1;
-  let bestXGuide: SnapGuide | null = null;
-
-  // Origin x = 0
-  if (Math.abs(clamped.x) <= SNAP_THRESHOLD) {
-    bestDx = Math.abs(clamped.x);
-    snappedX = 0;
-    bestXGuide = {
+  if (bestX) {
+    guides.push({
       orientation: "v",
-      pos: 0,
-      start: clamped.y,
-      end: clamped.y + clamped.h,
-    };
+      pos: bestX.cand.guidePos,
+      start: bestX.cand.spanStart,
+      end: bestX.cand.spanEnd,
+      label: bestX.cand.label,
+    });
   }
-
-  // Right canvas edge snap
-  if (Number.isFinite(maxX) && Math.abs(clamped.x - maxX) <= SNAP_THRESHOLD) {
-    const diff = Math.abs(clamped.x - maxX);
-    if (diff < bestDx) {
-      bestDx = diff;
-      snappedX = maxX;
-      bestXGuide = {
-        orientation: "v",
-        pos: Math.round(opts.maxWidth!),
-        start: clamped.y,
-        end: clamped.y + clamped.h,
-      };
-    }
-  }
-
-  for (const o of others) {
-    const oRight = o.x + o.w;
-    const oCenter = o.x + o.w / 2;
-    const checks: { cx: number; guidePos: number; label?: string }[] = [
-      { cx: o.x, guidePos: o.x },
-      { cx: oRight - clamped.w, guidePos: oRight },
-      { cx: oCenter - clamped.w / 2, guidePos: oCenter },
-      { cx: oRight + SNAP_GAP, guidePos: oRight + SNAP_GAP, label: `${SNAP_GAP}px` },
-      { cx: o.x - SNAP_GAP - clamped.w, guidePos: o.x - SNAP_GAP, label: `${SNAP_GAP}px` },
-      { cx: oRight, guidePos: oRight },
-      { cx: o.x - clamped.w, guidePos: o.x },
-    ];
-    for (const chk of checks) {
-      if (chk.cx < 0 || chk.cx > maxX) continue;
-      const diff = Math.abs(clamped.x - chk.cx);
-      if (diff < bestDx) {
-        bestDx = diff;
-        snappedX = chk.cx;
-        bestXGuide = {
-          orientation: "v",
-          pos: Math.round(chk.guidePos),
-          start: Math.min(clamped.y, o.y) - 8,
-          end: Math.max(clamped.y + clamped.h, o.y + o.h) + 8,
-          label: chk.label,
-        };
-      }
-    }
-  }
-
-  if (bestXGuide) {
-    guides.push(bestXGuide);
-  } else if (opts.gridStep && opts.gridStep > 0) {
-    const nearest = Math.round(clamped.x / opts.gridStep) * opts.gridStep;
-    if (Math.abs(clamped.x - nearest) <= 4 && nearest >= 0 && nearest <= maxX) {
-      snappedX = nearest;
-    }
-  }
-
-  // --- Y Axis Candidates ---
-  let bestDy = SNAP_THRESHOLD + 1;
-  let bestYGuide: SnapGuide | null = null;
-
-  // Origin y = 0
-  if (Math.abs(clamped.y) <= SNAP_THRESHOLD) {
-    bestDy = Math.abs(clamped.y);
-    snappedY = 0;
-    bestYGuide = {
+  if (bestY) {
+    guides.push({
       orientation: "h",
-      pos: 0,
-      start: snappedX,
-      end: snappedX + clamped.w,
+      pos: bestY.cand.guidePos,
+      start: bestY.cand.spanStart,
+      end: bestY.cand.spanEnd,
+      label: bestY.cand.label,
+    });
+  }
+
+  return {
+    rect: { x: snappedX, y: snappedY, w, h },
+    guides,
+  };
+}
+
+/**
+ * Snaps resized edges against neighboring cards' edges/sizes/origin across infinite coordinates.
+ */
+export function snapResizePixelRect(
+  resizingId: string,
+  rawRect: PixelRect,
+  handle: ResizeHandleEdge,
+  others: Array<{ id: string; rect: PixelRect }>,
+  options?: {
+    snapEnabled?: boolean;
+    altBypass?: boolean;
+    gap?: number;
+    threshold?: number;
+    gridStep?: number;
+    minW?: number;
+    minH?: number;
+  }
+): { rect: PixelRect; guides: SnapGuide[] } {
+  const minW = options?.minW ?? MIN_WIDGET_PX_W;
+  const minH = options?.minH ?? MIN_WIDGET_PX_H;
+  const snapEnabled = options?.snapEnabled ?? true;
+  const altBypass = options?.altBypass ?? false;
+  const gap = options?.gap ?? SNAP_GAP;
+  const threshold = options?.threshold ?? SNAP_THRESHOLD;
+  const gridStep = options?.gridStep ?? DOT_GRID_STEP;
+
+  let left = Math.round(rawRect.x);
+  let top = Math.round(rawRect.y);
+  let right = Math.round(rawRect.x + rawRect.w);
+  let bottom = Math.round(rawRect.y + rawRect.h);
+
+  const resizesLeft = handle === "w";
+  const resizesRight = handle === "e" || handle === "se";
+  const resizesTop = handle === "n";
+  const resizesBottom = handle === "s" || handle === "se";
+
+  // Enforce minimum dimensions keeping the opposite anchor fixed
+  if (resizesLeft && right - left < minW) left = right - minW;
+  if (resizesRight && right - left < minW) right = left + minW;
+  if (resizesTop && bottom - top < minH) top = bottom - minH;
+  if (resizesBottom && bottom - top < minH) bottom = top + minH;
+
+  if (!snapEnabled || altBypass) {
+    return {
+      rect: { x: left, y: top, w: right - left, h: bottom - top },
+      guides: [],
     };
   }
 
-  for (const o of others) {
-    const oBottom = o.y + o.h;
-    const oCenter = o.y + o.h / 2;
-    const checks: { cy: number; guidePos: number; label?: string }[] = [
-      { cy: o.y, guidePos: o.y },
-      { cy: oBottom - clamped.h, guidePos: oBottom },
-      { cy: oCenter - clamped.h / 2, guidePos: oCenter },
-      { cy: oBottom + SNAP_GAP, guidePos: oBottom + SNAP_GAP, label: `${SNAP_GAP}px` },
-      { cy: o.y - SNAP_GAP - clamped.h, guidePos: o.y - SNAP_GAP, label: `${SNAP_GAP}px` },
-      { cy: oBottom, guidePos: oBottom },
-      { cy: o.y - clamped.h, guidePos: o.y },
-    ];
-    for (const chk of checks) {
-      if (chk.cy < 0) continue;
-      const diff = Math.abs(clamped.y - chk.cy);
-      if (diff < bestDy) {
-        bestDy = diff;
-        snappedY = chk.cy;
-        bestYGuide = {
-          orientation: "h",
-          pos: Math.round(chk.guidePos),
-          start: Math.min(snappedX, o.x) - 8,
-          end: Math.max(snappedX + clamped.w, o.x + o.w) + 8,
-          label: chk.label,
-        };
+  const filtered = others.filter((o) => o.id !== resizingId);
+  const guides: SnapGuide[] = [];
+
+  if (resizesRight) {
+    const candidates: Array<{ edge: number; spanStart: number; spanEnd: number; label?: string }> = [];
+    for (const { rect: o } of filtered) {
+      const vStart = Math.min(top, o.y) - 12;
+      const vEnd = Math.max(bottom, o.y + o.h) + 12;
+      candidates.push(
+        { edge: o.x + o.w, spanStart: vStart, spanEnd: vEnd },
+        { edge: o.x - gap, spanStart: vStart, spanEnd: vEnd, label: `${gap}px` },
+        { edge: left + o.w, spanStart: top - 12, spanEnd: bottom + 12, label: `同宽 ${o.w}` }
+      );
+    }
+    let best: { dist: number; edge: number; spanStart: number; spanEnd: number; label?: string } | null = null;
+    for (const c of candidates) {
+      if (c.edge - left < minW) continue;
+      const dist = Math.abs(right - c.edge);
+      if (dist <= threshold && (!best || dist < best.dist)) {
+        best = { dist, ...c };
       }
+    }
+    if (best) {
+      right = best.edge;
+      guides.push({
+        orientation: "v",
+        pos: best.edge,
+        start: best.spanStart,
+        end: best.spanEnd,
+        label: best.label,
+      });
+    } else {
+      const gridRight = Math.round(right / gridStep) * gridStep;
+      if (gridRight - left >= minW) right = gridRight;
+    }
+  } else if (resizesLeft) {
+    const candidates: Array<{ edge: number; spanStart: number; spanEnd: number; label?: string }> = [
+      { edge: 0, spanStart: Math.min(0, top) - 24, spanEnd: Math.max(0, bottom) + 24 },
+    ];
+    for (const { rect: o } of filtered) {
+      const vStart = Math.min(top, o.y) - 12;
+      const vEnd = Math.max(bottom, o.y + o.h) + 12;
+      candidates.push(
+        { edge: o.x, spanStart: vStart, spanEnd: vEnd },
+        { edge: o.x + o.w + gap, spanStart: vStart, spanEnd: vEnd, label: `${gap}px` }
+      );
+    }
+    let best: { dist: number; edge: number; spanStart: number; spanEnd: number; label?: string } | null = null;
+    for (const c of candidates) {
+      if (right - c.edge < minW) continue;
+      const dist = Math.abs(left - c.edge);
+      if (dist <= threshold && (!best || dist < best.dist)) {
+        best = { dist, ...c };
+      }
+    }
+    if (best) {
+      left = best.edge;
+      guides.push({
+        orientation: "v",
+        pos: best.edge,
+        start: best.spanStart,
+        end: best.spanEnd,
+        label: best.label,
+      });
+    } else {
+      const gridLeft = Math.round(left / gridStep) * gridStep;
+      if (right - gridLeft >= minW) left = gridLeft;
     }
   }
 
-  if (bestYGuide) {
-    guides.push(bestYGuide);
-  } else if (opts.gridStep && opts.gridStep > 0) {
-    const nearest = Math.round(clamped.y / opts.gridStep) * opts.gridStep;
-    if (Math.abs(clamped.y - nearest) <= 4) snappedY = nearest;
+  if (resizesBottom) {
+    const candidates: Array<{ edge: number; spanStart: number; spanEnd: number; label?: string }> = [];
+    for (const { rect: o } of filtered) {
+      const hStart = Math.min(left, o.x) - 12;
+      const hEnd = Math.max(right, o.x + o.w) + 12;
+      candidates.push(
+        { edge: o.y + o.h, spanStart: hStart, spanEnd: hEnd },
+        { edge: o.y - gap, spanStart: hStart, spanEnd: hEnd, label: `${gap}px` },
+        { edge: top + o.h, spanStart: left - 12, spanEnd: right + 12, label: `同高 ${o.h}` }
+      );
+    }
+    let best: { dist: number; edge: number; spanStart: number; spanEnd: number; label?: string } | null = null;
+    for (const c of candidates) {
+      if (c.edge - top < minH) continue;
+      const dist = Math.abs(bottom - c.edge);
+      if (dist <= threshold && (!best || dist < best.dist)) {
+        best = { dist, ...c };
+      }
+    }
+    if (best) {
+      bottom = best.edge;
+      guides.push({
+        orientation: "h",
+        pos: best.edge,
+        start: best.spanStart,
+        end: best.spanEnd,
+        label: best.label,
+      });
+    } else {
+      const gridBottom = Math.round(bottom / gridStep) * gridStep;
+      if (gridBottom - top >= minH) bottom = gridBottom;
+    }
+  } else if (resizesTop) {
+    const candidates: Array<{ edge: number; spanStart: number; spanEnd: number; label?: string }> = [
+      { edge: 0, spanStart: Math.min(0, left) - 24, spanEnd: Math.max(0, right) + 24 },
+    ];
+    for (const { rect: o } of filtered) {
+      const hStart = Math.min(left, o.x) - 12;
+      const hEnd = Math.max(right, o.x + o.w) + 12;
+      candidates.push(
+        { edge: o.y, spanStart: hStart, spanEnd: hEnd },
+        { edge: o.y + o.h + gap, spanStart: hStart, spanEnd: hEnd, label: `${gap}px` }
+      );
+    }
+    let best: { dist: number; edge: number; spanStart: number; spanEnd: number; label?: string } | null = null;
+    for (const c of candidates) {
+      if (bottom - c.edge < minH) continue;
+      const dist = Math.abs(top - c.edge);
+      if (dist <= threshold && (!best || dist < best.dist)) {
+        best = { dist, ...c };
+      }
+    }
+    if (best) {
+      top = best.edge;
+      guides.push({
+        orientation: "h",
+        pos: best.edge,
+        start: best.spanStart,
+        end: best.spanEnd,
+        label: best.label,
+      });
+    } else {
+      const gridTop = Math.round(top / gridStep) * gridStep;
+      if (bottom - gridTop >= minH) top = gridTop;
+    }
   }
 
   return {
     rect: {
-      x: Math.round(snappedX),
-      y: Math.round(snappedY),
-      w: Math.round(clamped.w),
-      h: Math.round(clamped.h),
+      x: left,
+      y: top,
+      w: Math.max(minW, right - left),
+      h: Math.max(minH, bottom - top),
     },
     guides,
   };
 }
 
-export function snapResizePixelRect(
-  raw: PixelRect,
-  edge: "e" | "s" | "se" | "w" | "n",
-  others: PixelRect[],
-  opts: { snapEnabled: boolean; bypassSnap: boolean; maxWidth?: number }
-): { rect: PixelRect; guides: SnapGuide[] } {
-  let x = Math.max(0, raw.x);
-  let y = Math.max(0, raw.y);
-  const maxAllowedW =
-    typeof opts.maxWidth === "number" && opts.maxWidth > 0
-      ? Math.max(MIN_WIDGET_PX_W, opts.maxWidth - x)
-      : Number.POSITIVE_INFINITY;
-  let w = Math.min(maxAllowedW, Math.max(MIN_WIDGET_PX_W, raw.w));
-  let h = Math.max(MIN_WIDGET_PX_H, raw.h);
-
-  const guides: SnapGuide[] = [];
-  if (!opts.snapEnabled || opts.bypassSnap) {
-    return {
-      rect: {
-        x: Math.round(x),
-        y: Math.round(y),
-        w: Math.round(w),
-        h: Math.round(h),
-      },
-      guides,
-    };
+/**
+ * Neatly packs top-level cards row-by-row starting from world origin (0, 0) while preserving
+ * nested children inside each container at their relative offsets.
+ */
+export function autoArrangeFreeformWidgets(
+  widgets: InfoWidget[],
+  maxRowWidth = 1200,
+  gap = SNAP_GAP
+): Map<string, PixelRect> {
+  const widgetIds = new Set(widgets.map((w) => w.id));
+  const topLevel = widgets.filter((w) => !w.parentId || !widgetIds.has(w.parentId));
+  const childrenByParent = new Map<string, InfoWidget[]>();
+  for (const w of widgets) {
+    if (w.parentId && widgetIds.has(w.parentId)) {
+      const list = childrenByParent.get(w.parentId) ?? [];
+      list.push(w);
+      childrenByParent.set(w.parentId, list);
+    }
   }
 
-  const hasE = edge === "e" || edge === "se";
-  const hasW = edge === "w";
-  const hasS = edge === "s" || edge === "se";
-  const hasN = edge === "n";
+  const sorted = [...topLevel].sort((a, b) => {
+    const ra = getWidgetPixelRect(a);
+    const rb = getWidgetPixelRect(b);
+    return ra.y - rb.y || ra.x - rb.x;
+  });
 
-  if (hasE) {
-    const rawRight = x + w;
-    let bestDiff = SNAP_THRESHOLD + 1;
-    let bestRight = rawRight;
-    let guide: SnapGuide | null = null;
-    if (
-      typeof opts.maxWidth === "number" &&
-      opts.maxWidth - x >= MIN_WIDGET_PX_W &&
-      Math.abs(rawRight - opts.maxWidth) <= SNAP_THRESHOLD
-    ) {
-      bestDiff = Math.abs(rawRight - opts.maxWidth);
-      bestRight = opts.maxWidth;
-      guide = {
-        orientation: "v",
-        pos: Math.round(opts.maxWidth),
-        start: y,
-        end: y + h,
-      };
+  const result = new Map<string, PixelRect>();
+  let curX = 0;
+  let curY = 0;
+  let rowMaxH = 0;
+
+  for (const w of sorted) {
+    const r = getWidgetPixelRect(w);
+    if (curX > 0 && curX + r.w > maxRowWidth) {
+      curX = 0;
+      curY += rowMaxH + gap;
+      rowMaxH = 0;
     }
-    for (const o of others) {
-      const oRight = o.x + o.w;
-      const targets = [
-        { pos: oRight, label: undefined },
-        { pos: o.x - SNAP_GAP, label: `${SNAP_GAP}px` },
-        { pos: o.x, label: undefined },
-      ];
-      for (const t of targets) {
-        if (
-          t.pos - x < MIN_WIDGET_PX_W ||
-          (typeof opts.maxWidth === "number" && t.pos > opts.maxWidth)
-        ) {
-          continue;
-        }
-        const diff = Math.abs(rawRight - t.pos);
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          bestRight = t.pos;
-          guide = {
-            orientation: "v",
-            pos: Math.round(t.pos),
-            start: Math.min(y, o.y) - 8,
-            end: Math.max(y + h, o.y + o.h) + 8,
-            label: t.label,
-          };
-        }
+    result.set(w.id, { x: curX, y: curY, w: r.w, h: r.h });
+
+    const dx = curX - r.x;
+    const dy = curY - r.y;
+    const children = childrenByParent.get(w.id);
+    if (children) {
+      for (const child of children) {
+        const cr = getWidgetPixelRect(child);
+        result.set(child.id, {
+          x: cr.x + dx,
+          y: cr.y + dy,
+          w: cr.w,
+          h: cr.h,
+        });
       }
     }
-    w = Math.min(maxAllowedW, Math.max(MIN_WIDGET_PX_W, bestRight - x));
-    if (guide) guides.push(guide);
+
+    curX += r.w + gap;
+    rowMaxH = Math.max(rowMaxH, r.h);
   }
 
-  if (hasW) {
-    const fixedRight = x + w;
-    let bestDiff = SNAP_THRESHOLD + 1;
-    let bestX = x;
-    let guide: SnapGuide | null = null;
-
-    if (Math.abs(x) <= SNAP_THRESHOLD && fixedRight >= MIN_WIDGET_PX_W) {
-      bestDiff = Math.abs(x);
-      bestX = 0;
-      guide = { orientation: "v", pos: 0, start: y, end: y + h };
-    }
-    for (const o of others) {
-      const oRight = o.x + o.w;
-      const targets = [
-        { pos: o.x, label: undefined },
-        { pos: oRight + SNAP_GAP, label: `${SNAP_GAP}px` },
-        { pos: oRight, label: undefined },
-      ];
-      for (const t of targets) {
-        if (t.pos < 0 || fixedRight - t.pos < MIN_WIDGET_PX_W) continue;
-        const diff = Math.abs(x - t.pos);
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          bestX = t.pos;
-          guide = {
-            orientation: "v",
-            pos: Math.round(t.pos),
-            start: Math.min(y, o.y) - 8,
-            end: Math.max(y + h, o.y + o.h) + 8,
-            label: t.label,
-          };
-        }
-      }
-    }
-    x = bestX;
-    w = Math.max(MIN_WIDGET_PX_W, fixedRight - x);
-    if (guide) guides.push(guide);
-  }
-
-  if (hasS) {
-    const rawBottom = y + h;
-    let bestDiff = SNAP_THRESHOLD + 1;
-    let bestBottom = rawBottom;
-    let guide: SnapGuide | null = null;
-    for (const o of others) {
-      const oBottom = o.y + o.h;
-      const targets = [
-        { pos: oBottom, label: undefined },
-        { pos: o.y - SNAP_GAP, label: `${SNAP_GAP}px` },
-        { pos: o.y, label: undefined },
-      ];
-      for (const t of targets) {
-        if (t.pos - y < MIN_WIDGET_PX_H) continue;
-        const diff = Math.abs(rawBottom - t.pos);
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          bestBottom = t.pos;
-          guide = {
-            orientation: "h",
-            pos: Math.round(t.pos),
-            start: Math.min(x, o.x) - 8,
-            end: Math.max(x + w, o.x + o.w) + 8,
-            label: t.label,
-          };
-        }
-      }
-    }
-    h = Math.max(MIN_WIDGET_PX_H, bestBottom - y);
-    if (guide) guides.push(guide);
-  }
-
-  if (hasN) {
-    const fixedBottom = y + h;
-    let bestDiff = SNAP_THRESHOLD + 1;
-    let bestY = y;
-    let guide: SnapGuide | null = null;
-
-    if (Math.abs(y) <= SNAP_THRESHOLD && fixedBottom >= MIN_WIDGET_PX_H) {
-      bestDiff = Math.abs(y);
-      bestY = 0;
-      guide = { orientation: "h", pos: 0, start: x, end: x + w };
-    }
-    for (const o of others) {
-      const oBottom = o.y + o.h;
-      const targets = [
-        { pos: o.y, label: undefined },
-        { pos: oBottom + SNAP_GAP, label: `${SNAP_GAP}px` },
-        { pos: oBottom, label: undefined },
-      ];
-      for (const t of targets) {
-        if (t.pos < 0 || fixedBottom - t.pos < MIN_WIDGET_PX_H) continue;
-        const diff = Math.abs(y - t.pos);
-        if (diff < bestDiff) {
-          bestDiff = diff;
-          bestY = t.pos;
-          guide = {
-            orientation: "h",
-            pos: Math.round(t.pos),
-            start: Math.min(x, o.x) - 8,
-            end: Math.max(x + w, o.x + o.w) + 8,
-            label: t.label,
-          };
-        }
-      }
-    }
-    y = bestY;
-    h = Math.max(MIN_WIDGET_PX_H, fixedBottom - y);
-    if (guide) guides.push(guide);
-  }
-
-  return {
-    rect: {
-      x: Math.round(x),
-      y: Math.round(y),
-      w: Math.round(w),
-      h: Math.round(h),
-    },
-    guides,
-  };
+  return result;
 }

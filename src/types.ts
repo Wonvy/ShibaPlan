@@ -156,7 +156,17 @@ export interface ProjectArchiveDir {
 
 export type ProjectDateMode = "name_first" | "files_first" | "name_only";
 
-export type InfoSourceKind = "script" | "command" | "http" | "push";
+export type InfoSourceKind =
+  | "script"
+  | "command"
+  | "http"
+  | "push"
+  | "container"
+  | "control";
+
+export type InfoControlType = "switch" | "icon";
+
+export type InfoControlActionKind = "none" | "script" | "command" | "url" | "path";
 
 export type InfoScriptLang =
   | "python"
@@ -171,6 +181,15 @@ export type InfoScheduleMode = "manual" | "interval" | "cron";
 export type InfoLayoutMode = "free" | "grid" | "compact";
 
 export type InfoCardStatus = "ok" | "info" | "warn" | "error";
+
+export type InfoDisplayView =
+  | "auto"
+  | "metrics"
+  | "list"
+  | "kv"
+  | "table"
+  | "markdown"
+  | "text";
 
 export interface InfoWidgetLayout {
   x: number;
@@ -214,6 +233,14 @@ export interface InfoWidgetSource {
   pushKey?: string;
   pushToken?: string;
   staleAfterMinutes?: number;
+  // Atomic control widget fields (when kind === "control")
+  controlType?: InfoControlType;
+  controlState?: boolean;
+  controlIcon?: string;
+  controlLabel?: string;
+  controlLabelPosition?: "bottom" | "right";
+  controlActionKind?: InfoControlActionKind;
+  controlTarget?: string;
 }
 
 export interface InfoPushServerConfig {
@@ -227,11 +254,13 @@ export interface InfoWidgetAppearance {
   accentColor?: string;
   hideHeader?: boolean;
   compactPadding?: boolean;
+  displayView?: InfoDisplayView;
 }
 
 export interface InfoWidget {
   id: string;
   boardId: string;
+  parentId?: string;
   title: string;
   description?: string;
   source: InfoWidgetSource;

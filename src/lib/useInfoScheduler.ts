@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InfoPushServerConfig, InfoWidget, WorkspaceData } from "../types";
 import { createDefaultInfoBoards, isTauriRuntime, uid } from "./storage";
-import { findNearestFreeSlot } from "./infoGrid";
+import {
+  DEFAULT_WIDGET_PX_H,
+  DEFAULT_WIDGET_PX_W,
+  findFreePixelSlot,
+  getWidgetPixelRect,
+  SNAP_GAP,
+} from "./infoGrid";
 import {
   cancelInfoRun,
   getInfoPushServerStatus,
@@ -216,11 +222,13 @@ export function useInfoScheduler({
           const boardWidgets = widgets.filter(
             (w) => w.boardId === targetBoard.id
           );
-          const slot = findNearestFreeSlot(
-            boardWidgets,
-            4,
-            4,
-            targetBoard.cols ?? 12
+          const slot = findFreePixelSlot(
+            boardWidgets.map((bw) => getWidgetPixelRect(bw)),
+            DEFAULT_WIDGET_PX_W,
+            DEFAULT_WIDGET_PX_H,
+            0,
+            0,
+            SNAP_GAP
           );
           const now = new Date().toISOString();
           target = {
@@ -236,12 +244,16 @@ export function useInfoScheduler({
               mode: "manual",
             },
             layout: {
-              x: slot.x,
-              y: slot.y,
+              x: 0,
+              y: 0,
               w: 4,
               h: 4,
               minW: 2,
               minH: 2,
+              px: slot.x,
+              py: slot.y,
+              pw: DEFAULT_WIDGET_PX_W,
+              ph: DEFAULT_WIDGET_PX_H,
             },
             appearance: {
               accentColor: "#38bdf8",
@@ -345,6 +357,15 @@ export function useInfoScheduler({
       widget: InfoWidget,
       trigger: "manual" | "schedule" | "startup" = "manual"
     ): Promise<InfoRunResult | null> => {
+      if (widget.source.kind === "container") {
+        return null;
+      }
+      if (widget.source.kind === "control") {
+        const act = widget.source.controlActionKind ?? "none";
+        if (act !== "script" && act !== "command") {
+          return null;
+        }
+      }
       if (widget.source.kind === "push") {
         if (trigger === "manual") {
           onNotifyRef.current?.(
@@ -358,6 +379,21 @@ export function useInfoScheduler({
       if (curState?.running && trigger !== "manual") {
         return null;
       }
+
+      const effectiveKind =
+        widget.source.kind === "control"
+          ? widget.source.controlActionKind === "command"
+            ? "command"
+            : "script"
+          : widget.source.kind;
+      const effectiveEnv =
+        widget.source.kind === "control" &&
+        widget.source.controlType !== "icon"
+          ? {
+              ...(widget.source.env ?? {}),
+              SHIBA_SWITCH_STATE: widget.source.controlState ? "on" : "off",
+            }
+          : widget.source.env ?? {};
 
       lastIntervalTickRef.current[widget.id] = Date.now();
       setRuntimeMap((prev) => ({
@@ -373,9 +409,9 @@ export function useInfoScheduler({
       try {
         const result = await runInfoSource({
           widgetId: widget.id,
-          widgetTitle: widget.title,
+          widgetTitle: widget.title || widget.source.controlLabel || "微组件",
           trigger,
-          kind: widget.source.kind,
+          kind: effectiveKind,
           scriptPath: widget.source.scriptPath,
           inlineCode: widget.source.inlineCode,
           scriptLang: widget.source.scriptLang,
@@ -388,7 +424,7 @@ export function useInfoScheduler({
           method: widget.source.method,
           headers: widget.source.headers ?? {},
           body: widget.source.body,
-          env: widget.source.env ?? {},
+          env: effectiveEnv,
           params: widget.source.params ?? {},
           timeoutSec: widget.source.timeoutSec,
           lastRunAt: curState?.lastSuccessAt,
@@ -468,7 +504,10 @@ export function useInfoScheduler({
     async (boardId?: string) => {
       const list = (workspaceRef.current.infoWidgets ?? []).filter(
         (w) =>
-          w.source.kind !== "push" && (boardId ? w.boardId === boardId : true)
+          w.source.kind !== "push" &&
+          w.source.kind !== "container" &&
+          w.source.kind !== "control" &&
+          (boardId ? w.boardId === boardId : true)
       );
       if (list.length === 0) {
         onNotify?.("当前没有可主动执行的数据源（外部推送卡片无需手动运行）");
@@ -481,13 +520,15 @@ export function useInfoScheduler({
     [runWidget, onNotify]
   );
 
-  // Run-on-startup trigger (once per widget per app session, skipping push sources)
+  // Run-on-startup trigger (once per widget per app session, skipping push/container/control sources)
   useEffect(() => {
     if (!loaded || !cacheLoaded) return;
     const widgets = workspace.infoWidgets ?? [];
     const pending = widgets.filter(
       (w) =>
         w.source.kind !== "push" &&
+        w.source.kind !== "container" &&
+        w.source.kind !== "control" &&
         w.schedule.runOnStartup &&
         !w.schedule.paused &&
         !startupRanRef.current.has(w.id)
@@ -507,7 +548,7 @@ export function useInfoScheduler({
     };
   }, [loaded, cacheLoaded, workspace.infoWidgets, runWidget]);
 
-  // Background interval & cron ticker (1s resolution, skipping push sources)
+  // Background interval & cron ticker (1s resolution, skipping push/container/control sources)
   useEffect(() => {
     if (!loaded || !cacheLoaded) return;
     const timer = window.setInterval(() => {
@@ -517,7 +558,14 @@ export function useInfoScheduler({
       const widgets = workspaceRef.current.infoWidgets ?? [];
 
       for (const w of widgets) {
-        if (w.source.kind === "push" || w.schedule.paused) continue;
+        if (
+          w.source.kind === "push" ||
+          w.source.kind === "container" ||
+          w.source.kind === "control" ||
+          w.schedule.paused
+        ) {
+          continue;
+        }
         const state = runtimeRef.current[w.id];
         if (state?.running) continue;
 
@@ -563,7 +611,11 @@ export function useInfoScheduler({
       const st = runtimeMap[w.id];
       if (st?.running) running++;
       if (st?.lastResult) {
-        const parsed = parseInfoOutput(st.lastResult, w.source.jsonPath);
+        const parsed = parseInfoOutput(
+          st.lastResult,
+          w.source.jsonPath,
+          w.appearance?.displayView
+        );
         if (parsed.status === "error") errorCount++;
         else if (parsed.status === "warn") warnCount++;
       }

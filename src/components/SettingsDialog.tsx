@@ -4,7 +4,6 @@ import {
   BookOpen,
   Bot,
   Check,
-  ChevronDown,
   Copy,
   DatabaseBackup,
   Download,
@@ -60,6 +59,7 @@ import {
 import { UpdateCheckResult } from "../lib/updater";
 import { useI18n } from "../lib/i18n";
 import { Button } from "./ui/button";
+import { CustomSelect } from "./ui/custom-select";
 import { Input } from "./ui/input";
 import { Separator } from "./ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
@@ -1092,39 +1092,31 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       AI 平台（各平台 API Key 独立保存）
                     </label>
                   </div>
-                  <div className="relative">
-                    <select
-                      value={aiProviderId}
-                      onChange={(e) => handleProviderChange(e.target.value)}
-                      className="flex h-9 w-full appearance-none rounded-lg border border-input bg-background px-3 pr-8 text-xs text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {AI_PROVIDER_PRESETS.map((preset) => {
+                  <CustomSelect
+                    value={aiProviderId}
+                    onChange={handleProviderChange}
+                    options={[
+                      ...AI_PROVIDER_PRESETS.map((preset) => {
                         const hasKey = Boolean(
                           aiProfiles[preset.id]?.apiKey?.trim()
                         );
-                        return (
-                          <option
-                            key={preset.id}
-                            value={preset.id}
-                            className="bg-popover text-popover-foreground"
-                          >
-                            {preset.label}
-                            {hasKey ? "（已配置 Key）" : ""}
-                          </option>
-                        );
-                      })}
-                      <option
-                        value="custom"
-                        className="bg-popover text-popover-foreground"
-                      >
-                        自定义平台（OpenAI 兼容）
-                        {aiProfiles["custom"]?.apiKey?.trim()
-                          ? "（已配置 Key）"
-                          : ""}
-                      </option>
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  </div>
+                        return {
+                          value: preset.id,
+                          label: `${preset.label}${hasKey ? "（已配置 Key）" : ""}`,
+                        };
+                      }),
+                      {
+                        value: "custom",
+                        label: `自定义平台（OpenAI 兼容）${
+                          aiProfiles["custom"]?.apiKey?.trim()
+                            ? "（已配置 Key）"
+                            : ""
+                        }`,
+                      },
+                    ]}
+                    className="h-9 w-full rounded-lg px-3 text-xs shadow-sm"
+                    ariaLabel="AI 平台"
+                  />
                 </div>
 
                 {/* Base URL & API Key */}
@@ -1193,17 +1185,18 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <select
+                      <div className="min-w-0 flex-1">
+                        <CustomSelect
                           value={
                             customModelMode ||
                             (aiModel.trim() !== "" &&
                               !modelDropdownOptions.includes(aiModel.trim()))
                               ? "__custom__"
-                              : aiModel.trim() || modelDropdownOptions[0] || "__custom__"
+                              : aiModel.trim() ||
+                                modelDropdownOptions[0] ||
+                                "__custom__"
                           }
-                          onChange={(e) => {
-                            const val = e.target.value;
+                          onChange={(val) => {
                             if (val === "__custom__") {
                               setCustomModelMode(true);
                             } else {
@@ -1211,25 +1204,16 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                               setAiModel(val);
                             }
                           }}
-                          className="flex h-9 w-full appearance-none rounded-lg border border-input bg-background px-3 pr-8 font-mono text-xs text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {modelDropdownOptions.map((modelId) => (
-                            <option
-                              key={modelId}
-                              value={modelId}
-                              className="bg-popover text-popover-foreground"
-                            >
-                              {modelId}
-                            </option>
-                          ))}
-                          <option
-                            value="__custom__"
-                            className="bg-popover text-popover-foreground"
-                          >
-                            自定义模型名称...
-                          </option>
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                          options={[
+                            ...modelDropdownOptions.map((modelId) => ({
+                              value: modelId,
+                              label: modelId,
+                            })),
+                            { value: "__custom__", label: "自定义模型名称..." },
+                          ]}
+                          className="h-9 w-full rounded-lg px-3 font-mono text-xs shadow-sm"
+                          ariaLabel="选择模型"
+                        />
                       </div>
                       <Button
                         type="button"

@@ -1,5 +1,6 @@
 import {
   InfoCardStatus,
+  InfoDisplayView,
   InfoScriptLang,
   InfoWidgetSchedule,
   InfoWidgetSource,
@@ -327,10 +328,328 @@ function looksLikeMarkdown(text: string): boolean {
   );
 }
 
+export const INFO_DISPLAY_VIEW_OPTIONS: {
+  id: InfoDisplayView;
+  label: string;
+  shortLabel: string;
+  desc: string;
+}[] = [
+  {
+    id: "auto",
+    label: "自动识别",
+    shortLabel: "自动",
+    desc: "优先按脚本输出的 shibaplan-info/v1 协议排版，普通输出自动降级",
+  },
+  {
+    id: "metrics",
+    label: "KPI 指标卡",
+    shortLabel: "指标",
+    desc: "突出展示大字号数字指标与状态色",
+  },
+  {
+    id: "list",
+    label: "列表视图",
+    shortLabel: "列表",
+    desc: "按行展示条目、标签与链接，适合资讯/告警/日志流",
+  },
+  {
+    id: "kv",
+    label: "键值面板",
+    shortLabel: "键值",
+    desc: "左右对照展示属性，点击值可快速复制",
+  },
+  {
+    id: "table",
+    label: "数据表格",
+    shortLabel: "表格",
+    desc: "结构化行列对比展示",
+  },
+  {
+    id: "markdown",
+    label: "Markdown",
+    shortLabel: "MD",
+    desc: "支持标题、表格、代码块与链接的富文本排版",
+  },
+  {
+    id: "text",
+    label: "终端纯文本",
+    shortLabel: "文本",
+    desc: "等宽字体原样展示原始输出",
+  },
+];
+
+function coerceBlocksToView(
+  blocks: InfoBlock[],
+  rawStdout: string,
+  displayView: Exclude<InfoDisplayView, "auto">
+): InfoBlock[] {
+  if (displayView === "text") {
+    return [{ type: "text", text: rawStdout.trim() }];
+  }
+
+  if (displayView === "markdown") {
+    const existingMd = blocks.filter((b) => b.type === "markdown");
+    if (existingMd.length > 0) return existingMd;
+    const trimmed = rawStdout.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      return [{ type: "markdown", content: trimmed }];
+    }
+    const mdLines: string[] = [];
+    for (const b of blocks) {
+      if (b.title) mdLines.push(`### ${b.title}`);
+      if (b.type === "metrics") {
+        for (const m of b.items) {
+          mdLines.push(
+            `- **${m.label}**: \`${m.value}${m.unit ?? ""}\`${m.trend ? ` (${m.trend})` : ""}`
+          );
+        }
+      } else if (b.type === "kv") {
+        mdLines.push("| 字段 | 值 |", "| --- | --- |");
+        for (const kv of b.items) {
+          mdLines.push(`| ${kv.key} | ${kv.value} |`);
+        }
+      } else if (b.type === "list") {
+        for (const it of b.items) {
+          mdLines.push(
+            `- **${it.title}**${it.tag ? ` \`${it.tag}\`` : ""}${it.subtitle ? ` — ${it.subtitle}` : ""}`
+          );
+        }
+      } else if (b.type === "table" && b.columns.length > 0) {
+        mdLines.push(
+          `| ${b.columns.join(" | ")} |`,
+          `| ${b.columns.map(() => "---").join(" | ")} |`,
+          ...b.rows.map((r) => `| ${r.map((c) => String(c ?? "")).join(" | ")} |`)
+        );
+      } else if (b.type === "text") {
+        mdLines.push(b.text);
+      }
+    }
+    return [{ type: "markdown", content: mdLines.join("\n\n") || trimmed }];
+  }
+
+  if (displayView === "metrics") {
+    const items: InfoMetricItem[] = [];
+    for (const b of blocks) {
+      if (b.type === "metrics") {
+        items.push(...b.items);
+      } else if (b.type === "kv") {
+        for (const kv of b.items) {
+          items.push({ label: kv.key, value: kv.value, tone: kv.tone });
+        }
+      } else if (b.type === "list") {
+        for (const it of b.items) {
+          items.push({
+            label: it.title,
+            value: it.tag || it.time || "-",
+            trend: it.subtitle,
+            tone: it.tone,
+          });
+        }
+      } else if (b.type === "table") {
+        for (const row of b.rows) {
+          items.push({
+            label: String(row[0] ?? "-"),
+            value: String(row[1] ?? "-"),
+            trend: row.slice(2).filter(Boolean).join(" · ") || undefined,
+          });
+        }
+      } else {
+        const txt = b.type === "markdown" ? b.content : b.text;
+        const lines = txt
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (lines.length === 1 && !/[:：=]/.test(lines[0])) {
+          items.push({ label: "输出值", value: lines[0], tone: "info" });
+        } else {
+          for (const line of lines.slice(0, 12)) {
+            const m = /^([^:：=]+?)\s*[:：=]\s*(.+)$/.exec(line);
+            if (m) {
+              items.push({ label: m[1].trim(), value: m[2].trim() });
+            } else {
+              items.push({ label: "条目", value: line });
+            }
+          }
+        }
+      }
+    }
+    return [{ type: "metrics", items: items.slice(0, 24) }];
+  }
+
+  if (displayView === "list") {
+    const items: InfoListItem[] = [];
+    for (const b of blocks) {
+      if (b.type === "list") {
+        items.push(...b.items);
+      } else if (b.type === "metrics") {
+        for (const m of b.items) {
+          items.push({
+            title: m.label,
+            subtitle: m.trend,
+            tag: `${m.value}${m.unit ?? ""}`,
+            tone: m.tone,
+          });
+        }
+      } else if (b.type === "kv") {
+        for (const kv of b.items) {
+          items.push({ title: kv.key, subtitle: kv.value, tone: kv.tone });
+        }
+      } else if (b.type === "table") {
+        for (const row of b.rows) {
+          items.push({
+            title: String(row[0] ?? "-"),
+            subtitle: row.slice(1).map((c) => String(c ?? "")).join(" · ") || undefined,
+          });
+        }
+      } else {
+        const txt = b.type === "markdown" ? b.content : b.text;
+        for (const line of txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+          items.push({ title: line });
+        }
+      }
+    }
+    return [{ type: "list", items }];
+  }
+
+  if (displayView === "kv") {
+    const items: InfoKvItem[] = [];
+    for (const b of blocks) {
+      if (b.type === "kv") {
+        items.push(...b.items);
+      } else if (b.type === "metrics") {
+        for (const m of b.items) {
+          items.push({
+            key: m.label,
+            value: `${m.value}${m.unit ?? ""}${m.trend ? ` (${m.trend})` : ""}`,
+            tone: m.tone,
+            copyable: true,
+          });
+        }
+      } else if (b.type === "list") {
+        for (const it of b.items) {
+          items.push({
+            key: it.title,
+            value: [it.tag, it.subtitle, it.time].filter(Boolean).join(" · ") || "-",
+            tone: it.tone,
+            copyable: true,
+          });
+        }
+      } else if (b.type === "table") {
+        for (const row of b.rows) {
+          items.push({
+            key: String(row[0] ?? "-"),
+            value: row.slice(1).map((c) => String(c ?? "")).join(" | ") || "-",
+            copyable: true,
+          });
+        }
+      } else {
+        const txt = b.type === "markdown" ? b.content : b.text;
+        const lines = txt.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        lines.forEach((line, idx) => {
+          const m = /^([^:：=]+?)\s*[:：=]\s*(.+)$/.exec(line);
+          if (m) {
+            items.push({ key: m[1].trim(), value: m[2].trim(), copyable: true });
+          } else {
+            items.push({ key: `#${idx + 1}`, value: line, copyable: true });
+          }
+        });
+      }
+    }
+    return [{ type: "kv", items }];
+  }
+
+  // displayView === "table"
+  const existingTables = blocks.filter((b) => b.type === "table");
+  if (existingTables.length > 0) return existingTables;
+
+  for (const b of blocks) {
+    if (b.type === "kv") {
+      return [
+        {
+          type: "table",
+          columns: ["字段", "值"],
+          rows: b.items.map((kv) => [kv.key, kv.value]),
+        },
+      ];
+    }
+    if (b.type === "metrics") {
+      return [
+        {
+          type: "table",
+          columns: ["指标", "数值", "趋势"],
+          rows: b.items.map((m) => [
+            m.label,
+            `${m.value}${m.unit ?? ""}`,
+            m.trend ?? "-",
+          ]),
+        },
+      ];
+    }
+    if (b.type === "list") {
+      return [
+        {
+          type: "table",
+          columns: ["标题", "说明", "标签", "时间"],
+          rows: b.items.map((it) => [
+            it.title,
+            it.subtitle ?? "",
+            it.tag ?? "",
+            it.time ?? "",
+          ]),
+        },
+      ];
+    }
+  }
+
+  const lines = rawStdout
+    .trim()
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return [{ type: "table", columns: ["内容"], rows: [] }];
+  }
+  const delim = lines[0].includes("\t")
+    ? "\t"
+    : lines[0].includes("|")
+      ? "|"
+      : lines[0].includes(",")
+        ? ","
+        : null;
+  if (delim) {
+    const splitLine = (l: string) =>
+      l
+        .replace(/^\|/, "")
+        .replace(/\|$/, "")
+        .split(delim)
+        .map((c) => c.trim());
+    const first = splitLine(lines[0]);
+    const rest = lines.slice(1).map(splitLine);
+    return [{ type: "table", columns: first, rows: rest }];
+  }
+  return [{ type: "table", columns: ["内容"], rows: lines.map((l) => [l]) }];
+}
+
 export function parseInfoOutput(
   run: InfoRunResult,
-  jsonPath?: string
+  jsonPath?: string,
+  displayView: InfoDisplayView = "auto"
 ): ParsedInfoResult {
+  const applyDisplayView = (parsed: ParsedInfoResult): ParsedInfoResult => {
+    if (displayView === "auto" || !run.ok) return parsed;
+    const label =
+      INFO_DISPLAY_VIEW_OPTIONS.find((o) => o.id === displayView)?.label ??
+      displayView;
+    return {
+      ...parsed,
+      blocks: coerceBlocksToView(parsed.blocks, run.stdout, displayView),
+      validation: {
+        ...parsed.validation,
+        message: `已按指定版式「${label}」渲染`,
+      },
+    };
+  };
+
   if (!run.ok) {
     const errDetail = [
       run.error || "执行失败",
@@ -403,7 +722,7 @@ export function parseInfoOutput(
           blocks.push(buildJsonFallbackBlock(rec));
         }
 
-        return {
+        return applyDisplayView({
           status: normalizeTone(rec.status) ?? "ok",
           title: typeof rec.title === "string" ? rec.title : undefined,
           subtitle: typeof rec.subtitle === "string" ? rec.subtitle : undefined,
@@ -419,11 +738,11 @@ export function parseInfoOutput(
                 : "符合 shibaplan-info/v1 标准协议",
             warnings,
           },
-        };
+        });
       }
     }
 
-    return {
+    return applyDisplayView({
       status: "ok",
       blocks: [buildJsonFallbackBlock(target)],
       actions: [],
@@ -432,10 +751,10 @@ export function parseInfoOutput(
         message: "普通 JSON 自动降级渲染（建议接入 shibaplan-info/v1 协议获得更佳展示）",
         warnings: [],
       },
-    };
+    });
   } catch {
     const isMd = looksLikeMarkdown(trimmed);
-    return {
+    return applyDisplayView({
       status: "ok",
       blocks: [
         isMd
@@ -448,7 +767,7 @@ export function parseInfoOutput(
         message: isMd ? "Markdown 文本降级渲染" : "纯文本输出降级渲染",
         warnings: [],
       },
-    };
+    });
   }
 }
 
@@ -589,6 +908,8 @@ export function describeSchedule(
   schedule: InfoWidgetSchedule,
   kind?: InfoWidgetSource["kind"]
 ): string {
+  if (kind === "container") return "空白容器";
+  if (kind === "control") return "交互元素";
   if (kind === "push") return "外部推送接收";
   if (schedule.paused) return "已暂停";
   if (schedule.mode === "interval") {
@@ -983,5 +1304,367 @@ export function getTemplateExt(lang: InfoScriptLang): string {
       return "sh";
     case "json":
       return "json";
+  }
+}
+
+function buildSamplePayloadObj(view: InfoDisplayView): Record<string, unknown> {
+  switch (view) {
+    case "metrics":
+      return {
+        schema: "shibaplan-info/v1",
+        status: "ok",
+        badge: "实时",
+        view: "metrics",
+        items: [
+          {
+            label: "核心指标",
+            value: 98.5,
+            unit: "%",
+            trend: "+1.2%",
+            tone: "ok",
+            sparkline: [91, 94, 93, 96, 98.5],
+          },
+          { label: "待处理", value: 2, unit: "项", tone: "warn" },
+        ],
+      };
+    case "list":
+      return {
+        schema: "shibaplan-info/v1",
+        status: "ok",
+        badge: "最新",
+        view: "list",
+        items: [
+          {
+            title: "示例条目一",
+            subtitle: "附带副标题与跳转链接",
+            tag: "正常",
+            time: "刚刚",
+            tone: "ok",
+          },
+          {
+            title: "示例告警条目",
+            subtitle: "需要留意的状态",
+            tag: "告警",
+            time: "5m 前",
+            tone: "warn",
+          },
+        ],
+      };
+    case "kv":
+      return {
+        schema: "shibaplan-info/v1",
+        status: "ok",
+        badge: "状态",
+        view: "kv",
+        items: [
+          { key: "服务状态", value: "运行中", tone: "ok" },
+          { key: "节点地址", value: "127.0.0.1:8080" },
+          { key: "最近检查", value: "刚刚" },
+        ],
+      };
+    case "table":
+      return {
+        schema: "shibaplan-info/v1",
+        status: "ok",
+        badge: "报表",
+        view: "table",
+        columns: ["项目", "状态", "耗时"],
+        rows: [
+          ["任务 A", "完成", "120ms"],
+          ["任务 B", "运行中", "45ms"],
+        ],
+      };
+    case "markdown":
+      return {
+        schema: "shibaplan-info/v1",
+        status: "ok",
+        view: "markdown",
+        content:
+          "### 今日摘要\n- **状态**：正常\n- **说明**：支持标准 Markdown 语法与表格",
+      };
+    case "text":
+      return {
+        schema: "shibaplan-info/v1",
+        status: "ok",
+        view: "text",
+        text: "Line 1: 服务启动成功\nLine 2: 所有检查项通过",
+      };
+    case "auto":
+    default:
+      return {
+        schema: "shibaplan-info/v1",
+        status: "ok",
+        badge: "正常",
+        view: "composite",
+        blocks: [
+          {
+            type: "metrics",
+            items: [
+              { label: "指标 A", value: 100, unit: "%", tone: "ok" },
+              { label: "待处理", value: 2, tone: "warn" },
+            ],
+          },
+          {
+            type: "list",
+            title: "明细列表",
+            items: [{ title: "任务已完成", subtitle: "一切正常", tone: "ok" }],
+          },
+        ],
+      };
+  }
+}
+
+export function buildStarterScriptForView(
+  view: InfoDisplayView,
+  lang: InfoScriptLang
+): string {
+  const payload = buildSamplePayloadObj(view);
+  const prettyJson = JSON.stringify(payload, null, 2);
+
+  switch (lang) {
+    case "python":
+      return `import json\n\npayload = ${prettyJson
+        .replace(/\btrue\b/g, "True")
+        .replace(/\bfalse\b/g, "False")
+        .replace(/\bnull\b/g, "None")}\n\nprint(json.dumps(payload, ensure_ascii=False))\n`;
+    case "powershell":
+      if (view === "text") {
+        return `Write-Output "服务运行正常"\nWrite-Output "检查时间: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"\n`;
+      }
+      return `$json = @'\n${prettyJson}\n'@\nWrite-Output $json\n`;
+    case "node":
+      return `const payload = ${prettyJson};\nconsole.log(JSON.stringify(payload));\n`;
+    case "bash":
+      return `cat <<'EOF'\n${prettyJson}\nEOF\n`;
+    case "batch":
+      return `@echo off\nchcp 65001 >nul\necho ${JSON.stringify(payload)}\n`;
+    case "json":
+      return prettyJson + "\n";
+  }
+}
+
+const SCRIPT_EXT_TO_LANG: Record<string, InfoScriptLang> = {
+  py: "python",
+  ps1: "powershell",
+  js: "node",
+  mjs: "node",
+  cjs: "node",
+  bat: "batch",
+  cmd: "batch",
+  sh: "bash",
+  bash: "bash",
+};
+
+/**
+ * Infers script language and default card title from a filename or OS file path.
+ * Returns null for unsupported file extensions.
+ */
+export function inferScriptFromFilename(
+  fileNameOrPath: string
+): { lang: InfoScriptLang; title: string; ext: string } | null {
+  const trimmed = fileNameOrPath.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(/[/\\]/);
+  const baseName = parts[parts.length - 1] ?? "";
+  const dotIdx = baseName.lastIndexOf(".");
+  if (dotIdx <= 0 || dotIdx === baseName.length - 1) return null;
+  const ext = baseName.slice(dotIdx + 1).toLowerCase();
+  const lang = SCRIPT_EXT_TO_LANG[ext];
+  if (!lang) return null;
+  const title = baseName.slice(0, dotIdx).trim() || baseName;
+  return { lang, title, ext };
+}
+
+/**
+ * Builds realistic sample ParsedInfoResult data for each InfoDisplayView
+ * so the editor live-preview panel illustrates the chosen layout before running a script.
+ */
+export function buildSampleParsedForView(
+  view: InfoDisplayView
+): ParsedInfoResult {
+  switch (view) {
+    case "metrics":
+      return {
+        status: "ok",
+        badge: "实时",
+        blocks: [
+          {
+            type: "metrics",
+            items: [
+              {
+                label: "CPU 负载",
+                value: "34.2",
+                unit: "%",
+                trend: "-2.1%",
+                tone: "ok",
+                sparkline: [42, 38, 45, 36, 39, 34],
+              },
+              {
+                label: "内存占用",
+                value: "11.4",
+                unit: "GB",
+                trend: "+0.3G",
+                tone: "info",
+                sparkline: [10.6, 10.9, 11.0, 11.2, 11.3, 11.4],
+              },
+              {
+                label: "接口耗时",
+                value: "48",
+                unit: "ms",
+                tone: "ok",
+                sparkline: [62, 55, 50, 52, 49, 48],
+              },
+            ],
+          },
+        ],
+        actions: [],
+        validation: { mode: "standard", message: "版式示例", warnings: [] },
+      };
+
+    case "list":
+      return {
+        status: "info",
+        badge: "3 项",
+        blocks: [
+          {
+            type: "list",
+            items: [
+              {
+                title: "生产环境构建通过",
+                subtitle: "main · v0.2.6 发布流水线",
+                tag: "CI",
+                time: "刚刚",
+                tone: "ok",
+              },
+              {
+                title: "SSL 证书将于 14 天后过期",
+                subtitle: "api.example.com:443",
+                tag: "告警",
+                time: "5m 前",
+                tone: "warn",
+              },
+              {
+                title: "每日数据备份完成",
+                subtitle: "已同步 428 条记录至本地归档",
+                tag: "任务",
+                time: "09:00",
+                tone: "info",
+              },
+            ],
+          },
+        ],
+        actions: [],
+        validation: { mode: "standard", message: "版式示例", warnings: [] },
+      };
+
+    case "kv":
+      return {
+        status: "ok",
+        badge: "在线",
+        blocks: [
+          {
+            type: "kv",
+            items: [
+              { key: "主机状态", value: "运行中 (Healthy)", tone: "ok" },
+              { key: "运行环境", value: "Python 3.12 · Windows 11" },
+              { key: "响应耗时", value: "36 ms", tone: "info" },
+              { key: "最近同步", value: "2026-11-27 14:00" },
+            ],
+          },
+        ],
+        actions: [],
+        validation: { mode: "standard", message: "版式示例", warnings: [] },
+      };
+
+    case "table":
+      return {
+        status: "ok",
+        badge: "3 行",
+        blocks: [
+          {
+            type: "table",
+            columns: ["服务", "状态", "耗时"],
+            rows: [
+              ["API 网关", "正常", "18 ms"],
+              ["推送接收器", "监听中", "2 ms"],
+              ["定时调度器", "就绪", "12 ms"],
+            ],
+          },
+        ],
+        actions: [],
+        validation: { mode: "standard", message: "版式示例", warnings: [] },
+      };
+
+    case "markdown":
+      return {
+        status: "info",
+        blocks: [
+          {
+            type: "markdown",
+            content:
+              "### 巡检摘要\n- **服务状态**：全部核心节点正常\n- **配置目录**：`~/Documents/ShibaPlan/scripts`\n- 支持标题、加粗、列表与行内代码高亮",
+          },
+        ],
+        actions: [],
+        validation: { mode: "standard", message: "版式示例", warnings: [] },
+      };
+
+    case "text":
+      return {
+        status: "ok",
+        blocks: [
+          {
+            type: "text",
+            text: "[14:00:01] 初始化脚本运行环境...\n[14:00:02] 检查本地端口 18421: 正常监听\n[14:00:02] 已完成全部 3 项检测 (exit=0)",
+          },
+        ],
+        actions: [],
+        validation: { mode: "standard", message: "版式示例", warnings: [] },
+      };
+
+    case "auto":
+    default:
+      return {
+        status: "ok",
+        badge: "自动排版",
+        blocks: [
+          {
+            type: "metrics",
+            items: [
+              {
+                label: "可用率",
+                value: "99.9",
+                unit: "%",
+                tone: "ok",
+                sparkline: [99.2, 99.5, 99.8, 99.9],
+              },
+              {
+                label: "待关注",
+                value: "2",
+                unit: "项",
+                tone: "warn",
+                sparkline: [4, 3, 3, 2],
+              },
+            ],
+          },
+          {
+            type: "list",
+            items: [
+              {
+                title: "自动识别输出结构",
+                subtitle: "根据 JSON 字段智能组合指标卡、列表或表格",
+                tag: "推荐",
+                tone: "info",
+              },
+              {
+                title: "支持纯文本与 Markdown 自动降级",
+                tone: "ok",
+              },
+            ],
+          },
+        ],
+        actions: [],
+        validation: { mode: "standard", message: "版式示例", warnings: [] },
+      };
   }
 }

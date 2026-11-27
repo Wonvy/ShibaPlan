@@ -564,7 +564,7 @@ fn spawn_script_command(
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); & $env:SHIBA_SCRIPT_FILE @args",
+                "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $OutputEncoding=[System.Text.UTF8Encoding]::new($false); & $env:SHIBA_SCRIPT_FILE @args",
             ])
             .args(&req.args);
             build_and_spawn(cmd).map_err(|e| format!("启动 PowerShell 失败: {}", e))
@@ -664,6 +664,25 @@ fn spawn_command_source(
         .map_err(|e| format!("启动命令「{}」失败: {}", raw_cmd, e))
 }
 
+fn is_ps1_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("ps1"))
+        .unwrap_or(false)
+}
+
+fn write_script_content(path: &Path, content: &str) -> std::io::Result<()> {
+    // Windows PowerShell 5.1 parses .ps1 files with ANSI/GBK unless a UTF-8 BOM is present.
+    if is_ps1_path(path) && !content.starts_with('\u{FEFF}') {
+        let mut bytes = Vec::with_capacity(3 + content.len());
+        bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+        bytes.extend_from_slice(content.as_bytes());
+        fs::write(path, bytes)
+    } else {
+        fs::write(path, content.as_bytes())
+    }
+}
+
 #[tauri::command]
 pub async fn run_info_source(
     state: tauri::State<'_, InfoRunnerState>,
@@ -739,7 +758,8 @@ fn run_info_source_impl(
                 ext
             );
             let temp_path = scripts_dir.join(temp_name);
-            fs::write(&temp_path, code).map_err(|e| format!("写入临时脚本失败: {}", e))?;
+            write_script_content(&temp_path, code)
+                .map_err(|e| format!("写入临时脚本失败: {}", e))?;
             _temp_guard.path = Some(temp_path.clone());
             temp_path
         } else if let Some(p) = saved_path {
@@ -758,7 +778,41 @@ fn run_info_source_impl(
                     ran_at,
                 });
             }
-            pb
+            #[cfg(target_os = "windows")]
+            {
+                if is_ps1_path(&pb) {
+                    if let Ok(bytes) = fs::read(&pb) {
+                        let has_bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
+                        let has_non_ascii = bytes.iter().any(|&b| b >= 0x80);
+                        if !has_bom && has_non_ascii {
+                            if let Ok(text) = std::str::from_utf8(&bytes) {
+                                let temp_name = format!(
+                                    ".tmp_{}_{}.ps1",
+                                    sanitize_id_part(&req.widget_id),
+                                    Local::now().timestamp_millis()
+                                );
+                                let temp_path = scripts_dir.join(temp_name);
+                                write_script_content(&temp_path, text)
+                                    .map_err(|e| format!("写入临时脚本失败: {}", e))?;
+                                _temp_guard.path = Some(temp_path.clone());
+                                temp_path
+                            } else {
+                                pb
+                            }
+                        } else {
+                            pb
+                        }
+                    } else {
+                        pb
+                    }
+                } else {
+                    pb
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                pb
+            }
         } else {
             return Ok(InfoRunResult {
                 ok: false,
@@ -909,7 +963,8 @@ pub async fn read_script_file(path: String) -> Result<String, String> {
             return Err("脚本文件超过 512KB，暂不支持在内置编辑器中打开".to_string());
         }
         let bytes = fs::read(&pb).map_err(|e| format!("读取脚本失败: {}", e))?;
-        Ok(String::from_utf8_lossy(&bytes).to_string())
+        let text = String::from_utf8_lossy(&bytes);
+        Ok(text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_string())
     })
     .await
 }
@@ -934,7 +989,7 @@ pub async fn write_script_file(
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("创建脚本目录失败: {}", e))?;
         }
-        fs::write(&target, content.as_bytes()).map_err(|e| format!("保存脚本文件失败: {}", e))?;
+        write_script_content(&target, &content).map_err(|e| format!("保存脚本文件失败: {}", e))?;
         Ok(target.to_string_lossy().to_string())
     })
     .await

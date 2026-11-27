@@ -12,11 +12,25 @@ export const DialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     hideClose?: boolean;
   }
->(({ className, children, hideClose, ...props }, ref) => (
+>(({ className, children, hideClose, onPointerDownOutside, onInteractOutside, ...props }, ref) => (
   <DialogPrimitive.Portal>
     <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] animate-fade-in" />
     <DialogPrimitive.Content
       ref={ref}
+      onPointerDownOutside={(e) => {
+        if ((e.target as HTMLElement | null)?.closest?.("[data-custom-select-menu]")) {
+          e.preventDefault();
+          return;
+        }
+        onPointerDownOutside?.(e);
+      }}
+      onInteractOutside={(e) => {
+        if ((e.target as HTMLElement | null)?.closest?.("[data-custom-select-menu]")) {
+          e.preventDefault();
+          return;
+        }
+        onInteractOutside?.(e);
+      }}
       className={cn(
         "fixed left-1/2 top-1/2 z-50 w-[calc(100vw-24px)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-popover p-5 text-popover-foreground shadow-popover-soft animate-dialog-in focus:outline-none",
         className
