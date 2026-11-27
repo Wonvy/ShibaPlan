@@ -7,6 +7,17 @@ import {
 } from "../types";
 import type { InfoRunResult } from "./infoRunner";
 
+export interface InfoTooltipItem {
+  label: string;
+  value: string;
+}
+
+export interface InfoTooltip {
+  title?: string;
+  text?: string;
+  items?: InfoTooltipItem[];
+}
+
 export interface InfoMetricItem {
   label: string;
   value: string | number;
@@ -14,6 +25,7 @@ export interface InfoMetricItem {
   trend?: string;
   tone?: InfoCardStatus;
   sparkline?: number[];
+  tooltip?: InfoTooltip;
 }
 
 export interface InfoListItem {
@@ -24,6 +36,7 @@ export interface InfoListItem {
   tone?: InfoCardStatus;
   url?: string;
   path?: string;
+  tooltip?: InfoTooltip;
 }
 
 export interface InfoKvItem {
@@ -31,6 +44,7 @@ export interface InfoKvItem {
   value: string;
   tone?: InfoCardStatus;
   copyable?: boolean;
+  tooltip?: InfoTooltip;
 }
 
 export interface InfoTableData {
@@ -110,6 +124,112 @@ export function extractJsonPath(data: unknown, rawPath?: string): unknown {
   return cur;
 }
 
+function formatTooltipScalar(val: unknown): string {
+  if (val === null || val === undefined) return "-";
+  if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+    return String(val);
+  }
+  return JSON.stringify(val);
+}
+
+function normalizeTooltip(raw: unknown): InfoTooltip | undefined {
+  if (raw === null || raw === undefined) return undefined;
+
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    return text ? { text } : undefined;
+  }
+
+  if (Array.isArray(raw)) {
+    const items: InfoTooltipItem[] = [];
+    const lines: string[] = [];
+    for (const entry of raw) {
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const rec = entry as Record<string, unknown>;
+        const label = String(rec.label ?? rec.key ?? "").trim();
+        if (label) {
+          items.push({ label, value: formatTooltipScalar(rec.value) });
+        }
+      } else if (
+        typeof entry === "string" ||
+        typeof entry === "number" ||
+        typeof entry === "boolean"
+      ) {
+        const line = String(entry).trim();
+        if (line) lines.push(line);
+      }
+    }
+    if (items.length > 0) return { items };
+    if (lines.length > 0) return { text: lines.join("\n") };
+    return undefined;
+  }
+
+  if (typeof raw === "object") {
+    const rec = raw as Record<string, unknown>;
+    const hasStructuredKeys =
+      "title" in rec || "text" in rec || "lines" in rec || "items" in rec;
+
+    if (hasStructuredKeys) {
+      const title =
+        typeof rec.title === "string" && rec.title.trim()
+          ? rec.title.trim()
+          : undefined;
+
+      let text: string | undefined;
+      if (typeof rec.text === "string" && rec.text.trim()) {
+        text = rec.text.trim();
+      } else if (Array.isArray(rec.lines)) {
+        const joined = rec.lines
+          .filter(
+            (l) =>
+              typeof l === "string" ||
+              typeof l === "number" ||
+              typeof l === "boolean"
+          )
+          .map((l) => String(l).trim())
+          .filter(Boolean)
+          .join("\n");
+        if (joined) text = joined;
+      }
+
+      let items: InfoTooltipItem[] | undefined;
+      if (Array.isArray(rec.items)) {
+        const parsed = rec.items
+          .filter((i): i is Record<string, unknown> => Boolean(i && typeof i === "object"))
+          .map((i) => ({
+            label: String(i.label ?? i.key ?? "").trim(),
+            value: formatTooltipScalar(i.value),
+          }))
+          .filter((i) => Boolean(i.label));
+        if (parsed.length > 0) items = parsed;
+      } else if (rec.items && typeof rec.items === "object") {
+        const parsed = Object.entries(rec.items as Record<string, unknown>)
+          .map(([k, v]) => ({
+            label: k.trim(),
+            value: formatTooltipScalar(v),
+          }))
+          .filter((i) => Boolean(i.label));
+        if (parsed.length > 0) items = parsed;
+      }
+
+      if (title || text || (items && items.length > 0)) {
+        return { title, text, items };
+      }
+      return undefined;
+    }
+
+    const dictItems = Object.entries(rec)
+      .map(([k, v]) => ({
+        label: k.trim(),
+        value: formatTooltipScalar(v),
+      }))
+      .filter((i) => Boolean(i.label));
+    return dictItems.length > 0 ? { items: dictItems } : undefined;
+  }
+
+  return undefined;
+}
+
 function normalizeMetricItems(raw: unknown): InfoMetricItem[] {
   if (!Array.isArray(raw)) return [];
   const out: InfoMetricItem[] = [];
@@ -131,6 +251,7 @@ function normalizeMetricItems(raw: unknown): InfoMetricItem[] {
       sparkline: Array.isArray(rec.sparkline)
         ? rec.sparkline.filter((n): n is number => typeof n === "number" && Number.isFinite(n))
         : undefined,
+      tooltip: normalizeTooltip(rec.tooltip ?? rec.detail ?? rec.details ?? rec.hover),
     });
   }
   return out;
@@ -156,6 +277,7 @@ function normalizeListItems(raw: unknown): InfoListItem[] {
       tone: normalizeTone(rec.tone ?? rec.status),
       url: typeof rec.url === "string" ? rec.url : undefined,
       path: typeof rec.path === "string" ? rec.path : undefined,
+      tooltip: normalizeTooltip(rec.tooltip ?? rec.detail ?? rec.details ?? rec.hover),
     });
   }
   return out;
@@ -175,6 +297,7 @@ function normalizeKvItems(raw: unknown): InfoKvItem[] {
         value: typeof val === "string" ? val : JSON.stringify(val),
         tone: normalizeTone(rec.tone ?? rec.status),
         copyable: typeof rec.copyable === "boolean" ? rec.copyable : true,
+        tooltip: normalizeTooltip(rec.tooltip ?? rec.detail ?? rec.details ?? rec.hover),
       });
     }
     return out;
@@ -434,7 +557,12 @@ function coerceBlocksToView(
         items.push(...b.items);
       } else if (b.type === "kv") {
         for (const kv of b.items) {
-          items.push({ label: kv.key, value: kv.value, tone: kv.tone });
+          items.push({
+            label: kv.key,
+            value: kv.value,
+            tone: kv.tone,
+            tooltip: kv.tooltip,
+          });
         }
       } else if (b.type === "list") {
         for (const it of b.items) {
@@ -443,6 +571,7 @@ function coerceBlocksToView(
             value: it.tag || it.time || "-",
             trend: it.subtitle,
             tone: it.tone,
+            tooltip: it.tooltip,
           });
         }
       } else if (b.type === "table") {
@@ -488,11 +617,17 @@ function coerceBlocksToView(
             subtitle: m.trend,
             tag: `${m.value}${m.unit ?? ""}`,
             tone: m.tone,
+            tooltip: m.tooltip,
           });
         }
       } else if (b.type === "kv") {
         for (const kv of b.items) {
-          items.push({ title: kv.key, subtitle: kv.value, tone: kv.tone });
+          items.push({
+            title: kv.key,
+            subtitle: kv.value,
+            tone: kv.tone,
+            tooltip: kv.tooltip,
+          });
         }
       } else if (b.type === "table") {
         for (const row of b.rows) {
@@ -523,6 +658,7 @@ function coerceBlocksToView(
             value: `${m.value}${m.unit ?? ""}${m.trend ? ` (${m.trend})` : ""}`,
             tone: m.tone,
             copyable: true,
+            tooltip: m.tooltip,
           });
         }
       } else if (b.type === "list") {
@@ -532,6 +668,7 @@ function coerceBlocksToView(
             value: [it.tag, it.subtitle, it.time].filter(Boolean).join(" · ") || "-",
             tone: it.tone,
             copyable: true,
+            tooltip: it.tooltip,
           });
         }
       } else if (b.type === "table") {
@@ -946,14 +1083,14 @@ export const AI_INFO_PROTOCOL_PROMPT = `请帮我编写一个兼容 ShibaPlan「
     {
       "type": "metrics",
       "items": [
-        { "label": "指标名", "value": "98.5", "unit": "%", "trend": "+2.1%", "tone": "ok", "sparkline": [10, 25, 18, 32] }
+        { "label": "指标名", "value": "98.5", "unit": "%", "trend": "+2.1%", "tone": "ok", "sparkline": [10, 25, 18, 32], "tooltip": { "title": "详情", "items": [{ "label": "说明", "value": "悬停时展示" }] } }
       ]
     },
     {
       "type": "list",
       "title": "列表标题",
       "items": [
-        { "title": "条目标题", "subtitle": "描述", "tag": "标签", "time": "10:30", "tone": "info", "url": "https://...", "path": "本地路径(可选)" }
+        { "title": "条目标题", "subtitle": "描述", "tag": "标签", "time": "10:30", "tone": "info", "url": "https://...", "path": "本地路径(可选)", "tooltip": "可选悬停详情文本或 { title, items }" }
       ]
     }
   ],

@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -15,11 +16,74 @@ import {
   InfoBlock,
   InfoListItem,
   InfoMetricItem,
+  InfoTooltip,
   ParsedInfoResult,
 } from "../../lib/infoProtocol";
 import { openPathInOs } from "../../lib/storage";
 import { openExternalUrl } from "../../lib/updater";
 import { MarkdownPreview } from "../MarkdownPreview";
+
+interface FloatingTooltipState {
+  tooltip: InfoTooltip;
+  rect: DOMRect;
+}
+
+const FloatingItemTooltip: React.FC<{ state: FloatingTooltipState }> = ({
+  state,
+}) => {
+  if (typeof document === "undefined") return null;
+
+  const { tooltip, rect } = state;
+  const maxWidth = 300;
+  const left = Math.min(
+    Math.max(12, rect.left + rect.width / 2 - 140),
+    Math.max(12, window.innerWidth - maxWidth + 8)
+  );
+  const placeAbove = rect.top > 180;
+  const top = placeAbove ? rect.top - 8 : rect.bottom + 8;
+
+  return createPortal(
+    <div
+      style={{
+        left,
+        top,
+        transform: placeAbove ? "translateY(-100%)" : undefined,
+      }}
+      className="pointer-events-none fixed z-[100] min-w-[190px] max-w-[300px] rounded-xl border border-border bg-popover/95 px-3 py-2.5 text-[11.5px] text-popover-foreground shadow-popover-soft backdrop-blur-md"
+    >
+      {tooltip.title && (
+        <div className="mb-1.5 border-b border-border/60 pb-1 text-[11.5px] font-semibold text-foreground">
+          {tooltip.title}
+        </div>
+      )}
+      {tooltip.items && tooltip.items.length > 0 && (
+        <div className="space-y-0.5">
+          {tooltip.items.map((row, idx) => (
+            <div
+              key={idx}
+              className="flex items-start justify-between gap-3 py-0.5 text-[11px]"
+            >
+              <span className="shrink-0 text-muted-foreground">{row.label}</span>
+              <span className="break-all text-right font-mono text-popover-foreground">
+                {row.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {tooltip.text && (
+        <div
+          className={`whitespace-pre-wrap leading-relaxed text-[11px] text-popover-foreground/90 ${
+            tooltip.items && tooltip.items.length > 0 ? "mt-1.5 border-t border-border/50 pt-1.5" : ""
+          }`}
+        >
+          {tooltip.text}
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+};
 
 interface InfoContentRendererProps {
   parsed: ParsedInfoResult | null;
@@ -93,7 +157,9 @@ const Sparkline: React.FC<{ data: number[]; tone?: InfoCardStatus }> = ({
 const MetricBlockView: React.FC<{
   title?: string;
   items: InfoMetricItem[];
-}> = ({ title, items }) => (
+  onShowTooltip?: (tooltip: InfoTooltip, el: HTMLElement) => void;
+  onHideTooltip?: () => void;
+}> = ({ title, items, onShowTooltip, onHideTooltip }) => (
   <div className="space-y-1.5">
     {title && (
       <div className="text-[11px] font-medium text-muted-foreground">
@@ -103,15 +169,38 @@ const MetricBlockView: React.FC<{
     <div
       className="grid gap-2"
       style={{
-        gridTemplateColumns: "repeat(auto-fit, minmax(105px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
       }}
     >
       {items.map((item, idx) => {
         const tone = item.tone ?? "info";
+        const cardToneCls =
+          tone === "error"
+            ? "border-rose-500/45 bg-rose-500/8"
+            : tone === "warn"
+              ? "border-amber-500/35 bg-amber-500/5"
+              : "border-border/70 bg-surface/55";
+        const valueToneCls =
+          tone === "error"
+            ? "text-rose-500"
+            : tone === "warn"
+              ? "text-amber-500"
+              : "text-foreground";
+        const unitToneCls =
+          tone === "error" ? "text-rose-500/85" : "text-muted-foreground";
+
         return (
           <div
             key={idx}
-            className="flex flex-col justify-between rounded-lg border border-border/70 bg-surface/55 px-2.5 py-2"
+            onMouseEnter={
+              item.tooltip && onShowTooltip
+                ? (e) => onShowTooltip(item.tooltip!, e.currentTarget)
+                : undefined
+            }
+            onMouseLeave={item.tooltip ? onHideTooltip : undefined}
+            className={`flex flex-col justify-between rounded-lg border px-2.5 py-2 ${cardToneCls} ${
+              item.tooltip ? "transition-colors hover:border-primary/45" : ""
+            }`}
           >
             <div className="flex items-center justify-between gap-1.5">
               <span className="truncate text-[11px] text-muted-foreground">
@@ -121,11 +210,13 @@ const MetricBlockView: React.FC<{
             </div>
             <div className="mt-1 flex items-end justify-between gap-1">
               <div className="flex items-baseline gap-0.5 min-w-0">
-                <span className="truncate text-[18px] font-semibold leading-tight tracking-tight text-foreground tabular-nums">
+                <span
+                  className={`truncate text-[18px] font-semibold leading-tight tracking-tight tabular-nums ${valueToneCls}`}
+                >
                   {item.value}
                 </span>
                 {item.unit && (
-                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                  <span className={`shrink-0 text-[11px] ${unitToneCls}`}>
                     {item.unit}
                   </span>
                 )}
@@ -152,7 +243,17 @@ const ListBlockView: React.FC<{
   onSendItemToKanban?: (title: string, notes?: string) => void;
   onSendItemToIdea?: (content: string) => void;
   onNotify?: (msg: string) => void;
-}> = ({ title, items, onSendItemToKanban, onSendItemToIdea, onNotify }) => {
+  onShowTooltip?: (tooltip: InfoTooltip, el: HTMLElement) => void;
+  onHideTooltip?: () => void;
+}> = ({
+  title,
+  items,
+  onSendItemToKanban,
+  onSendItemToIdea,
+  onNotify,
+  onShowTooltip,
+  onHideTooltip,
+}) => {
   const handleItemClick = (item: InfoListItem) => {
     if (item.url) {
       openExternalUrl(item.url).catch((e) =>
@@ -185,10 +286,18 @@ const ListBlockView: React.FC<{
               <div
                 key={idx}
                 onClick={clickable ? () => handleItemClick(item) : undefined}
+                onMouseEnter={
+                  item.tooltip && onShowTooltip
+                    ? (e) => onShowTooltip(item.tooltip!, e.currentTarget)
+                    : undefined
+                }
+                onMouseLeave={item.tooltip ? onHideTooltip : undefined}
                 className={`group/row flex items-start justify-between gap-2 px-2.5 py-1.5 text-xs ${
                   clickable
                     ? "cursor-pointer transition-colors hover:bg-accent/55"
-                    : ""
+                    : item.tooltip
+                      ? "transition-colors hover:bg-accent/40"
+                      : ""
                 }`}
               >
                 <div className="flex min-w-0 flex-1 items-start gap-2">
@@ -197,7 +306,11 @@ const ListBlockView: React.FC<{
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
-                      <span className="truncate font-medium text-foreground/95">
+                      <span
+                        className={`truncate font-medium ${
+                          tone === "error" ? "text-rose-500" : "text-foreground/95"
+                        }`}
+                      >
                         {item.title}
                       </span>
                       {item.url && (
@@ -283,10 +396,26 @@ const BlockView: React.FC<{
   onSendItemToKanban?: (title: string, notes?: string) => void;
   onSendItemToIdea?: (content: string) => void;
   onNotify?: (msg: string) => void;
-}> = ({ block, onSendItemToKanban, onSendItemToIdea, onNotify }) => {
+  onShowTooltip?: (tooltip: InfoTooltip, el: HTMLElement) => void;
+  onHideTooltip?: () => void;
+}> = ({
+  block,
+  onSendItemToKanban,
+  onSendItemToIdea,
+  onNotify,
+  onShowTooltip,
+  onHideTooltip,
+}) => {
   switch (block.type) {
     case "metrics":
-      return <MetricBlockView title={block.title} items={block.items} />;
+      return (
+        <MetricBlockView
+          title={block.title}
+          items={block.items}
+          onShowTooltip={onShowTooltip}
+          onHideTooltip={onHideTooltip}
+        />
+      );
     case "list":
       return (
         <ListBlockView
@@ -295,6 +424,8 @@ const BlockView: React.FC<{
           onSendItemToKanban={onSendItemToKanban}
           onSendItemToIdea={onSendItemToIdea}
           onNotify={onNotify}
+          onShowTooltip={onShowTooltip}
+          onHideTooltip={onHideTooltip}
         />
       );
     case "kv":
@@ -317,17 +448,39 @@ const BlockView: React.FC<{
                       }
                     : undefined
                 }
-                title={kv.copyable !== false ? "点击复制值" : undefined}
+                onMouseEnter={
+                  kv.tooltip && onShowTooltip
+                    ? (e) => onShowTooltip(kv.tooltip!, e.currentTarget)
+                    : undefined
+                }
+                onMouseLeave={kv.tooltip ? onHideTooltip : undefined}
+                title={
+                  !kv.tooltip && kv.copyable !== false ? "点击复制值" : undefined
+                }
                 className={`flex items-center justify-between gap-3 px-2.5 py-1.5 ${
                   kv.copyable !== false
                     ? "cursor-pointer hover:bg-accent/45"
-                    : ""
+                    : kv.tooltip
+                      ? "hover:bg-accent/30"
+                      : ""
                 }`}
               >
-                <span className="shrink-0 text-muted-foreground">{kv.key}</span>
+                <span
+                  className={`shrink-0 ${
+                    kv.tone === "error"
+                      ? "text-rose-500/90"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {kv.key}
+                </span>
                 <span
                   className={`truncate font-mono text-[11.5px] ${
-                    kv.tone ? TONE_TEXT[kv.tone] : "text-foreground"
+                    kv.tone === "error"
+                      ? "font-semibold text-rose-500"
+                      : kv.tone
+                        ? TONE_TEXT[kv.tone]
+                        : "text-foreground"
                   }`}
                 >
                   {kv.value}
@@ -457,6 +610,32 @@ export const InfoContentRenderer: React.FC<InfoContentRendererProps> = ({
   onSendItemToIdea,
   onNotify,
 }) => {
+  const [hoveredTooltip, setHoveredTooltip] =
+    useState<FloatingTooltipState | null>(null);
+
+  const handleShowTooltip = useCallback(
+    (tooltip: InfoTooltip, el: HTMLElement) => {
+      setHoveredTooltip({
+        tooltip,
+        rect: el.getBoundingClientRect(),
+      });
+    },
+    []
+  );
+
+  const handleHideTooltip = useCallback(() => {
+    setHoveredTooltip(null);
+  }, []);
+
+  useEffect(() => {
+    if (!hoveredTooltip) return;
+    const clear = () => setHoveredTooltip(null);
+    window.addEventListener("scroll", clear, true);
+    return () => {
+      window.removeEventListener("scroll", clear, true);
+    };
+  }, [hoveredTooltip]);
+
   if (!parsed) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
@@ -508,7 +687,7 @@ export const InfoContentRenderer: React.FC<InfoContentRendererProps> = ({
         <div className="text-[11px] text-muted-foreground">{parsed.subtitle}</div>
       )}
 
-      {parsed.status === "error" && (
+      {parsed.validation.mode === "error" && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-rose-500/25 bg-rose-500/10 px-2.5 py-1.5 text-[11.5px] text-rose-400">
           <div className="flex items-center gap-1.5 min-w-0">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -544,10 +723,13 @@ export const InfoContentRenderer: React.FC<InfoContentRendererProps> = ({
           onSendItemToKanban={onSendItemToKanban}
           onSendItemToIdea={onSendItemToIdea}
           onNotify={onNotify}
+          onShowTooltip={handleShowTooltip}
+          onHideTooltip={handleHideTooltip}
         />
       ))}
 
       <ActionButtonsBar actions={parsed.actions} onNotify={onNotify} />
+      {hoveredTooltip && <FloatingItemTooltip state={hoveredTooltip} />}
     </div>
   );
 };

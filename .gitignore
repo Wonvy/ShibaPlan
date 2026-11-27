@@ -4,6 +4,9 @@ node_modules/
 # Frontend build outputs
 dist/
 dist-ssr/
+public/docs/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 *.local
 
 # Tauri / Rust build artifacts

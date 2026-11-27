@@ -27,7 +27,7 @@ const SAMPLE_JSON = `{
     {
       "type": "metrics",
       "items": [
-        { "label": "CPU", "value": "24", "unit": "%", "trend": "-3%", "tone": "ok", "sparkline": [30, 28, 25, 24] },
+        { "label": "CPU", "value": "24", "unit": "%", "trend": "-3%", "tone": "ok", "sparkline": [30, 28, 25, 24], "tooltip": { "title": "CPU 详情", "items": [{ "label": "负载", "value": "0.42" }] } },
         { "label": "待处理", "value": 3, "tone": "warn" }
       ]
     },
@@ -122,7 +122,7 @@ export const InfoProtocolDialog: React.FC<InfoProtocolDialogProps> = ({
                 <code className="rounded bg-muted px-1">
                   &quot;schema&quot;: &quot;shibaplan-info/v1&quot;
                 </code>{" "}
-                的 JSON，支持指标卡、趋势折线、列表、表格、键值对、Markdown 组合排版与底部快捷按钮。
+                的 JSON，支持指标卡、趋势折线、列表、表格、键值对、Markdown 组合排版、条目悬停详情（<code className="rounded bg-muted px-1">tooltip</code>）与底部快捷按钮。
               </li>
               <li>
                 <strong className="text-foreground">普通 JSON 自动降级</strong>：任意合法 JSON
