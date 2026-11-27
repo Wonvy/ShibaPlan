@@ -2117,10 +2117,8 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
         <InfoContextMenu
           menu={contextMenu}
           widget={ctxWidget}
-          board={activeBoard}
           isRunning={Boolean(ctxWidget && runtimeMap[ctxWidget.id]?.running)}
           hasColumns={workspace.columns.length > 0}
-          editMode={editMode}
           pushBaseUrl={pushBaseUrl}
           onClose={() => setContextMenu(null)}
           onNotify={onNotify}
@@ -2374,17 +2372,9 @@ export const InfoDashboardView: React.FC<InfoDashboardViewProps> = ({
           onAddAtPos={(wx, wy) => openNewWidgetDialog(wx, wy)}
           onAddBlankContainer={(wx, wy) => handleAddBlankContainer(wx, wy)}
           onAddControlAtPos={(ct, wx, wy) => handleAddControlAtPos(ct, wx, wy)}
-          onAddFromTemplate={(tpl, wx, wy) =>
-            handleAddFromTemplate(tpl, wx, wy)
-          }
           onRefreshAll={() => void onRunAllWidgets(activeBoard.id)}
           onResetView={resetView}
           onFitAll={fitAllWidgets}
-          onToggleSnap={() => updateBoardMeta({ snapEnabled: !snapEnabled })}
-          onToggleGrid={() =>
-            updateBoardMeta({ showGrid: !(activeBoard.showGrid ?? true) })
-          }
-          onToggleEditMode={() => setEditMode((v) => !v)}
           onAutoArrange={() => {
             const arranged = autoArrangeFreeformWidgets(
               boardWidgets,

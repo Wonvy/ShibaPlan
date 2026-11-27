@@ -9,10 +9,8 @@ import {
   FileCode2,
   FolderOpen,
   Frame,
-  Grid,
   LayoutGrid,
   LogOut,
-  Magnet,
   Maximize2,
   Pause,
   Pencil,
@@ -30,7 +28,6 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  InfoBoard,
   InfoControlType,
   InfoDisplayView,
   InfoWidget,
@@ -39,8 +36,6 @@ import {
   buildPushCodeSnippets,
   buildPushUrl,
   INFO_DISPLAY_VIEW_OPTIONS,
-  INFO_WIDGET_TEMPLATES,
-  InfoWidgetTemplate,
 } from "../../lib/infoProtocol";
 
 export type InfoMenuState =
@@ -56,10 +51,8 @@ export type InfoMenuState =
 interface InfoContextMenuProps {
   menu: InfoMenuState;
   widget: InfoWidget | null;
-  board: InfoBoard;
   isRunning: boolean;
   hasColumns: boolean;
-  editMode: boolean;
   pushBaseUrl?: string;
   onClose: () => void;
   onNotify?: (msg: string) => void;
@@ -89,17 +82,9 @@ interface InfoContextMenuProps {
     worldX: number,
     worldY: number
   ) => void;
-  onAddFromTemplate: (
-    tpl: InfoWidgetTemplate,
-    worldX: number,
-    worldY: number
-  ) => void;
   onRefreshAll: () => void;
   onResetView: () => void;
   onFitAll: () => void;
-  onToggleSnap: () => void;
-  onToggleGrid: () => void;
-  onToggleEditMode: () => void;
   onAutoArrange: () => void;
   onOpenScriptsDir: () => void;
   onOpenProtocolDoc: () => void;
@@ -122,10 +107,8 @@ const ACCENT_SWATCHES = [
 export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
   menu,
   widget,
-  board,
   isRunning,
   hasColumns,
-  editMode,
   pushBaseUrl,
   onClose,
   onNotify,
@@ -149,13 +132,9 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
   onAddAtPos,
   onAddBlankContainer,
   onAddControlAtPos,
-  onAddFromTemplate,
   onRefreshAll,
   onResetView,
   onFitAll,
-  onToggleSnap,
-  onToggleGrid,
-  onToggleEditMode,
   onAutoArrange,
   onOpenScriptsDir,
   onOpenProtocolDoc,
@@ -169,14 +148,11 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
 
   // Clamp coordinates so menu always stays within viewport
   const menuW = 224;
-  const estH = menu.kind === "widget" ? 410 : 440;
+  const estH = menu.kind === "widget" ? 410 : 280;
   const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
   const vh = typeof window !== "undefined" ? window.innerHeight : 800;
   const left = Math.max(8, Math.min(menu.x, vw - menuW - 8));
   const top = Math.max(8, Math.min(menu.y, vh - estH - 8));
-
-  const showGrid = board.showGrid ?? true;
-  const snapEnabled = board.snapEnabled ?? true;
 
   const isContainer = widget?.source.kind === "container";
   const isControl = widget?.source.kind === "control";
@@ -506,23 +482,6 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
             </button>
           </div>
 
-          <div className="px-2 pt-1 pb-0.5 text-[10.5px] font-medium text-muted-foreground">
-            从模板快速添加
-          </div>
-          {INFO_WIDGET_TEMPLATES.map((tpl) => (
-            <button
-              key={tpl.id}
-              type="button"
-              onClick={run(() =>
-                onAddFromTemplate(tpl, menu.worldX, menu.worldY)
-              )}
-              className={ITEM_CLS}
-            >
-              <Sparkles className="h-3 w-3 shrink-0 text-primary/80" />
-              <span className="truncate">{tpl.defaultTitle}</span>
-            </button>
-          ))}
-
           <div className="my-1 border-t border-border/60" />
 
           <button type="button" onClick={run(onRefreshAll)} className={ITEM_CLS}>
@@ -538,31 +497,6 @@ export const InfoContextMenu: React.FC<InfoContextMenuProps> = ({
           <button type="button" onClick={run(onFitAll)} className={ITEM_CLS}>
             <Maximize2 className="h-3.5 w-3.5 text-muted-foreground" />
             <span>适配全部卡片</span>
-          </button>
-
-          <button type="button" onClick={run(onToggleSnap)} className={ITEM_CLS}>
-            <Magnet
-              className={`h-3.5 w-3.5 ${
-                snapEnabled ? "text-primary" : "text-muted-foreground"
-              }`}
-            />
-            <span>
-              {snapEnabled ? "关闭智能磁吸与参考线" : "开启智能磁吸与参考线"}
-            </span>
-          </button>
-
-          <button type="button" onClick={run(onToggleGrid)} className={ITEM_CLS}>
-            <Grid className="h-3.5 w-3.5 text-muted-foreground" />
-            <span>{showGrid ? "隐藏背景参考点阵" : "显示背景参考点阵"}</span>
-          </button>
-
-          <button type="button" onClick={run(onToggleEditMode)} className={ITEM_CLS}>
-            <Pencil
-              className={`h-3.5 w-3.5 ${
-                editMode ? "text-primary" : "text-muted-foreground"
-              }`}
-            />
-            <span>{editMode ? "退出布局编辑模式" : "开启布局编辑模式"}</span>
           </button>
 
           <button type="button" onClick={run(onAutoArrange)} className={ITEM_CLS}>
