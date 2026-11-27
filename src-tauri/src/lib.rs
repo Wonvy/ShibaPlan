@@ -384,8 +384,14 @@ fn toggle_capture(app: &AppHandle) {
 
 fn show_main(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
-        let _ = win.show();
         let _ = win.unminimize();
+        let _ = win.show();
+        #[cfg(target_os = "windows")]
+        {
+            // Briefly toggle always-on-top so Windows reliably brings a tray-hidden window to foreground
+            let _ = win.set_always_on_top(true);
+            let _ = win.set_always_on_top(false);
+        }
         let _ = win.set_focus();
     }
 }
@@ -2202,6 +2208,16 @@ fn guess_mime(path: &str) -> &'static str {
         "image/svg+xml"
     } else if path.ends_with(".png") {
         "image/png"
+    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if path.ends_with(".webp") {
+        "image/webp"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else if path.ends_with(".woff") {
+        "font/woff"
+    } else if path.ends_with(".yaml") || path.ends_with(".yml") {
+        "text/yaml; charset=utf-8"
     } else if path.ends_with(".ico") {
         "image/x-icon"
     } else if path.ends_with(".json") {
@@ -2318,11 +2334,16 @@ fn handle_lan_client(mut stream: TcpStream, app: AppHandle, custom_dir: Option<S
     }
 
     // Serve static frontend assets (bundled Tauri assets first, then ../dist fallback for dev)
-    let clean_rel = if path_only == "/" {
-        "index.html"
+    let clean_rel_owned: String = if path_only == "/" {
+        "index.html".to_string()
+    } else if path_only == "/docs" {
+        "docs/index.html".to_string()
+    } else if path_only.starts_with("/docs/") && path_only.ends_with('/') {
+        format!("{}index.html", path_only.trim_start_matches('/'))
     } else {
-        path_only.trim_start_matches('/')
+        path_only.trim_start_matches('/').to_string()
     };
+    let clean_rel = clean_rel_owned.as_str();
 
     if let Some(asset) = app.asset_resolver().get(clean_rel.to_string()) {
         send_http_response(&mut stream, "200 OK", &asset.mime_type, &asset.bytes);
@@ -2581,6 +2602,68 @@ fn open_capture_window(app: AppHandle) {
     toggle_capture(&app);
 }
 
+fn open_docs_window_internal(app: &AppHandle, subpath: Option<String>) -> Result<(), String> {
+    let raw = subpath.unwrap_or_else(|| "index.html".to_string());
+    let cleaned = raw
+        .trim()
+        .trim_start_matches('/')
+        .trim_start_matches("docs/")
+        .trim_start_matches('/');
+    let rel = if cleaned.is_empty() {
+        "index.html".to_string()
+    } else if cleaned.ends_with('/') {
+        format!("{}index.html", cleaned)
+    } else {
+        cleaned.to_string()
+    };
+    let app_rel = format!("docs/{}", rel);
+
+    if let Some(win) = app.get_webview_window("docs") {
+        if let Ok(target_js) = serde_json::to_string(&format!("/{}", app_rel)) {
+            let _ = win.eval(&format!("window.location.assign({});", target_js));
+        }
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+        return Ok(());
+    }
+
+    let win = WebviewWindowBuilder::new(app, "docs", WebviewUrl::App(app_rel.into()))
+        .title("ShibaPlan Documentation · 使用说明与接口文档")
+        .inner_size(1120.0, 780.0)
+        .min_inner_size(760.0, 520.0)
+        .center()
+        .resizable(true)
+        .decorations(true)
+        .on_navigation(|url| {
+            let scheme = url.scheme();
+            if scheme == "tauri" || url.host_str() == Some("tauri.localhost") {
+                return true;
+            }
+            if (scheme == "http" || scheme == "https")
+                && matches!(url.host_str(), Some("127.0.0.1") | Some("localhost"))
+            {
+                return true;
+            }
+            if scheme == "http" || scheme == "https" {
+                let _ = open_external_url_impl(url.as_str().to_string());
+                return false;
+            }
+            true
+        })
+        .build()
+        .map_err(|e| format!("打开离线文档窗口失败: {}", e))?;
+
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn open_docs_window(app: AppHandle, subpath: Option<String>) -> Result<(), String> {
+    open_docs_window_internal(&app, subpath)
+}
+
 #[tauri::command]
 async fn open_external_url(url: String) -> Result<(), String> {
     run_blocking(move || open_external_url_impl(url)).await
@@ -2681,8 +2764,9 @@ pub fn run() {
             // Build system tray menu
             let open_main_item = MenuItem::with_id(app, "open_main", "打开 ShibaPlan", true, None::<&str>)?;
             let capture_item = MenuItem::with_id(app, "quick_capture", "快速记录灵感 (Alt+Space)", true, None::<&str>)?;
+            let docs_item = MenuItem::with_id(app, "open_docs", "使用说明与接口文档", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open_main_item, &capture_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&open_main_item, &capture_item, &docs_item, &quit_item])?;
 
             let mut tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
@@ -2690,6 +2774,9 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open_main" => show_main(app),
                     "quick_capture" => toggle_capture(app),
+                    "open_docs" => {
+                        let _ = open_docs_window_internal(app, None);
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -2726,8 +2813,15 @@ pub fn run() {
         })
         .on_window_event(|window, event| match event {
             WindowEvent::CloseRequested { api, .. } => {
-                // Hide to system tray instead of exiting so global shortcut stays active
+                // In release builds, hide to system tray instead of exiting so global shortcut stays active.
+                // In debug builds, let the main window exit cleanly so it doesn't silently block the installed app via single-instance.
+                #[cfg(not(debug_assertions))]
                 if window.label() == "main" || window.label() == "capture" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+                #[cfg(debug_assertions)]
+                if window.label() == "capture" {
                     let _ = window.hide();
                     api.prevent_close();
                 }
@@ -2801,6 +2895,7 @@ pub fn run() {
             ai_http_request,
             hide_capture_window,
             open_capture_window,
+            open_docs_window,
             info_runner::run_info_source,
             info_runner::cancel_info_run,
             info_runner::load_info_cache,

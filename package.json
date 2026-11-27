@@ -4,10 +4,15 @@
   "version": "0.2.8",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/ensure-offline-docs.mjs",
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run docs:build:local && tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "docs:dev": "vitepress dev docs",
+    "docs:build:local": "vitepress build docs",
+    "docs:build:online": "node -e \"process.env.DOCS_DEPLOY='gh-pages';import('node:child_process').then(m=>m.execSync('npx vitepress build docs',{stdio:'inherit',env:process.env}))\"",
+    "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.3.1",

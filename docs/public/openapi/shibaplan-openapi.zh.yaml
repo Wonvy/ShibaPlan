@@ -1,0 +1,287 @@
+openapi: 3.1.0
+info:
+  title: ShibaPlan 本地 HTTP 服务接口规范
+  version: "0.2.7"
+  summary: 信息看板外部推送 Webhook API (默认 18421) 与局域网工作区同步 API (默认 18420)
+  description: |
+    ShibaPlan 桌面端内置两套轻量级 Rust HTTP 服务，无需额外中间件即可与外部脚本、定时任务、CI/CD 流水线以及局域网手机端协同：
+    1. **信息看板推送接收服务 (`18421`)**：外部程序通过 `POST /api/info/push/{key}` 主动推送结构化指标、列表、表格或纯文本到桌面卡片。
+    2. **局域网工作区同步服务 (`18420`)**：在局域网内读写 `shibaplan-data.json` 并实时通知桌面端刷新。
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: http://127.0.0.1:18421
+    description: 信息看板本地推送接收服务 (默认端口 18421)
+  - url: http://127.0.0.1:18420
+    description: 局域网工作区同步服务 (默认端口 18420)
+tags:
+  - name: InfoPush
+    description: 信息看板外部推送与健康检查接口 (端口 18421)
+  - name: WorkspaceSync
+    description: 局域网工作区数据读写同步接口 (端口 18420)
+paths:
+  /api/info/health:
+    get:
+      tags: [InfoPush]
+      summary: 推送接收服务健康检查
+      description: 检测 ShibaPlan 信息看板推送服务是否在线（同样支持简写路径 `/health`）。
+      operationId: getInfoPushHealth
+      responses:
+        "200":
+          description: 服务运行正常
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  service:
+                    type: string
+                    example: shibaplan-info-push
+  /api/info/push/{key}:
+    post:
+      tags: [InfoPush]
+      summary: 按路径标识向指定卡片推送数据
+      description: |
+        向 `pushKey` 对应的信息卡片推送最新数据（单次请求体最大 `1MB`）。
+        - 请求体推荐遵循 `shibaplan-info/v1` 标准协议 JSON，也兼容任意 JSON 数组/对象、Markdown 或纯文本自动降级渲染。
+        - 当开启 `autoCreate` 且桌面端尚无对应 `pushKey` 卡片时，会自动新建推送卡片。
+      operationId: pushInfoByKey
+      security:
+        - BearerToken: []
+        - ShibaTokenHeader: []
+        - QueryToken: []
+        - {}
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: 卡片唯一推送标识 (`pushKey`)，支持 URL 百分号编码
+          schema:
+            type: string
+            example: my-task
+        - name: title
+          in: query
+          required: false
+          description: 自动创建卡片时的显示标题（等价于请求头 `X-Shiba-Title`）
+          schema:
+            type: string
+            example: 构建与部署监控
+        - name: token
+          in: query
+          required: false
+          description: 可选访问令牌（若卡片配置了 `pushToken`，也可通过请求头传递）
+          schema:
+            type: string
+        - name: X-Shiba-Title
+          in: header
+          required: false
+          description: 自动创建卡片时的标题（优先级次于 `?title=`）
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShibaInfoPayloadV1"
+          text/plain:
+            schema:
+              type: string
+              example: "CPU: 24%\nMemory: 6.2 GB"
+      responses:
+        "200":
+          description: 推送接收成功并已实时广播至桌面端
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InfoPushSuccessResponse"
+        "400":
+          description: 缺少 `pushKey`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: 访问令牌校验失败 (`invalid push token`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: 未知 `pushKey` 且已关闭自动建卡 (`autoCreate=false`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: 请求体超过 1MB 上限 (`payload exceeds 1MB limit`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/info/push:
+    post:
+      tags: [InfoPush]
+      summary: 通过 Query 或请求头指定 key 推送数据
+      description: 与 `/api/info/push/{key}` 功能一致，通过 `?key=` 或请求头 `X-Shiba-Key` 传入推送标识。
+      operationId: pushInfoByQueryOrHeader
+      parameters:
+        - name: key
+          in: query
+          required: false
+          description: 卡片推送标识（未传路径参数时必填此项或 `X-Shiba-Key`）
+          schema:
+            type: string
+        - name: X-Shiba-Key
+          in: header
+          required: false
+          description: 卡片推送标识请求头
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShibaInfoPayloadV1"
+      responses:
+        "200":
+          description: 推送成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InfoPushSuccessResponse"
+  /api/workspace:
+    get:
+      tags: [WorkspaceSync]
+      summary: 读取当前工作区完整 JSON 数据
+      description: 由局域网同步服务（默认端口 `18420`）提供，返回本地 `shibaplan-data.json` 内容；尚未初始化时返回 `null`。
+      servers:
+        - url: http://127.0.0.1:18420
+      operationId: getWorkspaceData
+      responses:
+        "200":
+          description: 成功返回工作区 JSON
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags: [WorkspaceSync]
+      summary: 覆盖保存工作区 JSON 并触发桌面端实时同步
+      description: 写入 `shibaplan-data.json` 并向桌面主窗口发送 `workspace-updated` 事件（单次请求上限 20MB）。
+      servers:
+        - url: http://127.0.0.1:18420
+      operationId: saveWorkspaceData
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: 保存成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+        "500":
+          description: 写入磁盘失败
+components:
+  securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer
+      description: "`Authorization: Bearer <pushToken>`"
+    ShibaTokenHeader:
+      type: apiKey
+      in: header
+      name: X-Shiba-Token
+      description: "`X-Shiba-Token: <pushToken>`"
+    QueryToken:
+      type: apiKey
+      in: query
+      name: token
+      description: "`?token=<pushToken>`"
+  schemas:
+    InfoPushSuccessResponse:
+      type: object
+      required: [ok, key, matched, receivedAt]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        key:
+          type: string
+          example: my-task
+        matched:
+          type: boolean
+          description: 是否命中已有卡片规则（false 表示通过 autoCreate 接收）
+        receivedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [ok, error]
+      properties:
+        ok:
+          type: boolean
+          const: false
+        error:
+          type: string
+    ShibaInfoPayloadV1:
+      type: object
+      properties:
+        schema:
+          type: string
+          const: shibaplan-info/v1
+        status:
+          type: string
+          enum: [ok, info, warn, error]
+        title:
+          type: string
+        subtitle:
+          type: string
+        badge:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+        view:
+          type: string
+          enum: [composite, metrics, list, kv, table, markdown, text]
+        blocks:
+          type: array
+          items:
+            type: object
+            required: [type]
+            properties:
+              type:
+                type: string
+                enum: [metrics, list, kv, table, markdown, text]
+              title:
+                type: string
+        actions:
+          type: array
+          items:
+            type: object
+            required: [label]
+            properties:
+              label:
+                type: string
+              openUrl:
+                type: string
+              openPath:
+                type: string
+              copyText:
+                type: string

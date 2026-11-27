@@ -8,7 +8,7 @@
   </p>
 
   <p>
-    <strong>English</strong> &nbsp;|&nbsp; <a href="./README.zh-CN.md">简体中文</a>
+    <strong>English</strong> &nbsp;|&nbsp; <a href="./README.zh-CN.md">简体中文</a> &nbsp;|&nbsp; <a href="https://wonvy.github.io/ShibaPlan/en/">Online Docs</a> &nbsp;|&nbsp; <a href="https://wonvy.github.io/ShibaPlan/en/api/overview.html">API Reference</a>
   </p>
 
   <p>

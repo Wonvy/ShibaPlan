@@ -7,6 +7,7 @@ import {
   Copy,
   DatabaseBackup,
   Download,
+  ExternalLink,
   Eye,
   EyeOff,
   FolderArchive,
@@ -57,6 +58,11 @@ import {
   WorkspaceSnapshotInfo,
 } from "../lib/storage";
 import { UpdateCheckResult } from "../lib/updater";
+import {
+  ONLINE_DOCS_BASE_URL,
+  openOfflineDocs,
+  openOnlineDocs,
+} from "../lib/docs";
 import { useI18n } from "../lib/i18n";
 import { Button } from "./ui/button";
 import { CustomSelect } from "./ui/custom-select";
@@ -1701,6 +1707,57 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                       已连接 GitHub Releases，支持一键检测最新版本与下载安装包。
                     </div>
                   )}
+                </div>
+
+                {/* Documentation & API Reference (Offline + Online) */}
+                <div className="rounded-xl bg-muted/50 p-4 space-y-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">
+                      使用说明与接口文档（中 / 英双语）
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      内置完整离线手册、全文搜索与本地 Webhook 调试器，也可在系统浏览器访问在线站点。
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        openOfflineDocs("home", locale).catch(() => {});
+                      }}
+                    >
+                      <BookOpen className="h-3.5 w-3.5" />
+                      打开内置离线文档
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        openOfflineDocs("api-webhook", locale).catch(() => {});
+                      }}
+                    >
+                      <ScrollText className="h-3.5 w-3.5" />
+                      查阅接口与协议规范
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        openOnlineDocs("home", locale).catch(() => {});
+                      }}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      访问在线文档站
+                    </Button>
+                  </div>
+
+                  <div className="text-[11px] font-mono text-muted-foreground select-text">
+                    {ONLINE_DOCS_BASE_URL}
+                  </div>
                 </div>
               </div>
             )}

@@ -119,6 +119,29 @@ function devArchivePlugin(): Plugin {
   return {
     name: "shibaplan-dev-archive",
     configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (req.url) {
+          const [pathname, search] = req.url.split("?");
+          if (
+            pathname === "/docs" ||
+            (pathname.startsWith("/docs/") && pathname.endsWith("/"))
+          ) {
+            const relIndex = pathname.endsWith("/")
+              ? `${pathname}index.html`
+              : `${pathname}/index.html`;
+            const diskFile = path.join(
+              process.cwd(),
+              "public",
+              relIndex.replace(/^\/+/, "")
+            );
+            if (fs.existsSync(diskFile)) {
+              req.url = relIndex + (search ? `?${search}` : "");
+            }
+          }
+        }
+        next();
+      });
+
       server.middlewares.use("/api/workspace", (req, res, next) => {
         if (req.method === "GET") {
           try {

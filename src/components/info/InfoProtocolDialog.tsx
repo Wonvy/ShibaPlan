@@ -1,6 +1,8 @@
 import React, { useState } from "react";
-import { BookOpen, Check, Copy, Sparkles } from "lucide-react";
+import { BookOpen, Check, Copy, ExternalLink, Sparkles } from "lucide-react";
 import { AI_INFO_PROTOCOL_PROMPT, buildPushCodeSnippets } from "../../lib/infoProtocol";
+import { openOfflineDocs, openOnlineDocs } from "../../lib/docs";
+import { useI18n } from "../../lib/i18n";
 import {
   Dialog,
   DialogContent,
@@ -66,6 +68,7 @@ export const InfoProtocolDialog: React.FC<InfoProtocolDialogProps> = ({
   onOpenChange,
   onNotify,
 }) => {
+  const { locale } = useI18n();
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   const copyText = (text: string, label: string) => {
@@ -267,7 +270,31 @@ export const InfoProtocolDialog: React.FC<InfoProtocolDialogProps> = ({
           </section>
         </div>
 
-        <div className="mt-3 flex justify-end">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                openOfflineDocs("api-protocol", locale).catch(() => {});
+              }}
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              离线完整协议手册
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                openOnlineDocs("api-protocol", locale).catch(() => {});
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              在线文档
+            </Button>
+          </div>
           <Button size="sm" onClick={() => onOpenChange(false)}>
             关闭
           </Button>

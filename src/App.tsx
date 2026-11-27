@@ -54,6 +54,7 @@ import {
   type UpdateCheckResult,
   type UpdateDownloadProgress,
 } from "./lib/updater";
+import { openOfflineDocs } from "./lib/docs";
 import { CustomLocalePack, I18nProvider, useI18n } from "./lib/i18n";
 import type { SettingsTabId } from "./components/SettingsDialog";
 import { Button } from "./components/ui/button";
@@ -839,7 +840,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
 
           <div className="h-3.5 w-px bg-border" />
 
-          {/* Group 3: LAN Share & Settings */}
+          {/* Group 3: LAN Share, Docs & Settings */}
           <div className="flex items-center gap-0.5">
             <Button
               variant="ghost"
@@ -848,6 +849,17 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
               title="局域网访问与手机扫码"
             >
               <QrCode className="h-3.5 w-3.5" />
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                openOfflineDocs("home", locale).catch(() => {});
+              }}
+              title={t("nav.docs")}
+            >
+              <BookOpen className="h-3.5 w-3.5" />
             </Button>
 
             <Button

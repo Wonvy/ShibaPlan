@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
+  BookOpen,
   CalendarDays,
   CheckCircle2,
   CornerDownLeft,
+  ExternalLink,
   FileText,
   Folder,
   Kanban,
@@ -16,6 +18,8 @@ import {
   Waves,
 } from "lucide-react";
 import { WorkspaceData } from "../types";
+import { openOfflineDocs, openOnlineDocs } from "../lib/docs";
+import { useI18n } from "../lib/i18n";
 import { isTauriRuntime, openPathInOs } from "../lib/storage";
 import {
   formatExpiryLabel,
@@ -59,6 +63,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenSettings,
   onNotify,
 }) => {
+  const { locale } = useI18n();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -306,6 +311,39 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           ]
         : []),
       {
+        id: "act-docs-offline",
+        group: "action",
+        title: "离线查阅使用说明与文档 (Offline Docs / User Guide)",
+        subtitle: "内置中英双语手册，无需联网即可全文检索",
+        icon: <BookOpen className="h-3.5 w-3.5 text-primary" />,
+        onSelect: () => {
+          onOpenChange(false);
+          openOfflineDocs("home", locale).catch(() => {});
+        },
+      },
+      {
+        id: "act-docs-api",
+        group: "action",
+        title: "离线查阅接口与协议文档 (API & Webhook Reference)",
+        subtitle: "18421 推送 Webhook、shibaplan-info/v1 协议与在线调试器",
+        icon: <BookOpen className="h-3.5 w-3.5 text-primary" />,
+        onSelect: () => {
+          onOpenChange(false);
+          openOfflineDocs("api-webhook", locale).catch(() => {});
+        },
+      },
+      {
+        id: "act-docs-online",
+        group: "action",
+        title: "在浏览器打开在线文档站 (Online Documentation)",
+        subtitle: "访问 GitHub Pages 最新中英文公开文档与 OpenAPI 规范",
+        icon: <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />,
+        onSelect: () => {
+          onOpenChange(false);
+          openOnlineDocs("home", locale).catch(() => {});
+        },
+      },
+      {
         id: "act-settings",
         group: "action",
         title: "打开设置（主题 / 多语言 / AI 接口 / 数据备份）",
@@ -327,7 +365,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     });
 
     return list.slice(0, 24);
-  }, [query, workspace, colMap, onOpenChange, onSwitchView, onOpenMemo, onRunAllInfoWidgets, onOpenAiPlan, onOpenSettings, onNotify, onUpdate]);
+  }, [query, locale, workspace, colMap, onOpenChange, onSwitchView, onOpenMemo, onRunAllInfoWidgets, onOpenAiPlan, onOpenSettings, onNotify, onUpdate]);
 
   useEffect(() => {
     setActiveIndex(0);

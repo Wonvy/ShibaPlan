@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  title: ShibaPlan Local HTTP API Specification
+  version: "0.2.7"
+  summary: Info Dashboard External Push Webhook API (default :18421) & LAN Workspace Sync API (default :18420)
+  description: |
+    ShibaPlan Desktop ships with two lightweight built-in Rust HTTP servers for zero-dependency integration with external scripts, cron jobs, CI/CD pipelines, and mobile browsers on LAN:
+    1. **Info Push Receiver (`18421`)**: Push structured metrics, lists, tables, Markdown, or plain text via `POST /api/info/push/{key}` with zero polling overhead.
+    2. **LAN Workspace Sync Server (`18420`)**: Read and write `shibaplan-data.json` over LAN and broadcast real-time updates to the desktop client.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: http://127.0.0.1:18421
+    description: Info Dashboard Push Receiver (default port 18421)
+  - url: http://127.0.0.1:18420
+    description: LAN Workspace Sync Server (default port 18420)
+tags:
+  - name: InfoPush
+    description: External webhook push & health endpoints (port 18421)
+  - name: WorkspaceSync
+    description: LAN workspace read/write sync endpoints (port 18420)
+paths:
+  /api/info/health:
+    get:
+      tags: [InfoPush]
+      summary: Health check for Info Push Receiver
+      description: Checks whether the ShibaPlan Info Push HTTP server is running (alias `/health` is also supported).
+      operationId: getInfoPushHealth
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  service:
+                    type: string
+                    example: shibaplan-info-push
+  /api/info/push/{key}:
+    post:
+      tags: [InfoPush]
+      summary: Push payload to an Info Dashboard card by path key
+      description: |
+        Pushes fresh content to the widget matching `pushKey` (maximum body size: `1MB`).
+        - Supports standard `shibaplan-info/v1` JSON payloads, arbitrary JSON objects/arrays, Markdown, or plain text with automatic fallback rendering.
+        - Automatically creates a new card when `autoCreate` is enabled and `pushKey` does not exist yet.
+      operationId: pushInfoByKey
+      security:
+        - BearerToken: []
+        - ShibaTokenHeader: []
+        - QueryToken: []
+        - {}
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Unique widget push identifier (`pushKey`), percent-encoding supported
+          schema:
+            type: string
+            example: my-task
+        - name: title
+          in: query
+          required: false
+          description: Optional display title when auto-creating a card (equivalent to `X-Shiba-Title`)
+          schema:
+            type: string
+            example: Build & Deploy Monitor
+        - name: token
+          in: query
+          required: false
+          description: Optional access token when `pushToken` is configured on the target card
+          schema:
+            type: string
+        - name: X-Shiba-Title
+          in: header
+          required: false
+          description: Card title header when auto-creating a card (fallback if `?title=` is omitted)
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShibaInfoPayloadV1"
+          text/plain:
+            schema:
+              type: string
+              example: "CPU: 24%\nMemory: 6.2 GB"
+      responses:
+        "200":
+          description: Payload accepted and broadcast to the desktop UI
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InfoPushSuccessResponse"
+        "400":
+          description: Missing `pushKey`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Invalid push token (`invalid push token`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Unknown `pushKey` while `autoCreate` is disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Request body exceeds 1MB (`payload exceeds 1MB limit`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/info/push:
+    post:
+      tags: [InfoPush]
+      summary: Push payload by query parameter or header key
+      description: Identical to `/api/info/push/{key}`, passing `pushKey` via `?key=` or `X-Shiba-Key`.
+      operationId: pushInfoByQueryOrHeader
+      parameters:
+        - name: key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: X-Shiba-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShibaInfoPayloadV1"
+      responses:
+        "200":
+          description: Payload accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InfoPushSuccessResponse"
+  /api/workspace:
+    get:
+      tags: [WorkspaceSync]
+      summary: Read full workspace JSON
+      description: Served by the LAN Sync Server (default port `18420`). Returns `shibaplan-data.json` or `null` if uninitialized.
+      servers:
+        - url: http://127.0.0.1:18420
+      operationId: getWorkspaceData
+      responses:
+        "200":
+          description: Workspace JSON payload
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags: [WorkspaceSync]
+      summary: Save workspace JSON and emit real-time update
+      description: Persists `shibaplan-data.json` and emits `workspace-updated` to the desktop window (max 20MB).
+      servers:
+        - url: http://127.0.0.1:18420
+      operationId: saveWorkspaceData
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Saved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+        "500":
+          description: Failed to persist workspace file
+components:
+  securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer
+      description: "`Authorization: Bearer <pushToken>`"
+    ShibaTokenHeader:
+      type: apiKey
+      in: header
+      name: X-Shiba-Token
+      description: "`X-Shiba-Token: <pushToken>`"
+    QueryToken:
+      type: apiKey
+      in: query
+      name: token
+      description: "`?token=<pushToken>`"
+  schemas:
+    InfoPushSuccessResponse:
+      type: object
+      required: [ok, key, matched, receivedAt]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        key:
+          type: string
+          example: my-task
+        matched:
+          type: boolean
+          description: Whether an existing widget rule matched (`false` means handled via `autoCreate`)
+        receivedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required: [ok, error]
+      properties:
+        ok:
+          type: boolean
+          const: false
+        error:
+          type: string
+    ShibaInfoPayloadV1:
+      type: object
+      properties:
+        schema:
+          type: string
+          const: shibaplan-info/v1
+        status:
+          type: string
+          enum: [ok, info, warn, error]
+        title:
+          type: string
+        subtitle:
+          type: string
+        badge:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+        view:
+          type: string
+          enum: [composite, metrics, list, kv, table, markdown, text]
+        blocks:
+          type: array
+          items:
+            type: object
+            required: [type]
+            properties:
+              type:
+                type: string
+                enum: [metrics, list, kv, table, markdown, text]
+              title:
+                type: string
+        actions:
+          type: array
+          items:
+            type: object
+            required: [label]
+            properties:
+              label:
+                type: string
+              openUrl:
+                type: string
+              openPath:
+                type: string
+              copyText:
+                type: string

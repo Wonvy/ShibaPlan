@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Check, Copy, Radio } from "lucide-react";
+import { BookOpen, Check, Copy, ExternalLink, Radio } from "lucide-react";
 import { InfoPushServerConfig } from "../../types";
+import { openOfflineDocs, openOnlineDocs } from "../../lib/docs";
+import { useI18n } from "../../lib/i18n";
 import { InfoPushServerStatus } from "../../lib/infoRunner";
 import { buildPushCodeSnippets, buildPushUrl } from "../../lib/infoProtocol";
 import {
@@ -30,6 +32,7 @@ export const InfoPushServerDialog: React.FC<InfoPushServerDialogProps> = ({
   onApply,
   onNotify,
 }) => {
+  const { locale } = useI18n();
   const [enabled, setEnabled] = useState(config.enabled);
   const [port, setPort] = useState(config.port);
   const [allowLan, setAllowLan] = useState(Boolean(config.allowLan));
@@ -250,23 +253,50 @@ export const InfoPushServerDialog: React.FC<InfoPushServerDialogProps> = ({
 
         <Separator className="my-3" />
 
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => onOpenChange(false)}
-          >
-            取消
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? "应用中..." : "保存并应用"}
-          </Button>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                openOfflineDocs("api-webhook", locale).catch(() => {});
+              }}
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              Webhook 接口手册 &amp; 调试器
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                openOnlineDocs("api-webhook", locale).catch(() => {});
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              在线版
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={saving}
+              onClick={handleSave}
+            >
+              {saving ? "应用中..." : "保存并应用"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
