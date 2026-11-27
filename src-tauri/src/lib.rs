@@ -19,7 +19,9 @@ use tauri::{
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-fn resolve_data_dir(custom_dir: Option<String>) -> PathBuf {
+mod info_runner;
+
+pub(crate) fn resolve_data_dir(custom_dir: Option<String>) -> PathBuf {
     if let Some(dir) = custom_dir {
         let trimmed = dir.trim();
         if !trimmed.is_empty() {
@@ -37,7 +39,7 @@ fn resolve_log_file(custom_dir: Option<String>) -> PathBuf {
         .join("shibaplan.log")
 }
 
-fn write_log_line(
+pub(crate) fn write_log_line(
     level: &str,
     source: &str,
     message: &str,
@@ -372,6 +374,8 @@ fn toggle_capture(app: &AppHandle) {
     .skip_taskbar(true)
     .build()
     {
+        #[cfg(target_os = "windows")]
+        attach_webview2_drop_path_resolver(&win);
         let _ = win.show();
         let _ = win.set_focus();
         let _ = app.emit("capture-opened", ());
@@ -413,7 +417,8 @@ fn attach_webview2_drop_path_resolver(win: &tauri::WebviewWindow) {
     let win_for_emit = win.clone();
     let _ = win.with_webview(move |webview| {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
-            ICoreWebView2File, ICoreWebView2WebMessageReceivedEventArgs2,
+            ICoreWebView2File, ICoreWebView2FileSystemHandle,
+            ICoreWebView2WebMessageReceivedEventArgs2,
         };
         use webview2_com::{take_pwstr, WebMessageReceivedEventHandler};
         use windows_core::{Interface, PWSTR};
@@ -441,25 +446,54 @@ fn attach_webview2_drop_path_resolver(win: &tauri::WebviewWindow) {
                 };
 
                 let mut items: Vec<PathInfo> = Vec::new();
+                let mut obj_count = 0u32;
                 if let Ok(args2) = args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>() {
                     if let Ok(collection) = args2.AdditionalObjects() {
-                        let mut count = 0u32;
-                        if collection.Count(&mut count).is_ok() {
-                            for i in 0..count {
+                        if collection.Count(&mut obj_count).is_ok() {
+                            for i in 0..obj_count {
                                 if let Ok(obj) = collection.GetValueAtIndex(i) {
-                                    if let Ok(file) = obj.cast::<ICoreWebView2File>() {
+                                    let raw_path_opt = if let Ok(fs_handle) =
+                                        obj.cast::<ICoreWebView2FileSystemHandle>()
+                                    {
+                                        let mut path_pwstr = PWSTR::null();
+                                        if fs_handle.Path(&mut path_pwstr).is_ok() {
+                                            Some(take_pwstr(path_pwstr))
+                                        } else {
+                                            None
+                                        }
+                                    } else if let Ok(file) = obj.cast::<ICoreWebView2File>() {
                                         let mut path_pwstr = PWSTR::null();
                                         if file.Path(&mut path_pwstr).is_ok() {
-                                            let raw_path = take_pwstr(path_pwstr);
-                                            if let Ok(info) = inspect_path_impl(raw_path) {
-                                                items.push(info);
-                                            }
+                                            Some(take_pwstr(path_pwstr))
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    };
+
+                                    if let Some(raw_path) = raw_path_opt {
+                                        if let Ok(info) = inspect_path_impl(raw_path) {
+                                            items.push(info);
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                }
+
+                if items.is_empty() {
+                    write_log_line(
+                        "WARN",
+                        "drop",
+                        &format!(
+                            "WebView2 drop path resolver returned 0 items (additionalObjects={})",
+                            obj_count
+                        ),
+                        None,
+                        None,
+                    );
                 }
 
                 let _ = emit_win.emit(
@@ -1017,7 +1051,7 @@ fn scan_archive_entry(
 // as "Not Responding" during heavy disk IO. All filesystem-heavy commands
 // below are therefore exposed as async wrappers that delegate to a blocking
 // worker thread via `spawn_blocking`.
-async fn run_blocking<T, F>(f: F) -> Result<T, String>
+pub(crate) async fn run_blocking<T, F>(f: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, String> + Send + 'static,
@@ -1953,7 +1987,33 @@ async fn open_path_in_os(target_path: String) -> Result<(), String> {
 }
 
 fn open_path_in_os_impl(target_path: String) -> Result<(), String> {
-    let p = PathBuf::from(target_path.trim());
+    let trimmed = target_path.trim();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("cmd")
+                .args(["/C", "start", "", trimmed])
+                .spawn()
+                .map_err(|e| format!("打开链接失败: {}", e))?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            Command::new("open")
+                .arg(trimmed)
+                .spawn()
+                .map_err(|e| format!("打开链接失败: {}", e))?;
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            Command::new("xdg-open")
+                .arg(trimmed)
+                .spawn()
+                .map_err(|e| format!("打开链接失败: {}", e))?;
+        }
+        return Ok(());
+    }
+
+    let p = PathBuf::from(trimmed);
     if !p.exists() {
         return Err("目标路径不存在".to_string());
     }
@@ -2120,7 +2180,7 @@ impl Default for LanServerState {
     }
 }
 
-fn detect_lan_ip() -> String {
+pub(crate) fn detect_lan_ip() -> String {
     if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("8.8.8.8:80").is_ok() {
             if let Ok(addr) = socket.local_addr() {
@@ -2578,6 +2638,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(LanServerState::default())
+        .manage(info_runner::InfoRunnerState::default())
+        .manage(info_runner::InfoPushServerState::default())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -2739,6 +2801,19 @@ pub fn run() {
             ai_http_request,
             hide_capture_window,
             open_capture_window,
+            info_runner::run_info_source,
+            info_runner::cancel_info_run,
+            info_runner::load_info_cache,
+            info_runner::save_info_cache,
+            info_runner::get_info_scripts_dir,
+            info_runner::read_script_file,
+            info_runner::write_script_file,
+            info_runner::pick_script_file,
+            info_runner::open_in_code_editor,
+            info_runner::get_info_push_server_status,
+            info_runner::start_info_push_server,
+            info_runner::stop_info_push_server,
+            info_runner::sync_info_push_rules,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ShibaPlan");

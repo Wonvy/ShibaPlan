@@ -1,24 +1,33 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
   CalendarDays,
   CheckCircle2,
   CornerDownLeft,
   FileText,
   Folder,
   Kanban,
+  RefreshCw,
   RotateCcw,
   Search,
   Sparkles,
+  StickyNote,
   Trash2,
   Waves,
 } from "lucide-react";
 import { WorkspaceData } from "../types";
 import { isTauriRuntime, openPathInOs } from "../lib/storage";
+import {
+  formatExpiryLabel,
+  getDaysUntilExpiry,
+  getExpiryUrgency,
+} from "../lib/memo";
+import { describeSchedule } from "../lib/infoProtocol";
 import { Dialog, DialogContent } from "./ui/dialog";
 
 interface CommandItem {
   id: string;
-  group: "task" | "idea" | "trash" | "action";
+  group: "task" | "memo" | "info" | "idea" | "trash" | "action";
   title: string;
   subtitle?: string;
   icon: React.ReactNode;
@@ -30,7 +39,9 @@ interface CommandPaletteProps {
   onOpenChange: (open: boolean) => void;
   workspace: WorkspaceData;
   onUpdate: (next: WorkspaceData) => void;
-  onSwitchView: (view: "kanban" | "calendar") => void;
+  onSwitchView: (view: "projects" | "kanban" | "calendar" | "memos" | "info") => void;
+  onOpenMemo?: (memoId: string) => void;
+  onRunAllInfoWidgets?: () => void;
   onOpenAiPlan: () => void;
   onOpenSettings: () => void;
   onNotify: (msg: string) => void;
@@ -42,6 +53,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   workspace,
   onUpdate,
   onSwitchView,
+  onOpenMemo,
+  onRunAllInfoWidgets,
   onOpenAiPlan,
   onOpenSettings,
   onNotify,
@@ -110,7 +123,72 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       });
     });
 
-    // 2. Idea River items
+    // 2. Memos (software summaries, certs, memberships, server notes)
+    const memoFolderMap = new Map(
+      (workspace.memoFolders ?? []).map((f) => [f.id, f.name])
+    );
+    (workspace.memos ?? []).forEach((memo) => {
+      const folderName = memo.folderId
+        ? memoFolderMap.get(memo.folderId)
+        : undefined;
+      const hay = `${memo.title} ${memo.tag} ${folderName ?? ""} ${
+        memo.content
+      } ${memo.expiresAt ?? ""}`.toLowerCase();
+      if (q && !hay.includes(q)) return;
+
+      const daysLeft = getDaysUntilExpiry(memo.expiresAt);
+      const urgency = getExpiryUrgency(daysLeft);
+      const iconClass =
+        urgency === "expired" || urgency === "urgent"
+          ? "h-3.5 w-3.5 text-rose-500"
+          : urgency === "soon"
+          ? "h-3.5 w-3.5 text-amber-500"
+          : "h-3.5 w-3.5 text-primary";
+
+      list.push({
+        id: `memo-${memo.id}`,
+        group: "memo",
+        title: memo.title.trim() || "未命名备忘",
+        subtitle: [
+          "备忘",
+          folderName || null,
+          memo.tag.trim() || null,
+          memo.expiresAt && daysLeft !== null
+            ? `${memo.expiresAt} (${formatExpiryLabel(daysLeft)})`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        icon: <StickyNote className={iconClass} />,
+        onSelect: () => {
+          onOpenChange(false);
+          if (onOpenMemo) {
+            onOpenMemo(memo.id);
+          } else {
+            onSwitchView("memos");
+          }
+        },
+      });
+    });
+
+    // 3. Info Dashboard widgets
+    (workspace.infoWidgets ?? []).forEach((w) => {
+      const hay = `${w.title} ${w.description ?? ""} ${w.source.scriptPath ?? ""} ${w.source.command ?? ""} ${w.source.url ?? ""}`.toLowerCase();
+      if (q && !hay.includes(q)) return;
+      list.push({
+        id: `info-${w.id}`,
+        group: "info",
+        title: w.title,
+        subtitle: `信息卡片 · ${describeSchedule(w.schedule, w.source.kind)}`,
+        icon: <Activity className="h-3.5 w-3.5 text-primary" />,
+        onSelect: () => {
+          onOpenChange(false);
+          onSwitchView("info");
+        },
+      });
+    });
+
+    // 4. Idea River items
     workspace.ideas.forEach((idea) => {
       const hay = `${idea.content} ${idea.tag ?? ""}`.toLowerCase();
       if (q && !hay.includes(q)) return;
@@ -191,6 +269,43 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         },
       },
       {
+        id: "act-memos",
+        group: "action",
+        title: "切换到备忘视图",
+        subtitle: "软件摘要、证书/会员到期与服务器记录",
+        icon: <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />,
+        onSelect: () => {
+          onSwitchView("memos");
+          onOpenChange(false);
+        },
+      },
+      {
+        id: "act-info",
+        group: "action",
+        title: "切换到信息仪表盘",
+        subtitle: "自定义脚本、命令行与 HTTP 自动化卡片",
+        icon: <Activity className="h-3.5 w-3.5 text-muted-foreground" />,
+        onSelect: () => {
+          onSwitchView("info");
+          onOpenChange(false);
+        },
+      },
+      ...(onRunAllInfoWidgets
+        ? [
+            {
+              id: "act-info-refresh",
+              group: "action" as const,
+              title: "刷新全部信息卡片",
+              subtitle: "立即运行所有已配置的脚本与数据源",
+              icon: <RefreshCw className="h-3.5 w-3.5 text-primary" />,
+              onSelect: () => {
+                onOpenChange(false);
+                onRunAllInfoWidgets();
+              },
+            },
+          ]
+        : []),
+      {
         id: "act-settings",
         group: "action",
         title: "打开设置（主题 / 多语言 / AI 接口 / 数据备份）",
@@ -212,7 +327,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     });
 
     return list.slice(0, 24);
-  }, [query, workspace, colMap, onOpenChange, onSwitchView, onOpenAiPlan, onOpenSettings, onNotify, onUpdate]);
+  }, [query, workspace, colMap, onOpenChange, onSwitchView, onOpenMemo, onRunAllInfoWidgets, onOpenAiPlan, onOpenSettings, onNotify, onUpdate]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -247,7 +362,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索看板任务、文件夹、灵感、回收站或快捷命令..."
+            placeholder="搜索看板任务、备忘、文件夹、灵感、回收站或快捷命令..."
             className="flex-1 bg-transparent text-[13.5px] text-foreground placeholder:text-muted-foreground/65 focus:outline-none"
           />
           <kbd className="rounded border border-border bg-muted/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">

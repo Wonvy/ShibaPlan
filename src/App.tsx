@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { ThemeMode, WorkspaceData } from "./types";
 import {
+  createDefaultInfoBoards,
   createDefaultWorkspace,
   getDefaultDataDir,
   hasPendingSave,
@@ -40,9 +41,11 @@ import {
   openPathInOs,
   scheduleSaveWorkspace,
 } from "./lib/storage";
+import { useInfoScheduler } from "./lib/useInfoScheduler";
 import { suggestTodayPlanWithAI } from "./lib/ai";
 import { applyAccentColor } from "./lib/theme";
 import { setLoggerCustomDataDir } from "./lib/logger";
+import { EXPIRY_SOON_DAYS, EXPIRY_URGENT_DAYS, getDaysUntilExpiry } from "./lib/memo";
 import {
   checkForUpdates,
   getCurrentAppVersion,
@@ -77,6 +80,14 @@ const QuickCapture = lazy(() =>
 const ProjectsView = lazy(() =>
   import("./components/ProjectsView").then((m) => ({ default: m.ProjectsView }))
 );
+const MemosView = lazy(() =>
+  import("./components/MemosView").then((m) => ({ default: m.MemosView }))
+);
+const InfoDashboardView = lazy(() =>
+  import("./components/InfoDashboardView").then((m) => ({
+    default: m.InfoDashboardView,
+  }))
+);
 const CommandPalette = lazy(() =>
   import("./components/CommandPalette").then((m) => ({
     default: m.CommandPalette,
@@ -93,7 +104,7 @@ const SettingsDialog = lazy(() =>
   }))
 );
 
-type TopView = "projects" | "kanban" | "calendar";
+type TopView = "projects" | "kanban" | "calendar" | "memos" | "info";
 
 const MAX_HISTORY = 30;
 const HISTORY_COALESCE_MS = 800;
@@ -319,6 +330,20 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
   const { t, locale } = useI18n();
 
   const [view, setView] = useState<TopView>("kanban");
+  const {
+    runtimeMap: infoRuntimeMap,
+    runWidget: runInfoWidget,
+    cancelWidget: cancelInfoWidget,
+    runAllWidgets: runAllInfoWidgets,
+    alertStats: infoAlertStats,
+    pushServerStatus: infoPushServerStatus,
+    applyPushServerConfig: applyInfoPushServerConfig,
+  } = useInfoScheduler({ workspace, loaded, onUpdate, onNotify });
+  const [activeMemoId, setActiveMemoId] = useState<string | null>(null);
+  const handleOpenMemo = useCallback((memoId?: string) => {
+    if (memoId) setActiveMemoId(memoId);
+    startTransition(() => setView("memos"));
+  }, []);
   const [projectStatusText, setProjectStatusText] = useState<string | null>(
     null
   );
@@ -589,6 +614,13 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
       onUpdate({
         ...createDefaultWorkspace(),
         ...parsed,
+        memos: Array.isArray(parsed.memos) ? parsed.memos : [],
+        memoFolders: Array.isArray(parsed.memoFolders) ? parsed.memoFolders : [],
+        infoBoards:
+          Array.isArray(parsed.infoBoards) && parsed.infoBoards.length > 0
+            ? parsed.infoBoards
+            : createDefaultInfoBoards(),
+        infoWidgets: Array.isArray(parsed.infoWidgets) ? parsed.infoWidgets : [],
         settings: {
           ...createDefaultWorkspace().settings,
           ...(parsed.settings ?? {}),
@@ -630,6 +662,18 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
     (item) => !item.dueDate && item.status !== "done"
   ).length;
   const ideaCount = workspace.ideas.length;
+  const memos = workspace.memos ?? [];
+  let urgentMemoCount = 0;
+  let hasCriticalMemo = false;
+  for (const memo of memos) {
+    const daysLeft = getDaysUntilExpiry(memo.expiresAt);
+    if (daysLeft !== null && daysLeft <= EXPIRY_SOON_DAYS) {
+      urgentMemoCount++;
+      if (daysLeft <= EXPIRY_URGENT_DAYS) {
+        hasCriticalMemo = true;
+      }
+    }
+  }
 
   return (
     <div className="flex h-[100dvh] w-screen flex-col overflow-hidden bg-background text-foreground touch-manipulation">
@@ -676,6 +720,8 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
               { id: "projects", label: "项目" },
               { id: "kanban", label: t("nav.kanban") },
               { id: "calendar", label: t("nav.calendar") },
+              { id: "memos", label: t("nav.memos") },
+              { id: "info", label: t("nav.info") },
             ] as const
           ).map((tab) => {
             const active = view === tab.id;
@@ -684,13 +730,42 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => startTransition(() => setView(tab.id))}
-                className={`relative flex h-full items-center px-3 text-[14px] tracking-[-0.01em] transition-colors ${
+                className={`relative flex h-full items-center gap-1.5 px-3 text-[14px] tracking-[-0.01em] transition-colors ${
                   active
                     ? "font-semibold text-foreground"
                     : "font-medium text-muted-foreground hover:text-foreground"
                 }`}
               >
                 <span>{tab.label}</span>
+                {tab.id === "memos" && urgentMemoCount > 0 && (
+                  <span
+                    title={`有 ${urgentMemoCount} 条临期备忘`}
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      hasCriticalMemo ? "bg-rose-500" : "bg-amber-500"
+                    }`}
+                  />
+                )}
+                {tab.id === "info" &&
+                  (infoAlertStats.errorCount > 0 ||
+                    infoAlertStats.warnCount > 0 ||
+                    infoAlertStats.running > 0) && (
+                    <span
+                      title={
+                        infoAlertStats.errorCount > 0
+                          ? `${infoAlertStats.errorCount} 张信息卡片运行异常`
+                          : infoAlertStats.warnCount > 0
+                            ? `${infoAlertStats.warnCount} 张信息卡片存在告警`
+                            : `${infoAlertStats.running} 张信息卡片运行中`
+                      }
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        infoAlertStats.errorCount > 0
+                          ? "bg-rose-500"
+                          : infoAlertStats.warnCount > 0
+                            ? "bg-amber-500"
+                            : "bg-primary animate-pulse"
+                      }`}
+                    />
+                  )}
                 {active && (
                   <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-primary" />
                 )}
@@ -848,12 +923,36 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                 />
               ) : view === "kanban" ? (
                 <KanbanBoard workspace={workspace} onUpdate={onUpdate} />
+              ) : view === "memos" ? (
+                <MemosView
+                  workspace={workspace}
+                  onUpdate={onUpdate}
+                  selectedMemoId={activeMemoId}
+                  onSelectMemo={setActiveMemoId}
+                  onNotify={onNotify}
+                />
+              ) : view === "info" ? (
+                <InfoDashboardView
+                  workspace={workspace}
+                  onUpdate={onUpdate}
+                  runtimeMap={infoRuntimeMap}
+                  onRunWidget={runInfoWidget}
+                  onCancelWidget={cancelInfoWidget}
+                  onRunAllWidgets={runAllInfoWidgets}
+                  pushServerStatus={infoPushServerStatus}
+                  onApplyPushConfig={applyInfoPushServerConfig}
+                  onNotify={onNotify}
+                />
               ) : (
-                <CalendarView workspace={workspace} onUpdate={onUpdate} />
+                <CalendarView
+                  workspace={workspace}
+                  onUpdate={onUpdate}
+                  onOpenMemo={handleOpenMemo}
+                />
               )}
             </Suspense>
           </main>
-          {view !== "projects" && (
+          {view !== "projects" && view !== "memos" && view !== "info" && (
             <Suspense fallback={null}>
               <IdeaRiver workspace={workspace} onUpdate={onUpdate} />
             </Suspense>
@@ -886,6 +985,25 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                 {projectStatusText || "项目归档工作台"}
               </span>
             )
+          ) : view === "memos" ? (
+            <span className="truncate">
+              备忘 {memos.length} 条
+              {urgentMemoCount > 0 ? ` · 临期 ${urgentMemoCount} 条` : ""}
+            </span>
+          ) : view === "info" ? (
+            <span className="truncate">
+              信息卡片 {infoAlertStats.total} · 自动任务{" "}
+              {infoAlertStats.scheduledCount}
+              {infoAlertStats.pushCount > 0
+                ? ` · 推送接收 ${infoAlertStats.pushCount}`
+                : ""}
+              {infoAlertStats.running > 0
+                ? ` · 运行中 ${infoAlertStats.running}`
+                : ""}
+              {infoAlertStats.errorCount > 0
+                ? ` · 异常 ${infoAlertStats.errorCount}`
+                : ""}
+            </span>
           ) : (
             <>
               <span className="truncate">
@@ -997,6 +1115,8 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
             workspace={workspace}
             onUpdate={onUpdate}
             onSwitchView={setView}
+            onOpenMemo={handleOpenMemo}
+            onRunAllInfoWidgets={() => void runAllInfoWidgets()}
             onOpenAiPlan={handleOpenAiPlan}
             onOpenSettings={() => setSettingsOpen(true)}
             onNotify={onNotify}

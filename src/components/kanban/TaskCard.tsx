@@ -172,6 +172,14 @@ const SingleAttachmentButton: React.FC<{
     left: number;
     bottom: number;
   } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const errorTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current);
+    };
+  }, []);
 
   return (
     <>
@@ -181,18 +189,46 @@ const SingleAttachmentButton: React.FC<{
         onMouseEnter={(e) =>
           setTooltipPos(computeTooltipAnchor(e.currentTarget))
         }
-        onMouseLeave={() => setTooltipPos(null)}
+        onMouseLeave={() => {
+          if (!errorMsg) setTooltipPos(null);
+        }}
         onClick={(e) => {
           e.stopPropagation();
+          const anchor = computeTooltipAnchor(e.currentTarget);
+          setErrorMsg(null);
+          if (!isTauriRuntime()) {
+            setTooltipPos(anchor);
+            setErrorMsg("浏览器预览模式无法打开本地文件夹，请在桌面客户端中打开");
+            if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current);
+            errorTimerRef.current = window.setTimeout(() => {
+              setErrorMsg(null);
+              setTooltipPos(null);
+            }, 2600);
+            return;
+          }
           setTooltipPos(null);
-          openPathInOs(att.path).catch(() => {});
+          openPathInOs(att.path).catch((err) => {
+            setTooltipPos(anchor);
+            setErrorMsg(
+              `无法打开（${String(err || "路径无效")}），请重新拖入该${
+                att.is_dir ? "文件夹" : "文件"
+              }`
+            );
+            if (errorTimerRef.current) window.clearTimeout(errorTimerRef.current);
+            errorTimerRef.current = window.setTimeout(() => {
+              setErrorMsg(null);
+              setTooltipPos(null);
+            }, 3000);
+          });
         }}
         onDoubleClick={(e) => e.stopPropagation()}
         className="relative flex items-center justify-center rounded border border-border/60 bg-muted/50 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground"
       >
         <AttachmentIcon path={att.path} isDir={att.is_dir} className="h-3.5 w-3.5" />
       </button>
-      {tooltipPos && <PortalTooltip anchor={tooltipPos} text={att.name} />}
+      {tooltipPos && (
+        <PortalTooltip anchor={tooltipPos} text={errorMsg ?? att.name} />
+      )}
     </>
   );
 };

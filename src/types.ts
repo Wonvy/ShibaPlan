@@ -99,6 +99,27 @@ export interface TrashedIdeaItem extends IdeaItem {
   reason: "deleted" | "used";
 }
 
+export interface MemoFolder {
+  id: string;
+  name: string;
+  collapsed?: boolean;
+  createdAt: string;
+}
+
+export interface MemoItem {
+  id: string;
+  title: string;
+  tag: string;
+  folderId?: string;
+  expiresAt?: string; // YYYY-MM-DD
+  renewDays?: number; // e.g. 30 | 90 | 365
+  dailyDate?: string; // YYYY-MM-DD (for daily notes)
+  pinned?: boolean;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface FocusLog {
   id: string;
   taskId: string;
@@ -135,6 +156,104 @@ export interface ProjectArchiveDir {
 
 export type ProjectDateMode = "name_first" | "files_first" | "name_only";
 
+export type InfoSourceKind = "script" | "command" | "http" | "push";
+
+export type InfoScriptLang =
+  | "python"
+  | "powershell"
+  | "node"
+  | "batch"
+  | "bash"
+  | "json";
+
+export type InfoScheduleMode = "manual" | "interval" | "cron";
+
+export type InfoLayoutMode = "free" | "grid" | "compact";
+
+export type InfoCardStatus = "ok" | "info" | "warn" | "error";
+
+export interface InfoWidgetLayout {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  minH?: number;
+  px?: number;
+  py?: number;
+  pw?: number;
+  ph?: number;
+}
+
+export interface InfoWidgetSchedule {
+  mode: InfoScheduleMode;
+  intervalSeconds?: number;
+  cron?: string;
+  runOnStartup?: boolean;
+  paused?: boolean;
+}
+
+export interface InfoWidgetSource {
+  kind: InfoSourceKind;
+  scriptPath?: string;
+  inlineCode?: string;
+  scriptLang?: InfoScriptLang;
+  interpreter?: string;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  useShell?: boolean;
+  url?: string;
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  headers?: Record<string, string>;
+  body?: string;
+  jsonPath?: string;
+  env?: Record<string, string>;
+  params?: Record<string, string>;
+  timeoutSec?: number;
+  pushKey?: string;
+  pushToken?: string;
+  staleAfterMinutes?: number;
+}
+
+export interface InfoPushServerConfig {
+  enabled: boolean;
+  port: number;
+  allowLan?: boolean;
+  autoCreate?: boolean;
+}
+
+export interface InfoWidgetAppearance {
+  accentColor?: string;
+  hideHeader?: boolean;
+  compactPadding?: boolean;
+}
+
+export interface InfoWidget {
+  id: string;
+  boardId: string;
+  title: string;
+  description?: string;
+  source: InfoWidgetSource;
+  schedule: InfoWidgetSchedule;
+  layout: InfoWidgetLayout;
+  appearance?: InfoWidgetAppearance;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InfoBoard {
+  id: string;
+  name: string;
+  layoutMode?: InfoLayoutMode;
+  showGrid?: boolean;
+  locked?: boolean;
+  snapEnabled?: boolean;
+  preventOverlap?: boolean;
+  cols?: number;
+  rowHeight?: number;
+}
+
 export interface AppSettings {
   customDataDir: string;
   shortcutLabel: string;
@@ -150,6 +269,7 @@ export interface AppSettings {
   projectArchiveDirs?: ProjectArchiveDir[];
   projectDateMode?: ProjectDateMode;
   starredProjects?: string[];
+  infoPush?: InfoPushServerConfig;
 }
 
 export interface WorkspaceData {
@@ -158,7 +278,11 @@ export interface WorkspaceData {
   tasks: TaskItem[];
   ideas: IdeaItem[];
   trashedIdeas: TrashedIdeaItem[];
+  memos: MemoItem[];
+  memoFolders: MemoFolder[];
   focusLogs: FocusLog[];
+  infoBoards?: InfoBoard[];
+  infoWidgets?: InfoWidget[];
   settings: AppSettings;
 }
 

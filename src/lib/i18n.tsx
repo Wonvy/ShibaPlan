@@ -10,6 +10,8 @@ export const ZH_CN: Record<string, string> = {
   // Header & Nav
   "nav.kanban": "看板",
   "nav.calendar": "时间",
+  "nav.memos": "备忘",
+  "nav.info": "信息",
   "nav.quickCapture": "全局闪念",
   "nav.settings": "设置与同步",
   "common.loading": "加载中...",
@@ -160,6 +162,8 @@ export const ZH_CN: Record<string, string> = {
 export const EN_US: Record<string, string> = {
   "nav.kanban": "Board",
   "nav.calendar": "Timeline",
+  "nav.memos": "Memos",
+  "nav.info": "Info",
   "nav.quickCapture": "Quick Capture",
   "nav.settings": "Settings & Sync",
   "common.loading": "Loading...",

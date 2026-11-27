@@ -1,4 +1,18 @@
-import { IdeaItem, WorkspaceData } from "../types";
+import { IdeaItem, InfoBoard, WorkspaceData } from "../types";
+
+export function createDefaultInfoBoards(): InfoBoard[] {
+  return [
+    {
+      id: "board-default",
+      name: "默认画布",
+      layoutMode: "free",
+      showGrid: true,
+      locked: false,
+      cols: 12,
+      rowHeight: 52,
+    },
+  ];
+}
 
 const LOCAL_STORAGE_KEY = "shibaplan_workspace_v2";
 
@@ -45,7 +59,11 @@ export function createDefaultWorkspace(): WorkspaceData {
       },
     ],
     trashedIdeas: [],
+    memos: [],
+    memoFolders: [],
     focusLogs: [],
+    infoBoards: createDefaultInfoBoards(),
+    infoWidgets: [],
     settings: {
       customDataDir: "",
       shortcutLabel: "Ctrl + Shift + Space",
@@ -67,6 +85,12 @@ export function createDefaultWorkspace(): WorkspaceData {
       projectArchiveDirs: [],
       projectDateMode: "name_first",
       starredProjects: [],
+      infoPush: {
+        enabled: true,
+        port: 18421,
+        allowLan: false,
+        autoCreate: true,
+      },
     },
   };
 }
@@ -79,7 +103,14 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
     tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
     ideas: Array.isArray(raw.ideas) ? raw.ideas : fallback.ideas,
     trashedIdeas: Array.isArray(raw.trashedIdeas) ? raw.trashedIdeas : [],
+    memos: Array.isArray(raw.memos) ? raw.memos : [],
+    memoFolders: Array.isArray(raw.memoFolders) ? raw.memoFolders : [],
     focusLogs: Array.isArray(raw.focusLogs) ? raw.focusLogs : [],
+    infoBoards:
+      Array.isArray(raw.infoBoards) && raw.infoBoards.length > 0
+        ? raw.infoBoards
+        : createDefaultInfoBoards(),
+    infoWidgets: Array.isArray(raw.infoWidgets) ? raw.infoWidgets : [],
     settings: {
       ...(raw.settings ?? {}),
       customDataDir: raw.settings?.customDataDir ?? "",
@@ -127,6 +158,17 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
       starredProjects: Array.isArray(raw.settings?.starredProjects)
         ? raw.settings.starredProjects
         : [],
+      infoPush: {
+        enabled: raw.settings?.infoPush?.enabled ?? true,
+        port:
+          typeof raw.settings?.infoPush?.port === "number" &&
+          raw.settings.infoPush.port >= 1024 &&
+          raw.settings.infoPush.port <= 65535
+            ? raw.settings.infoPush.port
+            : 18421,
+        allowLan: raw.settings?.infoPush?.allowLan ?? false,
+        autoCreate: raw.settings?.infoPush?.autoCreate ?? true,
+      },
     },
   };
 }

@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BookOpen,
   Calendar as CalendarIcon,
   Check,
   ChevronLeft,
   ChevronRight,
   Clock,
   Plus,
+  ShieldAlert,
   Star,
   X,
 } from "lucide-react";
@@ -13,9 +15,16 @@ import {
   BoardColumn,
   COLUMN_COLORS,
   EFFORT_MINUTES,
+  MemoItem,
   TaskItem,
   WorkspaceData,
 } from "../types";
+import {
+  formatExpiryLabel,
+  getDaysUntilExpiry,
+  getExpiryBadgeClass,
+  getExpiryUrgency,
+} from "../lib/memo";
 import { savePastedImage, uid } from "../lib/storage";
 import { useI18n } from "../lib/i18n";
 import { Button } from "./ui/button";
@@ -32,6 +41,7 @@ import {
 interface CalendarViewProps {
   workspace: WorkspaceData;
   onUpdate: (next: WorkspaceData) => void;
+  onOpenMemo?: (memoId: string) => void;
 }
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
@@ -46,6 +56,7 @@ function formatDateKey(date: Date): string {
 export const CalendarView: React.FC<CalendarViewProps> = ({
   workspace,
   onUpdate,
+  onOpenMemo,
 }) => {
   const { t } = useI18n();
   const weekdays = useMemo(() => t("calendar.weekdays").split(","), [t]);
@@ -188,6 +199,28 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     });
     return map;
   }, [workspace.tasks]);
+
+  const memosByDate = useMemo(() => {
+    const map = new Map<string, MemoItem[]>();
+    (workspace.memos ?? []).forEach((memo) => {
+      if (!memo.expiresAt) return;
+      const list = map.get(memo.expiresAt) ?? [];
+      list.push(memo);
+      map.set(memo.expiresAt, list);
+    });
+    return map;
+  }, [workspace.memos]);
+
+  const dailyNotesByDate = useMemo(() => {
+    const map = new Map<string, MemoItem[]>();
+    (workspace.memos ?? []).forEach((memo) => {
+      if (!memo.dailyDate) return;
+      const list = map.get(memo.dailyDate) ?? [];
+      list.push(memo);
+      map.set(memo.dailyDate, list);
+    });
+    return map;
+  }, [workspace.memos]);
 
   const unscheduledCount = useMemo(
     () => workspace.tasks.filter((t) => !t.dueDate && t.status !== "done").length,
@@ -383,7 +416,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   };
 
   const hoveredTasks = hoveredDate ? tasksByDate.get(hoveredDate) ?? [] : [];
+  const hoveredMemos = hoveredDate ? memosByDate.get(hoveredDate) ?? [] : [];
+  const hoveredDailyNotes = hoveredDate
+    ? dailyNotesByDate.get(hoveredDate) ?? []
+    : [];
   const selectedTasks = selectedDate ? tasksByDate.get(selectedDate) ?? [] : [];
+  const selectedMemos = selectedDate ? memosByDate.get(selectedDate) ?? [] : [];
+  const selectedDailyNotes = selectedDate
+    ? dailyNotesByDate.get(selectedDate) ?? []
+    : [];
 
   return (
     <div
@@ -444,10 +485,22 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       <div className="grid flex-1 grid-cols-7 gap-1 sm:gap-1.5 overflow-y-auto">
         {calendarDays.map(({ date, key, inMonth }) => {
           const dayTasks = tasksByDate.get(key) ?? [];
+          const dayMemos = memosByDate.get(key) ?? [];
+          const dayDailyNotes = dailyNotesByDate.get(key) ?? [];
           const isToday = key === todayKey;
           const pendingDayCount = dayTasks.filter(
             (tItem) => tItem.status !== "done"
           ).length;
+          const totalDayCount = pendingDayCount + dayMemos.length;
+          const visibleMemos = dayMemos.slice(0, 3);
+          const visibleTasks = dayTasks.slice(
+            0,
+            Math.max(0, 3 - visibleMemos.length)
+          );
+          const overflowCount =
+            dayMemos.length +
+            dayTasks.length -
+            (visibleMemos.length + visibleTasks.length);
 
           const isDropTarget = dragOverDate === key;
 
@@ -491,32 +544,90 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   {date.getDate()}
                 </span>
 
-                {pendingDayCount > 0 && (
-                  <span className="hidden sm:inline font-mono text-[11px] tabular-nums text-muted-foreground">
-                    {pendingDayCount}
-                  </span>
-                )}
+                <div className="flex items-center gap-1">
+                  {dayDailyNotes.length > 0 && (
+                    <span
+                      title={`有 ${dayDailyNotes.length} 篇日常笔记`}
+                      className="flex h-4 w-4 items-center justify-center rounded text-primary"
+                    >
+                      <BookOpen className="h-3 w-3" />
+                    </span>
+                  )}
+                  {totalDayCount > 0 && (
+                    <span className="hidden sm:inline font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {totalDayCount}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Mobile compact dots */}
-              {dayTasks.length > 0 && (
+              {(dayTasks.length > 0 || dayMemos.length > 0) && (
                 <div className="mt-1.5 flex flex-wrap gap-1 sm:hidden">
-                  {dayTasks.slice(0, 4).map((task) => {
-                    const col = columnMap.get(task.columnId);
+                  {dayMemos.slice(0, 4).map((memo) => {
+                    const urgency = getExpiryUrgency(
+                      getDaysUntilExpiry(memo.expiresAt)
+                    );
+                    const dotColor =
+                      urgency === "expired" || urgency === "urgent"
+                        ? "bg-rose-500"
+                        : urgency === "soon"
+                        ? "bg-amber-500"
+                        : "bg-emerald-500";
                     return (
                       <span
-                        key={task.id}
-                        className="h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: col?.color ?? "#94a3b8" }}
+                        key={`memo-dot-${memo.id}`}
+                        className={`h-1.5 w-1.5 rounded-full ${dotColor}`}
                       />
                     );
                   })}
+                  {dayTasks
+                    .slice(0, Math.max(0, 4 - Math.min(4, dayMemos.length)))
+                    .map((task) => {
+                      const col = columnMap.get(task.columnId);
+                      return (
+                        <span
+                          key={task.id}
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: col?.color ?? "#94a3b8" }}
+                        />
+                      );
+                    })}
                 </div>
               )}
 
-              {/* Desktop Compact Task Pills inside Cell */}
+              {/* Desktop Compact Pills inside Cell */}
               <div className="mt-1.5 hidden sm:block space-y-1 overflow-hidden">
-                {dayTasks.slice(0, 3).map((task) => {
+                {visibleMemos.map((memo) => {
+                  const urgency = getExpiryUrgency(
+                    getDaysUntilExpiry(memo.expiresAt)
+                  );
+                  const pillTone =
+                    urgency === "expired" || urgency === "urgent"
+                      ? "border-rose-500/30 bg-rose-500/12 text-rose-500"
+                      : urgency === "soon"
+                      ? "border-amber-500/30 bg-amber-500/12 text-amber-500"
+                      : "border-emerald-500/25 bg-emerald-500/10 text-emerald-500";
+                  return (
+                    <div
+                      key={`memo-${memo.id}`}
+                      onClick={(e) => {
+                        if (onOpenMemo) {
+                          e.stopPropagation();
+                          onOpenMemo(memo.id);
+                        }
+                      }}
+                      className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs ${pillTone}`}
+                    >
+                      <ShieldAlert className="h-3 w-3 shrink-0" />
+                      <span className="truncate">
+                        {memo.tag ? `[${memo.tag}] ` : ""}
+                        {memo.title || "未命名备忘"}
+                      </span>
+                    </div>
+                  );
+                })}
+                {visibleTasks.map((task) => {
                   const col = columnMap.get(task.columnId);
                   return (
                     <div
@@ -531,10 +642,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         e.dataTransfer.effectAllowed = "move";
                         setHoveredDate(null);
                       }}
-                      className={`flex cursor-grab active:cursor-grabbing items-center gap-1.5 rounded bg-white/[0.04] px-1.5 py-0.5 text-xs ${
+                      className={`flex cursor-grab active:cursor-grabbing items-center gap-1.5 rounded bg-muted/60 px-1.5 py-0.5 text-xs ${
                         task.status === "done"
-                          ? "text-zinc-500 line-through opacity-60"
-                          : "text-zinc-200"
+                          ? "text-muted-foreground line-through opacity-60"
+                          : "text-foreground"
                       }`}
                     >
                       <span
@@ -542,7 +653,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         style={{ backgroundColor: col?.color ?? "#94a3b8" }}
                       />
                       {task.startTime && (
-                        <span className="shrink-0 font-mono text-xs text-zinc-400">
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
                           {task.startTime}
                         </span>
                       )}
@@ -550,9 +661,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     </div>
                   );
                 })}
-                {dayTasks.length > 3 && (
-                  <div className="px-1 text-xs text-zinc-500">
-                    +{dayTasks.length - 3} 更多
+                {overflowCount > 0 && (
+                  <div className="px-1 text-xs text-muted-foreground">
+                    +{overflowCount} 更多
                   </div>
                 )}
               </div>
@@ -572,17 +683,68 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               {hoveredDate}
               {hoveredDate === todayKey ? " · 今天" : ""}
             </span>
-            <span className="text-xs text-muted-foreground">
-              {hoveredTasks.length} 项任务
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {hoveredDailyNotes.length > 0 && (
+                <span className="inline-flex items-center gap-0.5 text-primary">
+                  <BookOpen className="h-3 w-3" />
+                  笔记
+                </span>
+              )}
+              <span>
+                {hoveredMemos.length > 0
+                  ? `${hoveredTasks.length} 任务 · ${hoveredMemos.length} 到期`
+                  : `${hoveredTasks.length} 项任务`}
+              </span>
             </span>
           </div>
 
-          {hoveredTasks.length === 0 ? (
-            <p className="py-3 text-xs text-zinc-500">
+          {hoveredTasks.length === 0 &&
+          hoveredMemos.length === 0 &&
+          hoveredDailyNotes.length === 0 ? (
+            <p className="py-3 text-xs text-muted-foreground">
               当天暂无排期任务，点击可快速添加
             </p>
           ) : (
             <div className="mt-2.5 space-y-2">
+              {hoveredDailyNotes.map((note) => (
+                <div
+                  key={`hover-note-${note.id}`}
+                  className="flex items-center gap-1.5 text-xs"
+                >
+                  <BookOpen className="h-3 w-3 shrink-0 text-primary" />
+                  <span className="truncate font-medium text-foreground">
+                    {note.title || "日常笔记"}
+                  </span>
+                </div>
+              ))}
+
+              {hoveredMemos.map((memo) => {
+                const daysLeft = getDaysUntilExpiry(memo.expiresAt);
+                const urgency = getExpiryUrgency(daysLeft);
+                return (
+                  <div key={`hover-memo-${memo.id}`} className="space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <ShieldAlert className="h-3 w-3 shrink-0 text-amber-500" />
+                        <span className="truncate text-xs font-medium text-foreground">
+                          {memo.title || "未命名备忘"}
+                        </span>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded border px-1 py-0.5 font-mono text-[10px] leading-none ${getExpiryBadgeClass(
+                          urgency
+                        )}`}
+                      >
+                        {daysLeft !== null ? formatExpiryLabel(daysLeft) : "到期"}
+                      </span>
+                    </div>
+                    <div className="pl-4 text-xs text-muted-foreground">
+                      备忘 · {memo.tag || "未分类"}
+                    </div>
+                  </div>
+                );
+              })}
+
               {hoveredTasks.map((task) => {
                 const col = columnMap.get(task.columnId);
                 return (
@@ -648,7 +810,84 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <Separator className="my-3" />
 
           <div className="max-h-60 space-y-2 overflow-y-auto">
-            {selectedTasks.length === 0 ? (
+            {selectedDailyNotes.length > 0 && (
+              <div className="space-y-1.5 pb-1">
+                <div className="text-[11px] font-medium text-muted-foreground">
+                  当日日常笔记
+                </div>
+                {selectedDailyNotes.map((note) => (
+                  <button
+                    key={`sel-note-${note.id}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate(null);
+                      onOpenMemo?.(note.id);
+                    }}
+                    className="flex w-full items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-accent/50"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <BookOpen className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium text-foreground">
+                          {note.title || "日常笔记"}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          点击前往 Markdown 笔记页面
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedMemos.length > 0 && (
+              <div className="space-y-1.5 pb-1">
+                <div className="text-[11px] font-medium text-muted-foreground">
+                  当天到期备忘
+                </div>
+                {selectedMemos.map((memo) => {
+                  const daysLeft = getDaysUntilExpiry(memo.expiresAt);
+                  const urgency = getExpiryUrgency(daysLeft);
+                  return (
+                    <button
+                      key={`sel-memo-${memo.id}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(null);
+                        onOpenMemo?.(memo.id);
+                      }}
+                      className="flex w-full items-center justify-between gap-2 rounded-xl border border-border/70 bg-background px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-accent/50"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium text-foreground">
+                            {memo.title || "未命名备忘"}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {memo.tag || "备忘"} · 点击前往查看或续期
+                          </div>
+                        </div>
+                      </div>
+                      {daysLeft !== null && (
+                        <span
+                          className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[11px] ${getExpiryBadgeClass(
+                            urgency
+                          )}`}
+                        >
+                          {formatExpiryLabel(daysLeft)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {selectedTasks.length === 0 &&
+            selectedMemos.length === 0 &&
+            selectedDailyNotes.length === 0 ? (
               <p className="py-4 text-center text-xs text-muted-foreground">
                 {t("calendar.noTasksDay")}
               </p>

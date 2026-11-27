@@ -97,37 +97,50 @@ function getWebView2Bridge(): WebView2Bridge | null {
 }
 
 const pendingDropResolvers = new Map<string, (items: PathInfo[]) => void>();
-let dropListenerInitialized = false;
+let dropListenerReady: Promise<void> | null = null;
 
-function ensureWebView2DropListener(): void {
-  if (dropListenerInitialized || !isTauriRuntime()) return;
-  dropListenerInitialized = true;
-  void import("@tauri-apps/api/event").then(({ listen }) => {
-    void listen<{ requestId: string; items: PathInfo[] }>(
-      "shiba-resolved-drop-paths",
-      (event) => {
-        const { requestId, items } = event.payload;
-        const resolver = pendingDropResolvers.get(requestId);
-        if (resolver) {
-          pendingDropResolvers.delete(requestId);
-          resolver(Array.isArray(items) ? items : []);
-        }
-      }
-    );
-  });
+function ensureWebView2DropListener(): Promise<void> {
+  if (!isTauriRuntime()) return Promise.resolve();
+  if (!dropListenerReady) {
+    dropListenerReady = import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<{ requestId: string; items: PathInfo[] }>(
+          "shiba-resolved-drop-paths",
+          (event) => {
+            const { requestId, items } = event.payload;
+            const resolver = pendingDropResolvers.get(requestId);
+            if (resolver) {
+              pendingDropResolvers.delete(requestId);
+              resolver(Array.isArray(items) ? items : []);
+            }
+          }
+        )
+      )
+      .then(() => undefined)
+      .catch(() => {
+        dropListenerReady = null;
+      });
+  }
+  return dropListenerReady;
 }
 
 // Pre-warm the Tauri event listener so synchronous drop calls never race it.
 if (typeof window !== "undefined" && isTauriRuntime()) {
-  ensureWebView2DropListener();
+  void ensureWebView2DropListener();
 }
 
-function resolveFilesViaWebView2(files: File[]): Promise<PathInfo[] | null> {
+async function resolveObjectsViaWebView2(
+  objects: unknown[]
+): Promise<PathInfo[] | null> {
   const bridge = getWebView2Bridge();
-  if (!bridge?.postMessageWithAdditionalObjects || !isTauriRuntime() || files.length === 0) {
-    return Promise.resolve(null);
+  if (
+    !bridge?.postMessageWithAdditionalObjects ||
+    !isTauriRuntime() ||
+    objects.length === 0
+  ) {
+    return null;
   }
-  ensureWebView2DropListener();
+  await ensureWebView2DropListener();
   const requestId = uid("drop");
   return new Promise<PathInfo[] | null>((resolve) => {
     const timer = setTimeout(() => {
@@ -143,7 +156,7 @@ function resolveFilesViaWebView2(files: File[]): Promise<PathInfo[] | null> {
     try {
       bridge.postMessageWithAdditionalObjects!(
         { __shibaResolvePaths: requestId },
-        files
+        objects
       );
     } catch {
       clearTimeout(timer);
@@ -151,6 +164,10 @@ function resolveFilesViaWebView2(files: File[]): Promise<PathInfo[] | null> {
       resolve(null);
     }
   });
+}
+
+interface DataTransferItemWithHandle extends DataTransferItem {
+  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
 }
 
 /**
@@ -180,24 +197,45 @@ export function resolveDroppedOsItems(
   // Snapshot synchronously before the browser clears DataTransfer after drop
   const fileList = Array.from(dt.files || []);
   const entries: FileSystemEntry[] = [];
+  const handlePromises: Promise<FileSystemHandle | null>[] = [];
   if (dt.items) {
     for (let i = 0; i < dt.items.length; i++) {
-      const item = dt.items[i];
-      if (
-        item.kind === "file" &&
-        typeof item.webkitGetAsEntry === "function"
-      ) {
+      const item = dt.items[i] as DataTransferItemWithHandle;
+      if (item.kind !== "file") continue;
+      if (typeof item.getAsFileSystemHandle === "function") {
+        handlePromises.push(
+          item.getAsFileSystemHandle().catch(() => null)
+        );
+      }
+      if (typeof item.webkitGetAsEntry === "function") {
         const entry = item.webkitGetAsEntry();
         if (entry) entries.push(entry);
       }
     }
   }
 
-  // Trigger WebView2 native path resolution synchronously while File objects are fresh
-  const nativePromise = resolveFilesViaWebView2(fileList);
-
   return (async () => {
-    const nativeItems = await nativePromise;
+    let nativeItems: PathInfo[] | null = null;
+
+    if (isTauriRuntime()) {
+      // FileSystemHandle (FileSystemDirectoryHandle / FileSystemFileHandle)
+      // maps to ICoreWebView2FileSystemHandle in WebView2, which preserves real
+      // OS paths for BOTH folders and files (whereas File objects for dropped
+      // folders do not map to ICoreWebView2File).
+      if (handlePromises.length > 0) {
+        const handles = (await Promise.all(handlePromises)).filter(
+          (h): h is FileSystemHandle => Boolean(h)
+        );
+        if (handles.length > 0) {
+          nativeItems = await resolveObjectsViaWebView2(handles);
+        }
+      }
+      // Fallback to File objects -> ICoreWebView2File
+      if ((!nativeItems || nativeItems.length === 0) && fileList.length > 0) {
+        nativeItems = await resolveObjectsViaWebView2(fileList);
+      }
+    }
+
     if (nativeItems && nativeItems.length > 0) {
       const resolved: ResolvedDropItem[] = [];
       for (let i = 0; i < nativeItems.length; i++) {
