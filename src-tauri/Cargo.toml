@@ -1,6 +1,6 @@
 [package]
 name = "shibaplan"
-version = "0.2.10"
+version = "0.2.11"
 description = "ShibaPlan - Cross-platform workspace for Design, Dev, Eval & AI-ready Idea Capture"
 authors = ["ShibaPlan"]
 edition = "2021"
