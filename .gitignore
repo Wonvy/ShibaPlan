@@ -39,3 +39,16 @@ desktop.ini
 *.njsproj
 *.sln
 *.sw?
+
+# Private scripts, local history & browser data (never commit)
+local-scripts/
+scripts/local/
+scripts/private/
+*.local.json
+*.history.json
+browser-data/
+.chrome-profile/
+*.cookie
+*.cookie.json
+*.secret
+*.secret.json

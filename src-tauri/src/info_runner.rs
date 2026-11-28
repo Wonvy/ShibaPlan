@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024; // 1 MB cap per stream
@@ -1872,4 +1872,40 @@ fn fetch_web_metadata_impl(url: String) -> Result<WebMetadataResult, String> {
         favicon_data_url,
         favicon_url: resolved_favicon_url.or(Some(default_ico)),
     })
+}
+
+fn strip_verbatim_prefix(p: &Path) -> String {
+    let raw = p.to_string_lossy().to_string();
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+            return stripped.to_string();
+        }
+    }
+    raw
+}
+
+#[tauri::command]
+pub fn get_bundled_extension_dir(app: AppHandle) -> Result<String, String> {
+    if let Ok(res_dir) = app.path().resource_dir() {
+        let bundled = res_dir.join("browser-extension");
+        if bundled.join("manifest.json").is_file() {
+            return Ok(strip_verbatim_prefix(&bundled));
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidates = [
+            cwd.join("extensions").join("shibaplan-companion"),
+            cwd.join("..").join("extensions").join("shibaplan-companion"),
+        ];
+        for cand in candidates {
+            if cand.join("manifest.json").is_file() {
+                let resolved = fs::canonicalize(&cand).unwrap_or(cand);
+                return Ok(strip_verbatim_prefix(&resolved));
+            }
+        }
+    }
+
+    Err("未找到内置浏览器扩展目录".to_string())
 }

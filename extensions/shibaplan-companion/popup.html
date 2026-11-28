@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="auto">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ShibaPlan 浏览器助手</title>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      body {
+        width: 388px;
+        padding: 12px;
+        font-size: 12px;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .brand img {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        flex-shrink: 0;
+      }
+      .brand-title {
+        font-size: 13.5px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      .quick-panel {
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+      .quick-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        margin-top: 7px;
+      }
+      .sec-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 7px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted-fg);
+      }
+      .task-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 270px;
+        overflow-y: auto;
+      }
+      .task-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px 9px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--surface);
+        transition: border-color 0.14s ease;
+      }
+      .task-row:hover {
+        border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+      }
+      .task-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .task-title-wrap {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        flex: 1;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: var(--muted-fg);
+        opacity: 0.45;
+      }
+      .dot.ok { background: var(--ok); opacity: 1; }
+      .dot.err { background: var(--danger); opacity: 1; }
+      .task-name {
+        font-weight: 600;
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .type-tag {
+        font-size: 9.5px;
+        padding: 1px 5px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--muted-fg);
+        flex-shrink: 0;
+      }
+      .task-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .task-meta {
+        font-size: 10.5px;
+        color: var(--muted-fg);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+      }
+      .task-meta.err {
+        color: var(--danger);
+      }
+      .task-actions {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        flex-shrink: 0;
+      }
+      .msg {
+        min-height: 16px;
+        font-size: 11px;
+        color: var(--muted-fg);
+        margin: 8px 2px 4px;
+      }
+      .msg.ok { color: var(--ok); }
+      .msg.err { color: var(--danger); }
+      .privacy {
+        font-size: 10.5px;
+        color: var(--muted-fg);
+        line-height: 1.45;
+        padding: 0 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="brand">
+        <img src="icons/32.png" alt="ShibaPlan" />
+        <span class="brand-title">ShibaPlan 助手</span>
+        <span id="connBadge" class="shiba-pill">检测中</span>
+      </div>
+      <div class="header-actions">
+        <button id="testConnBtn" type="button" class="shiba-btn sm ghost" title="测试本地 Push 连接">连接</button>
+        <button id="openOptionsBtn" type="button" class="shiba-btn sm">设置与代码</button>
+      </div>
+    </div>
+
+    <div class="shiba-card quick-panel">
+      <button id="syncAllBtn" type="button" class="shiba-btn primary" style="width:100%;">
+        后台静默同步全部启用脚本
+      </button>
+      <div class="quick-grid">
+        <button id="pickElBtn" type="button" class="shiba-btn sm">点选元素</button>
+        <button id="deadlineBtn" type="button" class="shiba-btn sm">时间倒计时</button>
+        <button id="pushPageBtn" type="button" class="shiba-btn sm">推送当前页</button>
+      </div>
+    </div>
+
+    <div class="shiba-card" style="padding:10px;">
+      <div class="sec-head">
+        <span>采集脚本（<span id="taskCount">0</span> 个）</span>
+        <button id="newScriptBtn" type="button" class="shiba-btn sm ghost">+ 编写 JS 脚本</button>
+      </div>
+      <div id="taskList" class="task-list"></div>
+    </div>
+
+    <div id="msgBox" class="msg"></div>
+    <div class="privacy">
+      隐私说明：脚本代码、Token 与历史曲线仅存于浏览器本地 storage，不写入 Git 仓库。
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

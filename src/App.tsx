@@ -769,7 +769,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
                 <span>{tab.label}</span>
                 {tab.id === "memos" && urgentMemoCount > 0 && (
                   <span
-                    title={`有 ${urgentMemoCount} 条临期备忘`}
+                    title={`有 ${urgentMemoCount} 条临期笔记`}
                     className={`h-1.5 w-1.5 rounded-full ${
                       hasCriticalMemo ? "bg-rose-500" : "bg-amber-500"
                     }`}
@@ -1028,7 +1028,7 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
             )
           ) : view === "memos" ? (
             <span className="truncate">
-              备忘 {memos.length} 条
+              笔记 {memos.length} 条
               {urgentMemoCount > 0 ? ` · 临期 ${urgentMemoCount} 条` : ""}
             </span>
           ) : view === "info" ? (

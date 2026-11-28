@@ -858,7 +858,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
           : m
       ),
     });
-    onNotify("已删除文件夹，其中备忘已移至未分组");
+    onNotify("已删除文件夹，其中笔记已移至未分组");
   };
 
   const moveMemoToFolder = (
@@ -1028,11 +1028,11 @@ export const MemosView: React.FC<MemosViewProps> = ({
       ? `# ${memo.title.trim()}\n\n${memo.content}`
       : memo.content;
     navigator.clipboard.writeText(text).catch(() => {});
-    onNotify("已复制备忘内容");
+    onNotify("已复制笔记内容");
   };
 
   const handleExportMarkdown = (memo: MemoItem) => {
-    const heading = memo.title.trim() || "未命名备忘";
+    const heading = memo.title.trim() || "未命名笔记";
     const metaLines: string[] = [];
     if (memo.tag.trim()) metaLines.push(`标签: ${memo.tag.trim()}`);
     if (memo.dailyDate) metaLines.push(`日期: ${memo.dailyDate}`);
@@ -1075,7 +1075,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
     const now = new Date().toISOString();
     const copyTitle = memo.title.trim()
       ? `${memo.title.trim()} (副本)`
-      : "未命名备忘 (副本)";
+      : "未命名笔记 (副本)";
     const copy: MemoItem = {
       ...memo,
       id: uid("memo"),
@@ -1998,7 +1998,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
             filter !== "all" && filter !== "expiring" ? filter : "笔记";
           const created: MemoItem = {
             id: uid("memo"),
-            title: "图片备忘",
+            title: "图片笔记",
             tag: activeFilterTag,
             content: `${mdBlock}\n`,
             createdAt: now,
@@ -2394,7 +2394,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
               <BookOpen className="h-3 w-3 shrink-0 text-primary/80" />
             )}
             <span className="truncate text-[13px] font-medium text-foreground">
-              {memo.title.trim() || "未命名备忘"}
+              {memo.title.trim() || "未命名笔记"}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -2641,7 +2641,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
             onClick={() => createMemo()}
           >
             <Plus className="h-3.5 w-3.5" />
-            新建备忘
+            新建笔记
           </Button>
         </div>
       </div>
@@ -2703,8 +2703,8 @@ export const MemosView: React.FC<MemosViewProps> = ({
               <button
                 type="button"
                 onClick={() => createMemo()}
-                title="新建备忘"
-                aria-label="新建备忘"
+                title="新建笔记"
+                aria-label="新建笔记"
                 className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -2765,13 +2765,13 @@ export const MemosView: React.FC<MemosViewProps> = ({
                     时间轴暂无记录
                   </p>
                   <p className="mt-1 text-[11.5px] text-muted-foreground">
-                    新建备忘或今日笔记后将按时间顺序自动归档
+                    新建笔记或今日笔记后将按时间顺序自动归档
                   </p>
                 </div>
               ) : timelineSortedMemos.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-5 py-8 text-center">
                   <p className="text-xs text-muted-foreground">
-                    没有匹配的备忘记录
+                    没有匹配的笔记记录
                   </p>
                   <Button
                     type="button"
@@ -2836,7 +2836,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
                 <div className="flex h-full flex-col items-center justify-center px-5 py-8 text-center">
                   <StickyNote className="mb-2.5 h-7 w-7 text-muted-foreground/50" />
                   <p className="text-xs font-medium text-foreground/85">
-                    还没有备忘或笔记
+                    还没有笔记
                   </p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                     支持 Markdown 排版、文件夹分组与证书/会员到期提醒
@@ -2864,7 +2864,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
               ) : filteredMemos.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center px-5 py-8 text-center">
                   <p className="text-xs text-muted-foreground">
-                    没有匹配的备忘记录
+                    没有匹配的笔记记录
                   </p>
                   <Button
                     type="button"
@@ -2887,7 +2887,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
             ) : isFiltering && filteredMemos.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center px-5 py-8 text-center">
                 <p className="text-xs text-muted-foreground">
-                  没有匹配的备忘记录
+                  没有匹配的笔记记录
                 </p>
                 <Button
                   type="button"
@@ -3023,7 +3023,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
                                 e.stopPropagation();
                                 createMemo(undefined, undefined, folder.id);
                               }}
-                              title="在此文件夹新建备忘"
+                              title="在此文件夹新建笔记"
                               className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                             >
                               <Plus className="h-3 w-3" />
@@ -3045,7 +3045,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
                                 e.stopPropagation();
                                 handleDeleteFolder(folder.id);
                               }}
-                              title="删除文件夹（备忘将移至未分组）"
+                              title="删除文件夹（笔记将移至未分组）"
                               className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
                             >
                               <Trash2 className="h-3 w-3" />
@@ -3058,7 +3058,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
                         <div className="ml-2.5 space-y-1 border-l border-border/60 pl-2">
                           {items.length === 0 ? (
                             <div className="px-2 py-1.5 text-[11px] text-muted-foreground/75">
-                              空文件夹 · 拖入备忘或点 + 新建
+                              空文件夹 · 拖入笔记或点 + 新建
                             </div>
                           ) : (
                             items.map((memo) => renderMemoRow(memo))
@@ -3162,7 +3162,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="拖拽调整备忘列表宽度"
+          aria-label="拖拽调整笔记列表宽度"
           title="左右拖拽调整列表栏宽度 · 双击恢复默认"
           onMouseDown={(e) => {
             e.preventDefault();
@@ -3189,7 +3189,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
           {!activeMemo ? (
             <div className="flex flex-1 flex-col items-center justify-center px-6 text-center text-xs text-muted-foreground">
-              <p>选择左侧备忘查看，或点击右上角「今日笔记」/「新建备忘」</p>
+              <p>选择左侧笔记查看，或点击右上角「今日笔记」/「新建笔记」</p>
             </div>
           ) : (
             <>
@@ -3202,18 +3202,21 @@ export const MemosView: React.FC<MemosViewProps> = ({
                   onChange={(e) =>
                     patchMemo(activeMemo.id, { title: e.target.value })
                   }
-                  placeholder="输入备忘或笔记标题..."
+                  placeholder="输入笔记标题..."
                   className="min-w-[180px] flex-1 bg-transparent text-base font-semibold tracking-[-0.01em] text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                 />
 
                 <div className="flex shrink-0 items-center gap-2">
                   {/* 3-way Markdown Mode Segmented Control */}
-                  <div className="flex items-center rounded-md border border-border bg-surface p-0.5">
+                  <div
+                    className="flex items-center rounded-md border border-border bg-surface p-0.5"
+                    onMouseLeave={() => setToolbarTip(null)}
+                  >
                     {(
                       [
-                        { id: "edit", label: "编辑", icon: Pencil },
-                        { id: "split", label: "分栏", icon: Columns2 },
-                        { id: "preview", label: "预览", icon: Eye },
+                        { id: "edit", label: "编辑模式", icon: Pencil },
+                        { id: "split", label: "分栏模式", icon: Columns2 },
+                        { id: "preview", label: "预览模式", icon: Eye },
                       ] as const
                     ).map((m) => {
                       const Icon = m.icon;
@@ -3222,15 +3225,30 @@ export const MemosView: React.FC<MemosViewProps> = ({
                         <button
                           key={m.id}
                           type="button"
-                          onClick={() => changeEditorMode(m.id)}
-                          className={`inline-flex h-6 items-center gap-1 rounded-[4px] px-2 text-xs font-medium transition-colors ${
+                          aria-label={m.label}
+                          aria-pressed={isActive}
+                          onClick={() => {
+                            setToolbarTip(null);
+                            changeEditorMode(m.id);
+                          }}
+                          onMouseEnter={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setToolbarTip({
+                              label: m.label,
+                              x: Math.max(
+                                64,
+                                Math.min(rect.left + rect.width / 2, window.innerWidth - 64)
+                              ),
+                              y: rect.bottom + 6,
+                            });
+                          }}
+                          className={`inline-flex h-6 w-6 items-center justify-center rounded-[4px] transition-colors ${
                             isActive
                               ? "bg-card text-foreground shadow-card-rest"
                               : "text-muted-foreground hover:text-foreground"
                           }`}
                         >
-                          <Icon className="h-3 w-3" />
-                          <span>{m.label}</span>
+                          <Icon className="h-3.5 w-3.5" />
                         </button>
                       );
                     })}
@@ -3248,7 +3266,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
                           pinned: !activeMemo.pinned,
                         })
                       }
-                      title={activeMemo.pinned ? "取消置顶" : "置顶备忘"}
+                      title={activeMemo.pinned ? "取消置顶" : "置顶笔记"}
                       className={
                         activeMemo.pinned
                           ? "bg-primary/12 text-primary hover:bg-primary/18 hover:text-primary"
@@ -4482,7 +4500,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate text-xs font-medium text-foreground">
-                          {item.title.trim() || "未命名备忘"}
+                          {item.title.trim() || "未命名笔记"}
                         </span>
                         {item.tag.trim() && (
                           <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">

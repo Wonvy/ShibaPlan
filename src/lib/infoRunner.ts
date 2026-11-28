@@ -438,3 +438,13 @@ export async function fetchWebMetadata(
     faviconUrl: getFallbackFaviconUrl(normalized),
   };
 }
+
+export async function getBundledExtensionDir(): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string>("get_bundled_extension_dir");
+  } catch {
+    return null;
+  }
+}

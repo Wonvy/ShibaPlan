@@ -623,7 +623,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       <ShieldAlert className="h-3 w-3 shrink-0" />
                       <span className="truncate">
                         {memo.tag ? `[${memo.tag}] ` : ""}
-                        {memo.title || "未命名备忘"}
+                        {memo.title || "未命名笔记"}
                       </span>
                     </div>
                   );
@@ -728,7 +728,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       <div className="flex min-w-0 items-center gap-1.5">
                         <ShieldAlert className="h-3 w-3 shrink-0 text-amber-500" />
                         <span className="truncate text-xs font-medium text-foreground">
-                          {memo.title || "未命名备忘"}
+                          {memo.title || "未命名笔记"}
                         </span>
                       </div>
                       <span
@@ -740,7 +740,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       </span>
                     </div>
                     <div className="pl-4 text-xs text-muted-foreground">
-                      备忘 · {memo.tag || "未分类"}
+                      笔记 · {memo.tag || "未分类"}
                     </div>
                   </div>
                 );
@@ -845,7 +845,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             {selectedMemos.length > 0 && (
               <div className="space-y-1.5 pb-1">
                 <div className="text-[11px] font-medium text-muted-foreground">
-                  当天到期备忘
+                  当天到期笔记
                 </div>
                 {selectedMemos.map((memo) => {
                   const daysLeft = getDaysUntilExpiry(memo.expiresAt);
@@ -864,10 +864,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                         <div className="min-w-0">
                           <div className="truncate text-xs font-medium text-foreground">
-                            {memo.title || "未命名备忘"}
+                            {memo.title || "未命名笔记"}
                           </div>
                           <div className="text-[11px] text-muted-foreground">
-                            {memo.tag || "备忘"} · 点击前往查看或续期
+                            {memo.tag || "笔记"} · 点击前往查看或续期
                           </div>
                         </div>
                       </div>

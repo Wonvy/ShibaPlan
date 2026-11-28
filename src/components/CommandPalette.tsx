@@ -153,9 +153,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       list.push({
         id: `memo-${memo.id}`,
         group: "memo",
-        title: memo.title.trim() || "未命名备忘",
+        title: memo.title.trim() || "未命名笔记",
         subtitle: [
-          "备忘",
+          "笔记",
           folderName || null,
           memo.tag.trim() || null,
           memo.expiresAt && daysLeft !== null
@@ -243,7 +243,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         list.push({
           id: `trash-memo-${item.id}`,
           group: "trash",
-          title: item.title.trim() || "未命名备忘",
+          title: item.title.trim() || "未命名笔记",
           subtitle: "笔记回收站 · 回车恢复并打开",
           icon: <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />,
           onSelect: () => {
@@ -308,7 +308,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       {
         id: "act-memos",
         group: "action",
-        title: "切换到备忘视图",
+        title: "切换到笔记视图",
         subtitle: "软件摘要、证书/会员到期与服务器记录",
         icon: <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />,
         onSelect: () => {
@@ -432,7 +432,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索看板任务、备忘、文件夹、灵感、回收站或快捷命令..."
+            placeholder="搜索看板任务、笔记、文件夹、灵感、回收站或快捷命令..."
             className="flex-1 bg-transparent text-[13.5px] text-foreground placeholder:text-muted-foreground/65 focus:outline-none"
           />
           <kbd className="rounded border border-border bg-muted/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">

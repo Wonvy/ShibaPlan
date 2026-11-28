@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { BookOpen, Check, Copy, ExternalLink, Radio } from "lucide-react";
+import { BookOpen, Check, Copy, ExternalLink, FolderOpen, Puzzle, Radio } from "lucide-react";
 import { InfoPushServerConfig } from "../../types";
 import { openOfflineDocs, openOnlineDocs } from "../../lib/docs";
 import { useI18n } from "../../lib/i18n";
-import { InfoPushServerStatus } from "../../lib/infoRunner";
+import { getBundledExtensionDir, InfoPushServerStatus } from "../../lib/infoRunner";
 import { buildPushCodeSnippets, buildPushUrl } from "../../lib/infoProtocol";
+import { openPathInOs } from "../../lib/storage";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,7 @@ export const InfoPushServerDialog: React.FC<InfoPushServerDialogProps> = ({
     "curl"
   );
   const [copied, setCopied] = useState(false);
+  const [extDir, setExtDir] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -51,6 +53,9 @@ export const InfoPushServerDialog: React.FC<InfoPushServerDialogProps> = ({
     setAllowLan(Boolean(config.allowLan));
     setAutoCreate(config.autoCreate ?? true);
     setErrorMsg(status?.error ?? null);
+    getBundledExtensionDir()
+      .then((dir) => setExtDir(dir))
+      .catch(() => setExtDir(null));
   }, [open, config, status]);
 
   const baseUrl = `http://127.0.0.1:${port || 18421}`;
@@ -180,6 +185,52 @@ export const InfoPushServerDialog: React.FC<InfoPushServerDialogProps> = ({
                   <span>收到未知 pushKey 时自动创建卡片</span>
                 </label>
               </div>
+            </div>
+          </div>
+
+          {/* Bundled Browser Companion Extension */}
+          <div className="space-y-2 rounded-xl border border-border bg-surface/35 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                <Puzzle className="h-3.5 w-3.5 text-primary" />
+                <span>ShibaPlan 浏览器助手扩展（随安装包内置）</span>
+              </div>
+              {extDir && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openPathInOs(extDir).catch((e) =>
+                        onNotify?.(e instanceof Error ? e.message : "打开扩展目录失败")
+                      );
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-accent"
+                  >
+                    <FolderOpen className="h-3 w-3 text-primary" />
+                    <span>打开扩展目录</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(extDir).catch(() => {});
+                      onNotify?.("已复制扩展目录路径");
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-accent"
+                  >
+                    <Copy className="h-3 w-3 text-muted-foreground" />
+                    <span>复制路径</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            <div
+              title={extDir || undefined}
+              className="truncate rounded-md border border-border/70 bg-background px-2.5 py-1.5 font-mono text-[11px] text-foreground/90"
+            >
+              {extDir || "请在桌面端安装包中查看 <安装目录>/browser-extension"}
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              在 Edge / Chrome 打开扩展页 → 开启开发者模式 → 加载解压缩的扩展 → 选择上方目录即可（运行自定义 JS 需开启“允许用户脚本”）。
             </div>
           </div>
 

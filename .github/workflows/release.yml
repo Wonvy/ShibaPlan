@@ -76,6 +76,8 @@ jobs:
                 "Cross-platform desktop installers for Windows, macOS (Apple Silicon & Intel), and Linux.  ",
                 "跨平台桌面端安装包（支持 Windows、macOS Apple 芯片 / Intel 及 Linux）。",
                 "",
+                `- Includes bundled **ShibaPlan Browser Companion** extension (\`browser-extension/\` in install dir, and standalone \`ShibaPlan-Browser-Extension-v${version}.zip\`).`,
+                "",
                 "See the assets below to download and install.",
               ].join("\n");
 
@@ -165,10 +167,22 @@ jobs:
     if: needs.prepare-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Package browser extension zip
+        shell: bash
+        run: |
+          VERSION="${{ needs.prepare-release.outputs.version }}"
+          ZIP_NAME="ShibaPlan-Browser-Extension-v${VERSION}.zip"
+          (cd extensions/shibaplan-companion && zip -r "../../${ZIP_NAME}" . -x "*.DS_Store" "*.local.json" "*.history.json")
+          ls -lh "${ZIP_NAME}"
+
       - name: Generate merged latest.json and publish GitHub Release
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require("node:fs");
             const releaseId = Number("${{ needs.prepare-release.outputs.release_id }}");
             const version = "${{ needs.prepare-release.outputs.version }}";
             const tag = "${{ needs.prepare-release.outputs.tag }}";
@@ -292,6 +306,31 @@ jobs:
               null,
               2
             );
+
+            const extZipName = `ShibaPlan-Browser-Extension-v${version}.zip`;
+            if (fs.existsSync(extZipName)) {
+              const oldExt = assets.find((a) => a.name === extZipName);
+              if (oldExt) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner,
+                  repo,
+                  asset_id: oldExt.id,
+                });
+              }
+              const zipBytes = fs.readFileSync(extZipName);
+              await github.rest.repos.uploadReleaseAsset({
+                owner,
+                repo,
+                release_id: releaseId,
+                name: extZipName,
+                data: zipBytes,
+                headers: {
+                  "content-type": "application/zip",
+                  "content-length": zipBytes.length,
+                },
+              });
+              core.info(`Uploaded ${extZipName} (${zipBytes.length} bytes).`);
+            }
 
             const oldLatest = assets.find((a) => a.name === "latest.json");
             if (oldLatest) {

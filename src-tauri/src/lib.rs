@@ -3119,6 +3119,7 @@ pub fn run() {
             info_runner::stop_info_push_server,
             info_runner::sync_info_push_rules,
             info_runner::fetch_web_metadata,
+            info_runner::get_bundled_extension_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ShibaPlan");

@@ -1,0 +1,359 @@
+/* ==========================================================================
+   ShibaPlan Linear Design Tokens (Dark / Light / Paper)
+   ========================================================================== */
+:root,
+[data-theme="light"] {
+  --bg: hsl(220, 14%, 97.5%);
+  --surface: hsl(220, 14%, 94.8%);
+  --surface-elevated: hsl(0, 0%, 100%);
+  --card: hsl(0, 0%, 100%);
+  --popover: hsl(0, 0%, 100%);
+  --fg: hsl(222, 18%, 11%);
+  --muted: hsl(220, 13%, 93.5%);
+  --muted-fg: hsl(220, 9%, 46%);
+  --accent: hsl(220, 14%, 91.5%);
+  --border: hsl(220, 13%, 89%);
+  --input-border: hsl(220, 13%, 84%);
+  --primary: hsl(234, 56%, 56%);
+  --primary-hover: hsl(234, 56%, 50%);
+  --primary-fg: #ffffff;
+  --ok: #10b981;
+  --ok-bg: rgba(16, 185, 129, 0.12);
+  --warn: #f59e0b;
+  --warn-bg: rgba(245, 158, 11, 0.12);
+  --danger: #e11d48;
+  --danger-bg: rgba(225, 29, 72, 0.1);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-elevated: 0 6px 18px rgba(15, 23, 42, 0.08);
+  --code-bg: hsl(220, 18%, 96%);
+  --code-gutter-bg: hsl(220, 14%, 93%);
+  --tok-comment: #6b7280;
+  --tok-string: #059669;
+  --tok-keyword: #6366f1;
+  --tok-number: #d97706;
+  --tok-key: #0284c7;
+  --tok-variable: #be185d;
+  --tok-operator: #64748b;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    --bg: hsl(220, 13%, 5.5%);
+    --surface: hsl(225, 11%, 7.8%);
+    --surface-elevated: hsl(224, 11%, 10.8%);
+    --card: hsl(225, 11%, 9.2%);
+    --popover: hsl(225, 12%, 10.5%);
+    --fg: hsl(210, 10%, 96%);
+    --muted: hsl(224, 10%, 13%);
+    --muted-fg: hsl(218, 8%, 58%);
+    --accent: hsl(224, 10%, 16%);
+    --border: hsl(224, 9%, 16.5%);
+    --input-border: hsl(224, 9%, 20%);
+    --primary: hsl(234, 57%, 60%);
+    --primary-hover: hsl(234, 57%, 66%);
+    --primary-fg: #ffffff;
+    --ok: #34d399;
+    --ok-bg: rgba(52, 211, 153, 0.14);
+    --warn: #fbbf24;
+    --warn-bg: rgba(251, 191, 36, 0.14);
+    --danger: #fb7185;
+    --danger-bg: rgba(251, 113, 133, 0.14);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --code-bg: hsl(222, 14%, 7%);
+    --code-gutter-bg: hsl(222, 13%, 8.8%);
+    --tok-comment: #6b7280;
+    --tok-string: #34d399;
+    --tok-keyword: #a78bfa;
+    --tok-number: #fbbf24;
+    --tok-key: #38bdf8;
+    --tok-variable: #fb7185;
+    --tok-operator: #94a3b8;
+    color-scheme: dark;
+  }
+}
+
+[data-theme="dark"] {
+  --bg: hsl(220, 13%, 5.5%);
+  --surface: hsl(225, 11%, 7.8%);
+  --surface-elevated: hsl(224, 11%, 10.8%);
+  --card: hsl(225, 11%, 9.2%);
+  --popover: hsl(225, 12%, 10.5%);
+  --fg: hsl(210, 10%, 96%);
+  --muted: hsl(224, 10%, 13%);
+  --muted-fg: hsl(218, 8%, 58%);
+  --accent: hsl(224, 10%, 16%);
+  --border: hsl(224, 9%, 16.5%);
+  --input-border: hsl(224, 9%, 20%);
+  --primary: hsl(234, 57%, 60%);
+  --primary-hover: hsl(234, 57%, 66%);
+  --primary-fg: #ffffff;
+  --ok: #34d399;
+  --ok-bg: rgba(52, 211, 153, 0.14);
+  --warn: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, 0.14);
+  --danger: #fb7185;
+  --danger-bg: rgba(251, 113, 133, 0.14);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --code-bg: hsl(222, 14%, 7%);
+  --code-gutter-bg: hsl(222, 13%, 8.8%);
+  --tok-comment: #6b7280;
+  --tok-string: #34d399;
+  --tok-keyword: #a78bfa;
+  --tok-number: #fbbf24;
+  --tok-key: #38bdf8;
+  --tok-variable: #fb7185;
+  --tok-operator: #94a3b8;
+  color-scheme: dark;
+}
+
+[data-theme="paper"] {
+  --bg: hsl(40, 30%, 92%);
+  --surface: hsl(39, 26%, 88.5%);
+  --surface-elevated: hsl(42, 46%, 97%);
+  --card: hsl(42, 45%, 96.5%);
+  --popover: hsl(42, 52%, 97.5%);
+  --fg: hsl(26, 16%, 15%);
+  --muted: hsl(38, 20%, 86.5%);
+  --muted-fg: hsl(30, 11%, 44%);
+  --accent: hsl(38, 24%, 83.5%);
+  --border: hsl(34, 18%, 81%);
+  --input-border: hsl(34, 18%, 76%);
+  --primary: hsl(234, 45%, 50%);
+  --primary-hover: hsl(234, 45%, 44%);
+  --primary-fg: #ffffff;
+  --ok: #059669;
+  --ok-bg: rgba(5, 150, 105, 0.12);
+  --warn: #d97706;
+  --warn-bg: rgba(217, 119, 6, 0.12);
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.1);
+  --shadow-card: 0 1px 2px rgba(78, 58, 38, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --shadow-elevated: 0 10px 26px rgba(62, 46, 30, 0.12);
+  --code-bg: hsl(41, 35%, 94%);
+  --code-gutter-bg: hsl(39, 26%, 89.5%);
+  --tok-comment: #78716c;
+  --tok-string: #047857;
+  --tok-keyword: #4f46e5;
+  --tok-number: #b45309;
+  --tok-key: #0369a1;
+  --tok-variable: #be123c;
+  --tok-operator: #57534e;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-fg) 30%, transparent);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted-fg) 50%, transparent);
+}
+
+.shiba-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: var(--shadow-card);
+}
+
+.shiba-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--fg);
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.25;
+  transition: background-color 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+}
+.shiba-btn:hover:not(:disabled) {
+  background: var(--accent);
+}
+.shiba-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.shiba-btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-fg);
+}
+.shiba-btn.primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+.shiba-btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted-fg);
+}
+.shiba-btn.ghost:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--fg);
+}
+.shiba-btn.danger {
+  color: var(--danger);
+}
+.shiba-btn.danger:hover:not(:disabled) {
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+}
+.shiba-btn.danger-solid {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.shiba-btn.sm {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+.shiba-input,
+.shiba-select {
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.shiba-input:focus,
+.shiba-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.shiba-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted-fg);
+}
+.shiba-pill.ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+}
+.shiba-pill.err {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.shiba-pill.warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+}
+
+/* Code Editor Syntax Highlighting */
+.shiba-editor-wrap {
+  display: flex;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--code-bg);
+  overflow: hidden;
+  min-height: 250px;
+  height: 300px;
+}
+.shiba-editor-gutter {
+  width: 44px;
+  flex-shrink: 0;
+  padding: 12px 8px 12px 6px;
+  background: var(--code-gutter-bg);
+  border-right: 1px solid var(--border);
+  color: var(--muted-fg);
+  font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  white-space: pre;
+}
+.shiba-editor-stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.shiba-editor-pre,
+.shiba-editor-textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 12px;
+  border: 0;
+  outline: none;
+  font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  word-wrap: normal;
+  box-sizing: border-box;
+}
+.shiba-editor-pre {
+  pointer-events: none;
+  color: var(--fg);
+  background: transparent;
+}
+.shiba-editor-textarea {
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--fg);
+  -webkit-text-fill-color: transparent;
+}
+.shiba-editor-textarea::selection {
+  background: color-mix(in srgb, var(--primary) 28%, transparent);
+  -webkit-text-fill-color: transparent;
+}
+
+.tok-comment { color: var(--tok-comment); font-style: italic; }
+.tok-string { color: var(--tok-string); }
+.tok-keyword { color: var(--tok-keyword); font-weight: 500; }
+.tok-number { color: var(--tok-number); }
+.tok-key { color: var(--tok-key); }
+.tok-variable { color: var(--tok-variable); }
+.tok-operator { color: var(--tok-operator); }

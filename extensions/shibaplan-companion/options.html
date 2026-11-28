@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="auto">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ShibaPlan 浏览器助手 · 工作台</title>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      body {
+        height: 100vh;
+        overflow: hidden;
+        font-size: 12.5px;
+      }
+      .shell {
+        display: flex;
+        height: 100vh;
+        width: 100%;
+      }
+      .sidebar {
+        width: 236px;
+        flex-shrink: 0;
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        padding: 16px 12px;
+        gap: 14px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 4px 6px;
+      }
+      .brand img {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+      }
+      .brand-name {
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .brand-sub {
+        font-size: 11px;
+        color: var(--muted-fg);
+      }
+      .nav-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex: 1;
+      }
+      .nav-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--muted-fg);
+        font-size: 12.5px;
+        font-weight: 500;
+        cursor: pointer;
+        text-align: left;
+      }
+      .nav-btn:hover {
+        background: var(--accent);
+        color: var(--fg);
+      }
+      .nav-btn.active {
+        background: var(--card);
+        color: var(--fg);
+        border-color: var(--border);
+        box-shadow: var(--shadow-card);
+      }
+      .sidebar-foot {
+        border-top: 1px solid var(--border);
+        padding-top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .field label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 11px;
+        color: var(--muted-fg);
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        overflow-y: auto;
+        padding: 20px 24px 36px;
+      }
+      .tab-panel {
+        display: none;
+        max-width: 1160px;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+      .page-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .page-head h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .page-desc {
+        margin-top: 3px;
+        font-size: 12px;
+        color: var(--muted-fg);
+      }
+      .studio-grid {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        gap: 14px;
+        align-items: start;
+      }
+      @media (max-width: 900px) {
+        .studio-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .script-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+      }
+      .script-item {
+        padding: 10px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--surface);
+        cursor: pointer;
+        transition: border-color 0.14s ease, background-color 0.14s ease;
+      }
+      .script-item:hover {
+        border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+      }
+      .script-item.active {
+        background: var(--card);
+        border-color: var(--primary);
+        box-shadow: var(--shadow-card);
+      }
+      .script-item-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+      }
+      .script-item-name {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 600;
+        min-width: 0;
+        flex: 1;
+      }
+      .script-item-name span.txt {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: var(--muted-fg);
+        opacity: 0.45;
+      }
+      .dot.ok { background: var(--ok); opacity: 1; }
+      .dot.err { background: var(--danger); opacity: 1; }
+      .script-item-sub {
+        margin-top: 4px;
+        font-size: 11px;
+        color: var(--muted-fg);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .editor-card {
+        padding: 16px;
+      }
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .grid-3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 10px;
+      }
+      .row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+      .editor-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 12px 0 8px;
+      }
+      .console-bar {
+        margin-top: 10px;
+        padding: 9px 11px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        font-size: 11.5px;
+        color: var(--muted-fg);
+        line-height: 1.5;
+        word-break: break-all;
+      }
+      .console-bar.ok {
+        color: var(--ok);
+        background: var(--ok-bg);
+        border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+      }
+      .console-bar.err {
+        color: var(--danger);
+        background: var(--danger-bg);
+        border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+      }
+      .list-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--surface);
+        margin-bottom: 8px;
+      }
+      .check-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .msg {
+        margin-top: 8px;
+        min-height: 18px;
+        font-size: 12px;
+        color: var(--muted-fg);
+      }
+      .msg.ok { color: var(--ok); }
+      .msg.err { color: var(--danger); }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="icons/32.png" alt="ShibaPlan" />
+          <div>
+            <div class="brand-name">ShibaPlan 助手</div>
+            <div class="brand-sub">独立脚本与推送工作台</div>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button type="button" class="nav-btn active" data-tab="scripts">
+            <span>脚本与代码编辑器</span>
+            <span id="navScriptsCount" class="shiba-pill">0</span>
+          </button>
+          <button type="button" class="nav-btn" data-tab="deadlines">
+            <span>时间倒计时</span>
+            <span id="navDeadlinesCount" class="shiba-pill">0</span>
+          </button>
+          <button type="button" class="nav-btn" data-tab="clips">
+            <span>浏览器速记</span>
+            <span id="navClipsCount" class="shiba-pill">0</span>
+          </button>
+          <button type="button" class="nav-btn" data-tab="settings">
+            <span>连接与本地备份</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:11px;color:var(--muted-fg);">推送服务</span>
+            <span id="connPill" class="shiba-pill">检测中</span>
+          </div>
+          <div class="field" style="margin:0;">
+            <label for="themeSelect">界面主题</label>
+            <select id="themeSelect" class="shiba-select">
+              <option value="auto">跟随系统</option>
+              <option value="paper">纸质 (Paper)</option>
+              <option value="light">浅色 (Light)</option>
+              <option value="dark">深色 (Dark)</option>
+            </select>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <!-- Tab 1: Scripts & Code Editor -->
+        <section id="tab-scripts" class="tab-panel active">
+          <div class="page-head">
+            <div>
+              <h1>采集脚本与代码编辑器</h1>
+              <div class="page-desc">
+                支持自定义 JS 脚本（语法高亮）、小红书内置采集、CSS 选择器监控与纯后台 API 抓取，支持定时自动在后台运行。
+              </div>
+            </div>
+            <div class="row-actions">
+              <button id="syncAllTasksBtn" type="button" class="shiba-btn">一键后台同步全部</button>
+              <button id="newTaskBtn" type="button" class="shiba-btn primary">+ 新建脚本</button>
+            </div>
+          </div>
+
+          <div class="studio-grid">
+            <div class="shiba-card" style="padding:10px;">
+              <div id="tasksContainer" class="script-list"></div>
+            </div>
+
+            <div class="shiba-card editor-card">
+              <input type="hidden" id="taskId" />
+              <div class="grid-3">
+                <div class="field">
+                  <label for="taskName">脚本 / 卡片名称</label>
+                  <input id="taskName" class="shiba-input" type="text" placeholder="如：小红书粉丝 / B站阅读量" />
+                </div>
+                <div class="field">
+                  <label for="taskPushKey">推送标识 (pushKey)</label>
+                  <input id="taskPushKey" class="shiba-input" type="text" placeholder="如：xhs-fans" />
+                </div>
+                <div class="field">
+                  <label for="taskCollector">脚本模式</label>
+                  <select id="taskCollector" class="shiba-select">
+                    <option value="custom_js">自定义 JS 脚本（代码高亮）</option>
+                    <option value="xiaohongshu">内置：小红书粉丝（后台静默页签）</option>
+                    <option value="selector">通用：CSS 选择器（后台静默页签）</option>
+                    <option value="fetch">纯后台：API / JSON 抓取（无标签页）</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid-2" style="margin-top:8px;">
+                <div class="field">
+                  <label for="taskTargetUrl">目标网址 (targetUrl，后台自动打开/请求)</label>
+                  <input id="taskTargetUrl" class="shiba-input" type="text" placeholder="https://creator.xiaohongshu.com/new/home" />
+                </div>
+                <div class="field">
+                  <label for="taskUrlPattern">自动匹配通配符 (urlPattern)</label>
+                  <input id="taskUrlPattern" class="shiba-input" type="text" placeholder="https://creator.xiaohongshu.com/*" />
+                </div>
+              </div>
+
+              <div class="grid-3" style="margin-top:8px;">
+                <div class="field">
+                  <label for="scheduleMode">定时获取策略</label>
+                  <select id="scheduleMode" class="shiba-select">
+                    <option value="interval">每隔 N 分钟后台自动获取</option>
+                    <option value="daily">每天固定时间后台获取</option>
+                    <option value="manual">仅访问网页 / 手动</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="intervalMinutes">间隔分钟（>= 15）</label>
+                  <input id="intervalMinutes" class="shiba-input" type="number" min="15" max="1440" value="60" />
+                </div>
+                <div class="field">
+                  <label for="dailyTime">每日执行时间</label>
+                  <input id="dailyTime" class="shiba-input" type="time" value="09:00" />
+                </div>
+              </div>
+
+              <div class="row-actions" style="margin-top:8px;justify-content:space-between;">
+                <div class="row-actions">
+                  <label class="check-inline">
+                    <input id="taskEnabled" type="checkbox" checked />
+                    <span>启用脚本</span>
+                  </label>
+                  <label class="check-inline">
+                    <input id="runOnStartup" type="checkbox" checked />
+                    <span>启动时自动获取</span>
+                  </label>
+                  <label class="check-inline">
+                    <input id="autoSyncOnVisit" type="checkbox" checked />
+                    <span>访问页面顺便同步</span>
+                  </label>
+                  <label class="check-inline">
+                    <input id="parseNumber" type="checkbox" checked />
+                    <span>按数字解析趋势</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="editor-toolbar">
+                <div class="row-actions">
+                  <span id="editorLangBadge" class="shiba-pill">JavaScript</span>
+                  <select id="templateSelect" class="shiba-select" style="width:auto;min-width:170px;">
+                    <option value="">插入代码模板...</option>
+                    <option value="xhs_js">小红书粉丝采集 (JS)</option>
+                    <option value="dom_js">通用页面 DOM 提取 (JS)</option>
+                    <option value="page_fetch_js">页内登录态 Fetch API (JS)</option>
+                  </select>
+                  <button id="formatJsonBtn" type="button" class="shiba-btn sm" style="display:none;">格式化 JSON</button>
+                </div>
+                <div class="row-actions">
+                  <button id="deleteTaskBtn" type="button" class="shiba-btn sm danger">删除脚本</button>
+                  <button id="runTaskBtn" type="button" class="shiba-btn sm">立即运行并推送</button>
+                  <button id="saveTaskBtn" type="button" class="shiba-btn sm primary">保存脚本 (Ctrl+S)</button>
+                </div>
+              </div>
+
+              <div id="codeEditorMount"></div>
+              <div id="editorHint" class="page-desc" style="margin-top:6px;">
+                提示：自定义 JS 脚本运行在浏览器 <code>USER_SCRIPT</code> 沙箱中（需在扩展详情页开启「允许用户脚本」和「开发者模式」），可直接访问当前页面 <code>document</code> 与 <code>fetch</code>，并调用 <code>helpers.parseCnCount("1.2万")</code>。
+              </div>
+              <div id="taskConsole" class="console-bar">就绪：选择左侧脚本编辑，或点击「+ 新建脚本」。</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tab 2: Deadlines -->
+        <section id="tab-deadlines" class="tab-panel">
+          <div class="page-head">
+            <div>
+              <h1>时间倒计时列表</h1>
+              <div class="page-desc">剩余时间 &lt;= 7 天或已到期时，ShibaPlan 卡片会自动以红色文本警告。</div>
+            </div>
+            <button id="pushDeadlinesNowBtn" type="button" class="shiba-btn">立即刷新推送</button>
+          </div>
+
+          <div class="shiba-card" style="padding:16px;margin-bottom:14px;">
+            <div class="grid-3">
+              <div class="field">
+                <label for="dlTitle">事件名称</label>
+                <input id="dlTitle" class="shiba-input" type="text" placeholder="如：服务器续费 / 活动截止" />
+              </div>
+              <div class="field">
+                <label for="dlTime">目标时间</label>
+                <input id="dlTime" class="shiba-input" type="datetime-local" />
+              </div>
+              <div class="field">
+                <label for="dlWarnDays">标红阈值（天）</label>
+                <input id="dlWarnDays" class="shiba-input" type="number" min="0" max="365" value="7" />
+              </div>
+            </div>
+            <div class="row-actions" style="margin-top:8px;">
+              <button id="addDeadlineBtn" type="button" class="shiba-btn primary">添加并推送倒计时</button>
+            </div>
+            <div id="dlMsg" class="msg"></div>
+          </div>
+
+          <div class="shiba-card" style="padding:14px;">
+            <div id="deadlinesContainer"></div>
+          </div>
+        </section>
+
+        <!-- Tab 3: Clips -->
+        <section id="tab-clips" class="tab-panel">
+          <div class="page-head">
+            <div>
+              <h1>浏览器速记缓存</h1>
+              <div class="page-desc">通过网页右键「推送选中内容到 ShibaPlan」或「推送当前网页」记录的最近 20 条内容。</div>
+            </div>
+            <button id="clearClipsBtn" type="button" class="shiba-btn danger">清空速记缓存</button>
+          </div>
+          <div class="shiba-card" style="padding:14px;">
+            <div id="clipsContainer"></div>
+            <div id="clipsMsg" class="msg"></div>
+          </div>
+        </section>
+
+        <!-- Tab 4: Settings & Backup -->
+        <section id="tab-settings" class="tab-panel">
+          <div class="page-head">
+            <div>
+              <h1>ShibaPlan 连接与本地备份</h1>
+              <div class="page-desc">所有配置、Token 与历史记录仅存储在浏览器本地 storage 中，切勿将备份文件提交到 Git。</div>
+            </div>
+          </div>
+
+          <div class="shiba-card" style="padding:16px;margin-bottom:14px;">
+            <div class="grid-2">
+              <div class="field">
+                <label for="baseUrl">ShibaPlan 本地推送服务地址</label>
+                <input id="baseUrl" class="shiba-input" type="text" placeholder="http://127.0.0.1:18421" />
+              </div>
+              <div class="field">
+                <label for="token">全局推送令牌 Token（可选）</label>
+                <input id="token" class="shiba-input" type="password" placeholder="如卡片未配置令牌可留空" />
+              </div>
+              <div class="field">
+                <label for="clipsPushKey">速记卡片 pushKey</label>
+                <input id="clipsPushKey" class="shiba-input" type="text" placeholder="browser-clips" />
+              </div>
+              <div class="field">
+                <label for="deadlinesPushKey">时间倒计时 pushKey</label>
+                <input id="deadlinesPushKey" class="shiba-input" type="text" placeholder="browser-deadlines" />
+              </div>
+            </div>
+            <div class="row-actions" style="margin-top:10px;">
+              <button id="saveSettingsBtn" type="button" class="shiba-btn primary">保存连接设置</button>
+              <button id="testConnBtn" type="button" class="shiba-btn">测试连接</button>
+            </div>
+            <div id="settingsMsg" class="msg"></div>
+          </div>
+
+          <div class="shiba-card" style="padding:16px;">
+            <div class="row-actions">
+              <button id="exportBtn" type="button" class="shiba-btn">导出本地配置备份 (.local.json)</button>
+              <button id="importBtn" type="button" class="shiba-btn">导入本地备份</button>
+              <input id="importFile" type="file" accept="application/json" style="display:none;" />
+            </div>
+            <div id="backupMsg" class="msg"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="editor.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>
