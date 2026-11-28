@@ -116,6 +116,24 @@ function devArchivePlugin(): Plugin {
     "shibaplan-data.json"
   );
 
+  const resolveDevDataDir = (explicitCustomDir?: string): string => {
+    const trimmed = (explicitCustomDir || "").trim();
+    if (trimmed) return trimmed;
+    try {
+      if (fs.existsSync(defaultWorkspaceFile)) {
+        const raw = fs.readFileSync(defaultWorkspaceFile, "utf-8");
+        const parsed = JSON.parse(raw) as {
+          settings?: { customDataDir?: string };
+        };
+        const cfgDir = parsed?.settings?.customDataDir?.trim();
+        if (cfgDir) return cfgDir;
+      }
+    } catch {
+      // ignore
+    }
+    return path.dirname(defaultWorkspaceFile);
+  };
+
   return {
     name: "shibaplan-dev-archive",
     configureServer(server) {
@@ -140,6 +158,112 @@ function devArchivePlugin(): Plugin {
           }
         }
         next();
+      });
+
+      server.middlewares.use("/api/assets", (req, res, next) => {
+        if (req.method === "GET") {
+          try {
+            const rawSub = (req.url || "").split("?")[0].replace(/^\/+/, "");
+            const fileName = decodeURIComponent(rawSub);
+            if (
+              !fileName ||
+              fileName.includes("/") ||
+              fileName.includes("\\") ||
+              fileName.includes("..")
+            ) {
+              res.statusCode = 404;
+              res.end();
+              return;
+            }
+            const filePath = path.join(resolveDevDataDir(), "assets", fileName);
+            if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+              res.statusCode = 404;
+              res.end();
+              return;
+            }
+            const ext = path.extname(fileName).replace(/^\./, "").toLowerCase();
+            const mimeMap: Record<string, string> = {
+              png: "image/png",
+              jpg: "image/jpeg",
+              jpeg: "image/jpeg",
+              webp: "image/webp",
+              gif: "image/gif",
+              bmp: "image/bmp",
+              svg: "image/svg+xml",
+              avif: "image/avif",
+              ico: "image/x-icon",
+            };
+            res.setHeader(
+              "Content-Type",
+              mimeMap[ext] || "application/octet-stream"
+            );
+            res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+            fs.createReadStream(filePath).pipe(res);
+          } catch {
+            res.statusCode = 500;
+            res.end();
+          }
+          return;
+        }
+
+        if (req.method === "POST") {
+          let body = "";
+          req.on("data", (chunk) => (body += chunk));
+          req.on("end", () => {
+            try {
+              const payload = JSON.parse(body || "{}") as {
+                base64Data?: string;
+                ext?: string;
+                customDir?: string;
+              };
+              const rawB64 = (payload.base64Data || "").trim();
+              if (!rawB64) {
+                res.statusCode = 400;
+                res.setHeader("Content-Type", "application/json; charset=utf-8");
+                res.end(JSON.stringify({ ok: false, error: "Empty image data" }));
+                return;
+              }
+              const cleanB64 = rawB64.includes(",")
+                ? rawB64.slice(rawB64.indexOf(",") + 1).trim()
+                : rawB64;
+              const bytes = Buffer.from(cleanB64, "base64");
+              const safeExt =
+                (payload.ext || "png")
+                  .replace(/[^a-zA-Z0-9]/g, "")
+                  .toLowerCase() || "png";
+              const now = new Date();
+              const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+              const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(
+                now.getDate()
+              )}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(
+                now.getSeconds()
+              )}_${pad(now.getMilliseconds(), 3)}`;
+              const fileName = `shot_${ts}.${safeExt}`;
+              const assetsDir = path.join(
+                resolveDevDataDir(payload.customDir),
+                "assets"
+              );
+              fs.mkdirSync(assetsDir, { recursive: true });
+              const fullPath = path.join(assetsDir, fileName);
+              fs.writeFileSync(fullPath, bytes);
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(
+                JSON.stringify({
+                  ok: true,
+                  path: fullPath,
+                  relativePath: `assets/${fileName}`,
+                })
+              );
+            } catch (err) {
+              res.statusCode = 500;
+              res.setHeader("Content-Type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: false, error: String(err) }));
+            }
+          });
+          return;
+        }
+
+        return next();
       });
 
       server.middlewares.use("/api/workspace", (req, res, next) => {

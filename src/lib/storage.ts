@@ -391,6 +391,256 @@ export async function savePastedImage(
   });
 }
 
+const MEMO_IMAGE_CACHE_MAX = 200;
+const memoImageInstantCache = new Map<string, string>();
+const memoImageResolvedCache = new Map<string, string | null>();
+const memoImageInflight = new Map<string, Promise<string | null>>();
+let memoAssetProtocolWorks: boolean | null = null;
+
+function setBoundedMap<V>(map: Map<string, V>, key: string, val: V, max: number) {
+  map.delete(key);
+  map.set(key, val);
+  while (map.size > max) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
+
+function cleanMarkdownImageTarget(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^<+|>+$/g, "")
+    .trim();
+}
+
+function extractMemoAssetFileName(cleanSrc: string): string | null {
+  const norm = cleanSrc.replace(/\\/g, "/");
+  const rel = norm.startsWith("./assets/")
+    ? norm.slice("./assets/".length)
+    : norm.startsWith("assets/")
+    ? norm.slice("assets/".length)
+    : null;
+  if (!rel) return null;
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(rel).trim();
+    } catch {
+      return rel.trim();
+    }
+  })();
+  if (
+    !decoded ||
+    decoded.includes("/") ||
+    decoded.includes("\\") ||
+    decoded.includes("..")
+  ) {
+    return null;
+  }
+  return decoded;
+}
+
+function probeImageLoad(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}
+
+/**
+ * Saves a pasted/dropped image for Memos into `<dataDir>/assets/shot_...`
+ * and returns a portable relative Markdown path (`assets/shot_...`) when backed
+ * by Tauri, Vite dev server, or LAN server; falls back to `base64Data` in
+ * standalone offline browser mode.
+ */
+export async function saveMemoImage(
+  base64Data: string,
+  ext: string,
+  customDir?: string
+): Promise<string> {
+  const safeExt =
+    ext
+      .replace(/^image\//i, "")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toLowerCase() || "png";
+
+  if (isTauriRuntime()) {
+    try {
+      const savedPath = await savePastedImage(base64Data, safeExt, customDir);
+      if (savedPath) {
+        const parts = savedPath.split(/[/\\]/);
+        const fileName = parts[parts.length - 1];
+        if (fileName) {
+          const rel = `assets/${fileName}`;
+          setBoundedMap(
+            memoImageInstantCache,
+            rel,
+            base64Data,
+            MEMO_IMAGE_CACHE_MAX
+          );
+          return rel;
+        }
+      }
+    } catch (err) {
+      console.error("Failed to save memo image via Tauri:", err);
+    }
+  } else {
+    try {
+      const res = await fetch("/api/assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base64Data,
+          ext: safeExt,
+          customDir: customDir || undefined,
+        }),
+      });
+      const ct = res.headers.get("content-type") || "";
+      if (res.ok && ct.includes("application/json")) {
+        const data = (await res.json()) as {
+          ok?: boolean;
+          relativePath?: string;
+        };
+        if (data.ok && data.relativePath) {
+          setBoundedMap(
+            memoImageInstantCache,
+            data.relativePath,
+            base64Data,
+            MEMO_IMAGE_CACHE_MAX
+          );
+          return data.relativePath;
+        }
+      }
+    } catch {
+      // Fall through to inline data URL in standalone browser mode
+    }
+  }
+
+  return base64Data;
+}
+
+/**
+ * Synchronous fast-path for resolving a Markdown image `src` when already
+ * cached or directly addressable over HTTP / data / blob URLs.
+ */
+export function getImmediateMemoImageSrc(
+  rawSrc: string,
+  customDir?: string
+): string | null {
+  const clean = cleanMarkdownImageTarget(rawSrc);
+  if (!clean) return null;
+  const lower = clean.toLowerCase();
+  if (
+    lower.startsWith("http://") ||
+    lower.startsWith("https://") ||
+    lower.startsWith("data:image/") ||
+    lower.startsWith("blob:") ||
+    lower.startsWith("asset://")
+  ) {
+    return clean;
+  }
+
+  const assetName = extractMemoAssetFileName(clean);
+  if (assetName) {
+    const canonical = `assets/${assetName}`;
+    const instant = memoImageInstantCache.get(canonical);
+    if (instant) return instant;
+    if (!isTauriRuntime()) {
+      return `/api/assets/${encodeURIComponent(assetName)}`;
+    }
+  }
+
+  if (isTauriRuntime()) {
+    const cacheKey = `${customDir?.trim() || ""}::${clean}`;
+    const resolved = memoImageResolvedCache.get(cacheKey);
+    if (resolved !== undefined) return resolved;
+    return null;
+  }
+
+  if (/^[a-zA-Z]:[\\/]/.test(clean)) {
+    return `/api/dev-archive/thumb?path=${encodeURIComponent(clean)}`;
+  }
+  if (clean.startsWith("/")) {
+    return clean;
+  }
+  return clean;
+}
+
+export async function resolveMemoImageSrc(
+  rawSrc: string,
+  customDir?: string
+): Promise<string | null> {
+  const immediate = getImmediateMemoImageSrc(rawSrc, customDir);
+  if (immediate !== null) return immediate;
+
+  const clean = cleanMarkdownImageTarget(rawSrc);
+  if (!clean || !isTauriRuntime()) return immediate;
+
+  const cacheKey = `${customDir?.trim() || ""}::${clean}`;
+  if (memoImageResolvedCache.has(cacheKey)) {
+    return memoImageResolvedCache.get(cacheKey) ?? null;
+  }
+  const existing = memoImageInflight.get(cacheKey);
+  if (existing) return existing;
+
+  const task = (async () => {
+    try {
+      const { invoke, convertFileSrc } = await import("@tauri-apps/api/core");
+      const dirArg = customDir?.trim() || null;
+
+      if (memoAssetProtocolWorks !== false) {
+        try {
+          const absPath = await invoke<string>("resolve_memo_image_path", {
+            src: clean,
+            customDir: dirArg,
+          });
+          const assetUrl = convertFileSrc(absPath);
+          if (
+            memoAssetProtocolWorks === true ||
+            (await probeImageLoad(assetUrl))
+          ) {
+            memoAssetProtocolWorks = true;
+            setBoundedMap(
+              memoImageResolvedCache,
+              cacheKey,
+              assetUrl,
+              MEMO_IMAGE_CACHE_MAX
+            );
+            return assetUrl;
+          }
+          if (memoAssetProtocolWorks === null) {
+            memoAssetProtocolWorks = false;
+          }
+        } catch {
+          // Fall through to full-resolution data URL
+        }
+      }
+
+      const dataUrl = await invoke<string>("read_memo_image_data_url", {
+        src: clean,
+        customDir: dirArg,
+      });
+      setBoundedMap(
+        memoImageResolvedCache,
+        cacheKey,
+        dataUrl,
+        MEMO_IMAGE_CACHE_MAX
+      );
+      return dataUrl;
+    } catch {
+      setBoundedMap(memoImageResolvedCache, cacheKey, null, MEMO_IMAGE_CACHE_MAX);
+      return null;
+    } finally {
+      memoImageInflight.delete(cacheKey);
+    }
+  })();
+
+  memoImageInflight.set(cacheKey, task);
+  return task;
+}
+
 export async function exportIdeaToMarkdown(
   filename: string,
   content: string,

@@ -311,6 +311,111 @@ fn save_pasted_image_impl(
     Ok(file_path.to_string_lossy().to_string())
 }
 
+fn resolve_memo_image_file(src: &str, custom_dir: Option<String>) -> Result<PathBuf, String> {
+    let trimmed = src
+        .trim()
+        .trim_start_matches('<')
+        .trim_end_matches('>')
+        .trim();
+    if trimmed.is_empty() {
+        return Err("图片路径为空".to_string());
+    }
+
+    let slash_norm = trimmed.replace('\\', "/");
+    let asset_rel = slash_norm
+        .strip_prefix("./assets/")
+        .or_else(|| slash_norm.strip_prefix("assets/"));
+
+    let path_buf = if let Some(rel_name) = asset_rel {
+        let decoded = rel_name.replace("%20", " ");
+        let clean_name = decoded.trim();
+        if clean_name.is_empty()
+            || clean_name.contains('/')
+            || clean_name.contains('\\')
+            || clean_name.contains("..")
+        {
+            return Err("非法的资源文件名".to_string());
+        }
+        resolve_data_dir(custom_dir).join("assets").join(clean_name)
+    } else if let Some(rest) = trimmed.strip_prefix("file://") {
+        let raw = if rest.starts_with('/') && rest.chars().nth(2) == Some(':') {
+            &rest[1..]
+        } else {
+            rest
+        };
+        PathBuf::from(raw.replace("%20", " "))
+    } else {
+        let cand = PathBuf::from(trimmed);
+        if cand.is_absolute() {
+            cand
+        } else {
+            resolve_data_dir(custom_dir).join(cand)
+        }
+    };
+
+    let meta = fs::metadata(&path_buf).map_err(|_| "图片文件不存在".to_string())?;
+    if !meta.is_file() {
+        return Err("图片文件不存在".to_string());
+    }
+    if meta.len() > 30_000_000 {
+        return Err("图片文件过大".to_string());
+    }
+
+    let ext = path_buf
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if !matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "svg" | "avif" | "ico"
+    ) {
+        return Err("不支持的图片格式".to_string());
+    }
+
+    Ok(path_buf)
+}
+
+#[tauri::command]
+async fn resolve_memo_image_path(
+    src: String,
+    custom_dir: Option<String>,
+) -> Result<String, String> {
+    run_blocking(move || {
+        let p = resolve_memo_image_file(&src, custom_dir)?;
+        Ok(p.to_string_lossy().to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn read_memo_image_data_url(
+    src: String,
+    custom_dir: Option<String>,
+) -> Result<String, String> {
+    run_blocking(move || {
+        let p = resolve_memo_image_file(&src, custom_dir)?;
+        let ext = p
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let mime = match ext.as_str() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "webp" => "image/webp",
+            "gif" => "image/gif",
+            "bmp" => "image/bmp",
+            "svg" => "image/svg+xml",
+            "avif" => "image/avif",
+            "ico" => "image/x-icon",
+            _ => "application/octet-stream",
+        };
+        let bytes = fs::read(&p).map_err(|e| format!("读取图片失败: {}", e))?;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        Ok(format!("data:{};base64,{}", mime, encoded))
+    })
+    .await
+}
+
 #[tauri::command]
 async fn export_idea_markdown(filename: String, content: String, custom_dir: Option<String>) -> Result<String, String> {
     run_blocking(move || export_idea_markdown_impl(filename, content, custom_dir)).await
@@ -2212,6 +2317,12 @@ fn guess_mime(path: &str) -> &'static str {
         "image/jpeg"
     } else if path.ends_with(".webp") {
         "image/webp"
+    } else if path.ends_with(".gif") {
+        "image/gif"
+    } else if path.ends_with(".bmp") {
+        "image/bmp"
+    } else if path.ends_with(".avif") {
+        "image/avif"
     } else if path.ends_with(".woff2") {
         "font/woff2"
     } else if path.ends_with(".woff") {
@@ -2298,7 +2409,7 @@ fn handle_lan_client(mut stream: TcpStream, app: AppHandle, custom_dir: Option<S
     }
 
     if path_only == "/api/workspace" {
-        let dir = resolve_data_dir(custom_dir);
+        let dir = resolve_data_dir(custom_dir.clone());
         let file_path = dir.join("shibaplan-data.json");
 
         if method == "GET" {
@@ -2329,6 +2440,69 @@ fn handle_lan_client(mut stream: TcpStream, app: AppHandle, custom_dir: Option<S
                 }
             }
             send_http_response(&mut stream, "500 Internal Server Error", "text/plain", b"save failed");
+            return;
+        }
+    }
+
+    if path_only == "/api/assets" && method == "POST" {
+        let body_bytes = &buf[end..buf.len().min(end + content_length)];
+        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(body_bytes) {
+            let b64 = val
+                .get("base64Data")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let ext = val
+                .get("ext")
+                .and_then(|v| v.as_str())
+                .unwrap_or("png")
+                .to_string();
+            if !b64.is_empty() {
+                if let Ok(saved_path) = save_pasted_image_impl(b64, ext, custom_dir.clone()) {
+                    let file_name = PathBuf::from(&saved_path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let resp = serde_json::json!({
+                        "ok": true,
+                        "path": saved_path,
+                        "relativePath": format!("assets/{}", file_name),
+                    });
+                    send_http_response(
+                        &mut stream,
+                        "200 OK",
+                        "application/json; charset=utf-8",
+                        resp.to_string().as_bytes(),
+                    );
+                    return;
+                }
+            }
+        }
+        send_http_response(
+            &mut stream,
+            "400 Bad Request",
+            "application/json; charset=utf-8",
+            b"{\"ok\":false}",
+        );
+        return;
+    }
+
+    if let Some(raw_name) = path_only.strip_prefix("/api/assets/") {
+        if method == "GET" {
+            let clean_name = raw_name.replace("%20", " ");
+            if !clean_name.is_empty()
+                && !clean_name.contains('/')
+                && !clean_name.contains('\\')
+                && !clean_name.contains("..")
+            {
+                let asset_path = resolve_data_dir(custom_dir).join("assets").join(&clean_name);
+                if let Ok(bytes) = fs::read(&asset_path) {
+                    let lower = clean_name.to_lowercase();
+                    send_http_response(&mut stream, "200 OK", guess_mime(&lower), &bytes);
+                    return;
+                }
+            }
+            send_http_response(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"Not Found");
             return;
         }
     }
@@ -2870,6 +3044,8 @@ pub fn run() {
             list_workspace_snapshots,
             restore_workspace_snapshot,
             save_pasted_image,
+            resolve_memo_image_path,
+            read_memo_image_data_url,
             export_idea_markdown,
             inspect_path,
             get_file_icon_data_url,

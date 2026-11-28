@@ -150,20 +150,40 @@ export function stripMarkdownPreview(content: string): string {
   return content
     .replace(/\r/g, "")
     .split("\n")
+    .filter(
+      (line) => !/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line)
+    )
     .map((line) =>
       line
+        .replace(/^\s*<\/?details[^>]*>\s*$/gi, "")
+        .replace(/^\s*<summary>(.*?)<\/summary>\s*$/gi, "$1")
         .replace(/^\s*#{1,6}\s+/, "")
+        .replace(/^\s*>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i, "")
         .replace(/^\s*>\s?/, "")
         .replace(/^\s*[-*+]\s+\[[ xX]\]\s*/, "")
         .replace(/^\s*[-*+]\s+/, "")
         .replace(/^\s*\d+\.\s+/, "")
+        .replace(/^\s*(?:\*{3,}|-{3,}|_{3,})\s*$/, "")
+        .replace(/^\s*\|(.*)\|\s*$/, "$1")
+        .replace(/\s*\|\s*/g, " ")
         .replace(/```[a-zA-Z0-9_-]*/g, "")
         .replace(/`([^`]*)`/g, "$1")
         .replace(/\*\*\*([^*]+)\*\*\*/g, "$1")
         .replace(/\*\*([^*]+)\*\*/g, "$1")
+        .replace(/__([^_]+)__/g, "$1")
         .replace(/\*([^*]+)\*/g, "$1")
         .replace(/~~([^~]+)~~/g, "$1")
-        .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/==([^=]+)==/g, "$1")
+        .replace(/<(?:u|kbd|sup|sub)>([^<]*)<\/(?:u|kbd|sup|sub)>/gi, "$1")
+        .replace(
+          /!\[([^\]]*)\]\((?:<[^>\n]+>|[^)\n]+)\)/g,
+          (_, alt: string) => {
+            const cleanAlt = alt.trim();
+            return cleanAlt && cleanAlt !== "图片"
+              ? `[图片: ${cleanAlt}]`
+              : "[图片]";
+          }
+        )
         .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
         .trim()
     )
