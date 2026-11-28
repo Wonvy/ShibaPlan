@@ -6,6 +6,7 @@ import {
   Copy,
   Kanban,
   LayoutGrid,
+  Link2,
   Maximize2,
   Minimize2,
   Pencil,
@@ -24,7 +25,11 @@ import {
   TaskPriorityColor,
 } from "../../types";
 import { useI18n } from "../../lib/i18n";
-import { AreaMenuState, TASK_PRIORITY_COLORS } from "./constants";
+import {
+  AreaMenuState,
+  TASK_PRIORITY_COLORS,
+  copyTextToClipboard,
+} from "./constants";
 
 const itemCls =
   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent";
@@ -101,8 +106,23 @@ export const AreaContextMenu: React.FC<AreaContextMenuProps> = ({
         (() => {
           if (!ctxTask) return null;
           const isDone = ctxTask.status === "done";
+          const linkUrl = menu.linkUrl;
           return (
             <>
+              {linkUrl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void copyTextToClipboard(linkUrl);
+                    close();
+                  }}
+                  className={itemCls}
+                >
+                  <Link2 className="h-3.5 w-3.5 text-zinc-400" />
+                  <span>{t("kanban.copyLink")}</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {

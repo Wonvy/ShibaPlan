@@ -434,7 +434,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       e.stopPropagation();
       setColContextMenu(null);
       const menuW = 228;
-      const menuH = menu.kind === "card" ? 345 : 180;
+      const menuH =
+        menu.kind === "card" ? (menu.linkUrl ? 380 : 345) : 180;
       const x = Math.min(e.clientX, window.innerWidth - menuW - 12);
       const y = Math.min(e.clientY, window.innerHeight - menuH - 12);
       setAreaContextMenu({ ...menu, x, y });

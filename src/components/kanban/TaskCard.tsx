@@ -24,6 +24,7 @@ import {
   TASK_PRIORITY_CARD_CLASS,
   TranslateFn,
   formatShortDate,
+  parseTaskUrl,
 } from "./constants";
 import {
   getTaskAttachments,
@@ -85,16 +86,6 @@ export interface TaskCardProps {
   locale: string;
   t: TranslateFn;
   actions: TaskCardActions;
-}
-
-function parseTaskUrl(raw: string): URL | null {
-  const trimmed = raw.trim();
-  if (!/^https?:\/\/\S+$/i.test(trimmed)) return null;
-  try {
-    return new URL(trimmed);
-  } catch {
-    return null;
-  }
 }
 
 function formatMiddleEllipsisUrl(url: URL, maxLen = 32): string {
@@ -656,13 +647,17 @@ const TaskCardImpl: React.FC<TaskCardProps> = ({
   return (
     <div
       data-kanban-card="true"
-      onContextMenu={(e) =>
+      onContextMenu={(e) => {
+        const linkEl = (e.target as HTMLElement | null)?.closest(
+          "a[href]"
+        ) as HTMLAnchorElement | null;
         actions.openAreaContextMenu(e, {
           kind: "card",
           taskId: task.id,
           colId,
-        })
-      }
+          linkUrl: linkEl?.href || undefined,
+        });
+      }}
       className="relative"
     >
       {showInsertBefore && (

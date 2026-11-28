@@ -50,12 +50,19 @@ export type TranslateFn = (
 export type InsertPosition = "before" | "after";
 
 export type AreaMenuRequest =
-  | { kind: "card"; taskId: string; colId: string }
+  | { kind: "card"; taskId: string; colId: string; linkUrl?: string }
   | { kind: "column"; colId: string }
   | { kind: "board" };
 
 export type AreaMenuState =
-  | { kind: "card"; taskId: string; colId: string; x: number; y: number }
+  | {
+      kind: "card";
+      taskId: string;
+      colId: string;
+      linkUrl?: string;
+      x: number;
+      y: number;
+    }
   | { kind: "column"; colId: string; x: number; y: number }
   | { kind: "board"; x: number; y: number };
 
@@ -79,6 +86,40 @@ export const formatClock = (sec: number) => {
   const s = (sec % 60).toString().padStart(2, "0");
   return `${m}:${s}`;
 };
+
+/** Parses a task title as an http(s) URL when the entire trimmed title is a single URL. */
+export function parseTaskUrl(raw: string): URL | null {
+  const trimmed = raw.trim();
+  if (!/^https?:\/\/\S+$/i.test(trimmed)) return null;
+  try {
+    return new URL(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+/** Copies text to clipboard with a fallback for non-secure contexts. */
+export async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // fall through to textarea fallback
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
 
 /** Returns YYYY-MM-DD for today + `days`. */
 export const dateWithOffset = (days: number) => {
