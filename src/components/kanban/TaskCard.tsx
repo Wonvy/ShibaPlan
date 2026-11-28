@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Clock,
   FileText,
   Folder,
   Globe,
@@ -32,6 +33,12 @@ import {
   stripLegacyFolderTokens,
 } from "./dropUtils";
 import { AttachmentIcon } from "./AttachmentIcon";
+import {
+  InlineCalendarGrid,
+  getNextMondayDateStr,
+  getOffsetDateStr,
+  parseTimeValue,
+} from "../ui/date-time-picker";
 
 /** Referentially stable callbacks shared by every card. */
 export interface TaskCardActions {
@@ -57,6 +64,7 @@ export interface TaskCardActions {
   onImageLeave: () => void;
   cycleEffort: (task: TaskItem) => void;
   setEstimatedMinutes: (task: TaskItem, minutes: number) => void;
+  setTaskSchedule: (taskId: string, dueDate?: string, startTime?: string) => void;
   openTaskEditor: (task: TaskItem) => void;
   startRename: (task: TaskItem) => void;
   commitRename: (taskId: string, title: string) => void;
@@ -600,6 +608,342 @@ const InlineTitleInput: React.FC<{
   );
 };
 
+const QUICK_TIME_PRESETS = ["09:00", "14:00", "18:00", "20:00"] as const;
+
+const TaskQuickScheduleTrigger: React.FC<{
+  task: TaskItem;
+  disabled?: boolean;
+  onOpenEditor: () => void;
+  onScheduleChange: (dueDate?: string, startTime?: string) => void;
+  onOpenChange?: (open: boolean) => void;
+  className: string;
+  title: string;
+  children: React.ReactNode;
+}> = ({
+  task,
+  disabled = false,
+  onOpenEditor,
+  onScheduleChange,
+  onOpenChange,
+  className,
+  title,
+  children,
+}) => {
+  const [open, setOpenState] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number }>({
+    left: 8,
+    top: 8,
+  });
+  const [timeDraft, setTimeDraft] = useState(task.startTime ?? "");
+
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const openTimerRef = useRef<number | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const inputFocusedRef = useRef(false);
+
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChange?.(next);
+  };
+
+  const clearTimers = () => {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    setTimeDraft(task.startTime ?? "");
+  }, [task.startTime]);
+
+  useEffect(() => {
+    if (disabled && open) {
+      clearTimers();
+      setOpen(false);
+    }
+  }, [disabled, open]);
+
+  useEffect(() => clearTimers, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (triggerRef.current?.contains(target)) return;
+      if (popoverRef.current?.contains(target)) return;
+      clearTimers();
+      setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        clearTimers();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onMouseDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [open]);
+
+  const computePos = () => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const popoverW = 272;
+    const estH = 356;
+    const left = Math.max(
+      8,
+      Math.min(rect.right - popoverW, window.innerWidth - popoverW - 8)
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    if (spaceBelow < estH && spaceAbove > spaceBelow) {
+      setPos({
+        left,
+        bottom: Math.max(8, window.innerHeight - rect.top + 6),
+      });
+    } else {
+      setPos({
+        left,
+        top: Math.max(8, rect.bottom + 6),
+      });
+    }
+  };
+
+  const scheduleOpen = () => {
+    if (disabled) return;
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    if (open) return;
+    if (openTimerRef.current !== null) return;
+    openTimerRef.current = window.setTimeout(() => {
+      openTimerRef.current = null;
+      computePos();
+      setOpen(true);
+    }, 120);
+  };
+
+  const scheduleClose = () => {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+    if (inputFocusedRef.current) return;
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      if (!inputFocusedRef.current) {
+        setOpen(false);
+      }
+    }, 220);
+  };
+
+  const commitTimeDraft = () => {
+    const trimmed = timeDraft.trim();
+    if (!trimmed) {
+      if (task.startTime) {
+        onScheduleChange(task.dueDate, undefined);
+      }
+      return;
+    }
+    const parsed = parseTimeValue(trimmed);
+    if (parsed) {
+      const formatted = `${parsed.hour}:${parsed.minute}`;
+      setTimeDraft(formatted);
+      onScheduleChange(task.dueDate || getOffsetDateStr(0), formatted);
+    } else {
+      setTimeDraft(task.startTime ?? "");
+    }
+  };
+
+  const today = getOffsetDateStr(0);
+  const tomorrow = getOffsetDateStr(1);
+  const afterTomorrow = getOffsetDateStr(2);
+  const nextMonday = getNextMondayDateStr();
+
+  const dateQuickOptions = [
+    { label: "今天", value: today },
+    { label: "明天", value: tomorrow },
+    { label: "后天", value: afterTomorrow },
+    { label: "下周一", value: nextMonday },
+  ];
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onMouseEnter={scheduleOpen}
+        onMouseLeave={scheduleClose}
+        onClick={(e) => {
+          e.stopPropagation();
+          clearTimers();
+          setOpen(false);
+          onOpenEditor();
+        }}
+        className={className}
+        title={title}
+      >
+        {children}
+      </button>
+
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            data-custom-select-menu="true"
+            style={{
+              left: pos.left,
+              top: pos.top,
+              bottom: pos.bottom,
+              width: 272,
+            }}
+            onMouseEnter={() => {
+              if (closeTimerRef.current !== null) {
+                window.clearTimeout(closeTimerRef.current);
+                closeTimerRef.current = null;
+              }
+            }}
+            onMouseLeave={scheduleClose}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            className="pointer-events-auto fixed z-[120] rounded-xl border border-border bg-popover p-2.5 text-popover-foreground shadow-popover-soft animate-fade-in select-none"
+          >
+            {/* Header Summary + Clear */}
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-foreground">
+                <Calendar className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="truncate font-mono text-[11.5px]">
+                  {task.dueDate
+                    ? `${task.dueDate}${task.startTime ? ` ${task.startTime}` : ""}`
+                    : "快捷设置日期与时间"}
+                </span>
+              </div>
+              {(task.dueDate || task.startTime) && (
+                <button
+                  type="button"
+                  onClick={() => onScheduleChange(undefined, undefined)}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-destructive hover:bg-destructive/12"
+                >
+                  清除
+                </button>
+              )}
+            </div>
+
+            {/* Quick Date Presets */}
+            <div className="mb-2 grid grid-cols-4 gap-1">
+              {dateQuickOptions.map((opt) => {
+                const active = task.dueDate === opt.value;
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => onScheduleChange(opt.value, task.startTime)}
+                    className={`rounded py-1 text-[11px] font-medium transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted/65 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Compact Inline Calendar */}
+            <InlineCalendarGrid
+              value={task.dueDate ?? ""}
+              onSelect={(dateStr) => onScheduleChange(dateStr, task.startTime)}
+              compact
+            />
+
+            {/* Quick Time Row */}
+            <div className="mt-2 space-y-1.5 border-t border-border/60 pt-2">
+              <div className="grid grid-cols-4 gap-1">
+                {QUICK_TIME_PRESETS.map((preset) => {
+                  const active = task.startTime === preset;
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() =>
+                        onScheduleChange(task.dueDate || today, preset)
+                      }
+                      className={`rounded py-1 font-mono text-[11px] transition-colors ${
+                        active
+                          ? "bg-primary font-medium text-primary-foreground"
+                          : "bg-muted/65 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <Clock className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={timeDraft}
+                  onFocus={() => {
+                    inputFocusedRef.current = true;
+                  }}
+                  onBlur={() => {
+                    inputFocusedRef.current = false;
+                    commitTimeDraft();
+                  }}
+                  onChange={(e) => setTimeDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      commitTimeDraft();
+                    }
+                  }}
+                  placeholder="时间 HH:mm"
+                  aria-label="快捷输入时间"
+                  className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 font-mono text-[11px] text-foreground placeholder:text-muted-foreground/55 focus:border-ring/70 focus:outline-none"
+                />
+                {task.startTime && (
+                  <button
+                    type="button"
+                    onClick={() => onScheduleChange(task.dueDate, undefined)}
+                    title="清除时间"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+};
+
 const TaskCardImpl: React.FC<TaskCardProps> = ({
   task,
   colId,
@@ -617,6 +961,7 @@ const TaskCardImpl: React.FC<TaskCardProps> = ({
 }) => {
   const [isFileDragOver, setIsFileDragOver] = useState(false);
   const [isEffortPressed, setIsEffortPressed] = useState(false);
+  const [scheduleHoverOpen, setScheduleHoverOpen] = useState(false);
   const isDone = task.status === "done";
   const showInsertBefore = insertPosition === "before";
   const showInsertAfter = insertPosition === "after";
@@ -664,9 +1009,9 @@ const TaskCardImpl: React.FC<TaskCardProps> = ({
         <div className="mb-1.5 h-0.5 w-full rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary)/0.55)]" />
       )}
       <div
-        draggable={!isRenaming && !isEffortPressed}
+        draggable={!isRenaming && !isEffortPressed && !scheduleHoverOpen}
         onDragStart={(e) => {
-          if (isRenaming || isEffortPressed) {
+          if (isRenaming || isEffortPressed || scheduleHoverOpen) {
             e.preventDefault();
             return;
           }
@@ -840,17 +1185,20 @@ const TaskCardImpl: React.FC<TaskCardProps> = ({
                 />
               )}
               {showDate && task.dueDate && (
-                <button
-                  onClick={() => actions.openTaskEditor(task)}
+                <TaskQuickScheduleTrigger
+                  task={task}
+                  disabled={isBeingDragged}
+                  onOpenEditor={() => actions.openTaskEditor(task)}
+                  onScheduleChange={(d, tm) => actions.setTaskSchedule(task.id, d, tm)}
                   className="flex items-center gap-1 rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary transition-colors hover:bg-primary/15"
-                  title={t("kanban.schedule")}
+                  title="悬停快捷改期 · 点击打开详情设置"
                 >
                   <Calendar className="h-2.5 w-2.5" />
                   <span>
                     {formatShortDate(task.dueDate)}
                     {task.startTime ? ` ${task.startTime}` : ""}
                   </span>
-                </button>
+                </TaskQuickScheduleTrigger>
               )}
               {showImage && task.imagePreview && (
                 <button
@@ -891,7 +1239,13 @@ const TaskCardImpl: React.FC<TaskCardProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 transition sm:group-hover:opacity-100">
+            <div
+              className={`flex items-center gap-0.5 transition ${
+                scheduleHoverOpen
+                  ? "opacity-100"
+                  : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+              }`}
+            >
               <button
                 type="button"
                 onClick={(e) => {
@@ -903,13 +1257,21 @@ const TaskCardImpl: React.FC<TaskCardProps> = ({
               >
                 <Pencil className="h-3 w-3" />
               </button>
-              <button
-                onClick={() => actions.openTaskEditor(task)}
-                className="rounded p-1 text-zinc-400 hover:bg-white/[0.08] hover:text-shiba-300"
-                title={t("kanban.schedule")}
+              <TaskQuickScheduleTrigger
+                task={task}
+                disabled={isBeingDragged}
+                onOpenChange={setScheduleHoverOpen}
+                onOpenEditor={() => actions.openTaskEditor(task)}
+                onScheduleChange={(d, tm) => actions.setTaskSchedule(task.id, d, tm)}
+                className={`rounded p-1 transition-colors hover:bg-white/[0.08] ${
+                  scheduleHoverOpen
+                    ? "bg-primary/15 text-primary"
+                    : "text-zinc-400 hover:text-shiba-300"
+                }`}
+                title="悬停快捷设置日期 · 点击打开完整弹窗"
               >
                 <Calendar className="h-3 w-3" />
-              </button>
+              </TaskQuickScheduleTrigger>
               {!isDone && (
                 <button
                   onClick={() => actions.startFocus(task)}

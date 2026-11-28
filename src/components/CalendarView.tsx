@@ -29,6 +29,7 @@ import { savePastedImage, uid } from "../lib/storage";
 import { useI18n } from "../lib/i18n";
 import { Button } from "./ui/button";
 import { ColumnSelect } from "./ui/column-select";
+import { TimePicker } from "./ui/date-time-picker";
 import { Input } from "./ui/input";
 import { Separator } from "./ui/separator";
 import {
@@ -963,10 +964,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     value={quickColId}
                     onChange={setQuickColId}
                   />
-                  <Input
-                    type="time"
+                  <TimePicker
                     value={quickTime}
-                    onChange={(e) => setQuickTime(e.target.value)}
+                    onChange={setQuickTime}
+                    placeholder="时间"
+                    clearable
                     className="w-28"
                   />
                 </div>

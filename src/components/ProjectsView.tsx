@@ -261,7 +261,25 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   );
 
   // Right-side Embedded Project Explorer + Seer Spacebar Preview state
-  const [explorerOpen, setExplorerOpen] = useState(true);
+  const EXPLORER_OPEN_STORAGE_KEY = "shibaplan_projects_explorer_open";
+  const [explorerOpen, setExplorerOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(EXPLORER_OPEN_STORAGE_KEY);
+      if (saved === "false") return false;
+      if (saved === "true") return true;
+    } catch {
+      // ignore
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(EXPLORER_OPEN_STORAGE_KEY, String(explorerOpen));
+    } catch {
+      // ignore
+    }
+  }, [explorerOpen]);
   const [explorerViewMode, setExplorerViewMode] = useState<"list" | "icons">(
     () => {
       try {

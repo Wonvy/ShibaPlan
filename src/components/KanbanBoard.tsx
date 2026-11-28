@@ -810,8 +810,24 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   );
 
   // Compact card collapse state & hover large image preview
+  const COLLAPSED_CARDS_STORAGE_KEY = "shibaplan_kanban_collapsed_cards";
   const [collapsedCards, setCollapsedCards] = useState<Record<string, boolean>>(
-    {}
+    () => {
+      if (typeof window === "undefined") return {};
+      try {
+        const raw = window.localStorage.getItem(COLLAPSED_CARDS_STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        if (!parsed || typeof parsed !== "object") return {};
+        const cleaned: Record<string, boolean> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (v === true) cleaned[k] = true;
+        }
+        return cleaned;
+      } catch {
+        return {};
+      }
+    }
   );
   const [hoveredImage, setHoveredImage] = useState<{
     src: string;
@@ -820,7 +836,23 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   } | null>(null);
 
   const toggleCardCollapse = useCallback((taskId: string) => {
-    setCollapsedCards((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
+    setCollapsedCards((prev) => {
+      const next = { ...prev };
+      if (next[taskId]) {
+        delete next[taskId];
+      } else {
+        next[taskId] = true;
+      }
+      try {
+        window.localStorage.setItem(
+          COLLAPSED_CARDS_STORAGE_KEY,
+          JSON.stringify(next)
+        );
+      } catch {
+        // ignore
+      }
+      return next;
+    });
   }, []);
 
   const handleImageHover = useCallback(
@@ -1470,6 +1502,24 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   );
 
+  const setTaskSchedule = useStableCallback(
+    (taskId: string, dueDate?: string, startTime?: string) => {
+      const ws = workspaceRef.current;
+      onUpdateRef.current({
+        ...ws,
+        tasks: ws.tasks.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                dueDate: dueDate || undefined,
+                startTime: startTime || undefined,
+              }
+            : t
+        ),
+      });
+    }
+  );
+
   const deleteTask = useStableCallback((id: string) => {
     const ws = workspaceRef.current;
     onUpdateRef.current({
@@ -1705,6 +1755,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       onImageLeave: handleImageLeave,
       cycleEffort,
       setEstimatedMinutes,
+      setTaskSchedule,
       openTaskEditor,
       startRename: startRenameTask,
       commitRename: commitRenameTask,
@@ -1728,6 +1779,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       handleImageLeave,
       cycleEffort,
       setEstimatedMinutes,
+      setTaskSchedule,
       openTaskEditor,
       startRenameTask,
       commitRenameTask,

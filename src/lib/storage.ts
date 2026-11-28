@@ -60,6 +60,7 @@ export function createDefaultWorkspace(): WorkspaceData {
     ],
     trashedIdeas: [],
     memos: [],
+    trashedMemos: [],
     memoFolders: [],
     focusLogs: [],
     infoBoards: createDefaultInfoBoards(),
@@ -104,6 +105,7 @@ function normalizeWorkspace(raw: Partial<WorkspaceData>): WorkspaceData {
     ideas: Array.isArray(raw.ideas) ? raw.ideas : fallback.ideas,
     trashedIdeas: Array.isArray(raw.trashedIdeas) ? raw.trashedIdeas : [],
     memos: Array.isArray(raw.memos) ? raw.memos : [],
+    trashedMemos: Array.isArray(raw.trashedMemos) ? raw.trashedMemos : [],
     memoFolders: Array.isArray(raw.memoFolders) ? raw.memoFolders : [],
     focusLogs: Array.isArray(raw.focusLogs) ? raw.focusLogs : [],
     infoBoards:

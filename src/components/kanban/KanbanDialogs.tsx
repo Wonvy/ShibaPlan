@@ -4,6 +4,7 @@ import { BoardColumn, TaskAttachment, TaskItem } from "../../types";
 import { openPathInOs } from "../../lib/storage";
 import { useI18n } from "../../lib/i18n";
 import { Button } from "../ui/button";
+import { DatePicker, TimePicker } from "../ui/date-time-picker";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import {
@@ -420,15 +421,17 @@ export const TaskEditorDialog: React.FC<{
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <Input
-                type="date"
+              <DatePicker
                 value={editDueDate}
-                onChange={(e) => setEditDueDate(e.target.value)}
+                onChange={setEditDueDate}
+                placeholder="选择日期"
+                clearable
               />
-              <Input
-                type="time"
+              <TimePicker
                 value={editStartTime}
-                onChange={(e) => setEditStartTime(e.target.value)}
+                onChange={setEditStartTime}
+                placeholder="选择时间"
+                clearable
               />
             </div>
           </div>

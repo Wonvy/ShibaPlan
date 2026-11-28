@@ -41,6 +41,7 @@ import {
   Quote,
   Redo2,
   RefreshCw,
+  RotateCcw,
   Search,
   StickyNote,
   Strikethrough,
@@ -51,7 +52,12 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { MemoFolder, MemoItem, WorkspaceData } from "../types";
+import {
+  MemoFolder,
+  MemoItem,
+  TrashedMemoItem,
+  WorkspaceData,
+} from "../types";
 import { saveMemoImage, uid } from "../lib/storage";
 import {
   computeRenewedDate,
@@ -80,6 +86,7 @@ import {
 } from "./MarkdownPreview";
 import { Button } from "./ui/button";
 import { CustomSelect } from "./ui/custom-select";
+import { DatePicker } from "./ui/date-time-picker";
 import {
   Dialog,
   DialogContent,
@@ -99,6 +106,15 @@ interface MemosViewProps {
 type FilterMode = "all" | "expiring" | string;
 type EditorMode = "edit" | "split" | "preview";
 type SidebarViewMode = "folder" | "timeline";
+type SidebarContextMenu =
+  | {
+      kind: "memo";
+      memoId: string;
+      left: number;
+      top: number;
+      showFolderPicker?: boolean;
+    }
+  | { kind: "folder"; folderId: string; left: number; top: number };
 
 const EDITOR_MODE_KEY = "shibaplan_memo_editor_mode";
 const SIDEBAR_MODE_KEY = "shibaplan_memo_sidebar_mode";
@@ -313,6 +329,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
   onNotify,
 }) => {
   const memos = workspace.memos ?? [];
+  const trashedMemos = workspace.trashedMemos ?? [];
   const folders = workspace.memoFolders ?? [];
 
   const workspaceRef = useRef(workspace);
@@ -330,7 +347,10 @@ export const MemosView: React.FC<MemosViewProps> = ({
     useState<number>(TIMELINE_BATCH_SIZE);
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const timelineSentinelRef = useRef<HTMLDivElement>(null);
-  const [deleteTarget, setDeleteTarget] = useState<MemoItem | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false);
+  const [sidebarCtxMenu, setSidebarCtxMenu] =
+    useState<SidebarContextMenu | null>(null);
   const [savingImage, setSavingImage] = useState(false);
   const [editorDragOver, setEditorDragOver] = useState(false);
   const [openMenu, setOpenMenu] = useState<{
@@ -348,7 +368,6 @@ export const MemosView: React.FC<MemosViewProps> = ({
   } | null>(null);
   const [historyRev, setHistoryRev] = useState(0);
   const historyMapRef = useRef<Map<string, MemoHistoryState>>(new Map());
-  const expiryInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<MarkdownPreviewHandle>(null);
   const editorBackdropRef = useRef<HTMLDivElement>(null);
 
@@ -377,7 +396,26 @@ export const MemosView: React.FC<MemosViewProps> = ({
   const [newFolderName, setNewFolderName] = useState("");
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
   const [renamingFolderName, setRenamingFolderName] = useState("");
-  const [ungroupedCollapsed, setUngroupedCollapsed] = useState(false);
+  const UNGROUPED_COLLAPSED_KEY = "shibaplan_memos_ungrouped_collapsed";
+  const [ungroupedCollapsed, setUngroupedCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(UNGROUPED_COLLAPSED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        UNGROUPED_COLLAPSED_KEY,
+        String(ungroupedCollapsed)
+      );
+    } catch {
+      // ignore
+    }
+  }, [ungroupedCollapsed]);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const [draggingMemoId, setDraggingMemoId] = useState<string | null>(null);
 
@@ -429,6 +467,22 @@ export const MemosView: React.FC<MemosViewProps> = ({
       window.removeEventListener("keydown", onKey);
     };
   }, [openMenu]);
+
+  useEffect(() => {
+    if (!sidebarCtxMenu) return;
+    const close = () => setSidebarCtxMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [sidebarCtxMenu]);
 
   const toggleAnchoredMenu = (
     kind: "filterTag" | "memoTag" | "memoMore" | "heading" | "insert",
@@ -997,18 +1051,82 @@ export const MemosView: React.FC<MemosViewProps> = ({
     onNotify("已导出 Markdown 文件");
   };
 
-  const handleConfirmDelete = () => {
-    if (!deleteTarget) return;
-    const nextMemos = memos.filter((m) => m.id !== deleteTarget.id);
-    onUpdate({
-      ...workspace,
+  const moveMemoToTrash = (memo: MemoItem) => {
+    const ws = workspaceRef.current;
+    const curMemos = ws.memos ?? [];
+    const curTrashed = ws.trashedMemos ?? [];
+    const nextMemos = curMemos.filter((m) => m.id !== memo.id);
+    const trashedItem: TrashedMemoItem = {
+      ...memo,
+      deletedAt: new Date().toISOString(),
+    };
+    onUpdateRef.current({
+      ...ws,
       memos: nextMemos,
+      trashedMemos: [trashedItem, ...curTrashed.filter((t) => t.id !== memo.id)],
     });
-    if (selectedMemoId === deleteTarget.id) {
+    if (selectedMemoId === memo.id || activeMemo?.id === memo.id) {
       onSelectMemo(nextMemos[0]?.id ?? null);
     }
-    setDeleteTarget(null);
-    onNotify("已删除备忘");
+    onNotify("已移入回收站");
+  };
+
+  const duplicateMemo = (memo: MemoItem) => {
+    const now = new Date().toISOString();
+    const copyTitle = memo.title.trim()
+      ? `${memo.title.trim()} (副本)`
+      : "未命名备忘 (副本)";
+    const copy: MemoItem = {
+      ...memo,
+      id: uid("memo"),
+      title: copyTitle,
+      pinned: false,
+      dailyDate: undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const ws = workspaceRef.current;
+    onUpdateRef.current({
+      ...ws,
+      memos: [copy, ...(ws.memos ?? [])],
+    });
+    onSelectMemo(copy.id);
+    onNotify("已创建笔记副本");
+  };
+
+  const restoreMemoFromTrash = (item: TrashedMemoItem) => {
+    const { deletedAt: _d, ...rest } = item;
+    const ws = workspaceRef.current;
+    const restored: MemoItem =
+      rest.folderId && folderIdSet.has(rest.folderId)
+        ? rest
+        : { ...rest, folderId: undefined };
+    onUpdateRef.current({
+      ...ws,
+      memos: [restored, ...(ws.memos ?? [])],
+      trashedMemos: (ws.trashedMemos ?? []).filter((t) => t.id !== item.id),
+    });
+    onSelectMemo(restored.id);
+    onNotify("已从回收站恢复笔记");
+  };
+
+  const permanentDeleteTrashedMemo = (id: string) => {
+    const ws = workspaceRef.current;
+    onUpdateRef.current({
+      ...ws,
+      trashedMemos: (ws.trashedMemos ?? []).filter((t) => t.id !== id),
+    });
+    onNotify("已彻底删除笔记");
+  };
+
+  const emptyMemoTrash = () => {
+    const ws = workspaceRef.current;
+    onUpdateRef.current({
+      ...ws,
+      trashedMemos: [],
+    });
+    setConfirmEmptyTrash(false);
+    onNotify("已清空笔记回收站");
   };
 
   // Per-memo undo/redo content helper
@@ -1909,7 +2027,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
   // Support Ctrl+V image paste in preview editable blocks or when no input is focused
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
-      if (deleteTarget) return;
+      if (trashOpen) return;
       const active = document.activeElement;
       if (
         active &&
@@ -1969,7 +2087,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
     activeMemo,
     activeLineRange,
     commitMemoContent,
-    deleteTarget,
+    trashOpen,
     insertImageFiles,
     onNotify,
   ]);
@@ -2240,11 +2358,31 @@ export const MemosView: React.FC<MemosViewProps> = ({
           setDraggingMemoId(null);
           setDragOverFolderId(null);
         }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpenMenu(null);
+          const menuW = 192;
+          const estH = 300;
+          const left = Math.max(
+            8,
+            Math.min(e.clientX, window.innerWidth - menuW - 8)
+          );
+          const top = Math.max(
+            8,
+            Math.min(e.clientY, window.innerHeight - estH - 8)
+          );
+          setSidebarCtxMenu({ kind: "memo", memoId: memo.id, left, top });
+        }}
         onClick={() => onSelectMemo(memo.id)}
         className={`flex w-full flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors ${
           isSelected
             ? "bg-foreground/[0.07] text-foreground"
             : "text-foreground/90 hover:bg-foreground/[0.035]"
+        } ${
+          sidebarCtxMenu?.kind === "memo" && sidebarCtxMenu.memoId === memo.id
+            ? "ring-1 ring-primary/45"
+            : ""
         } ${draggingMemoId === memo.id ? "opacity-55" : ""}`}
       >
         <div className="flex items-center justify-between gap-2">
@@ -2801,6 +2939,27 @@ export const MemosView: React.FC<MemosViewProps> = ({
                         onClick={() => {
                           if (!isRenaming) toggleFolderCollapsed(folder.id);
                         }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOpenMenu(null);
+                          const menuW = 192;
+                          const estH = 200;
+                          const left = Math.max(
+                            8,
+                            Math.min(e.clientX, window.innerWidth - menuW - 8)
+                          );
+                          const top = Math.max(
+                            8,
+                            Math.min(e.clientY, window.innerHeight - estH - 8)
+                          );
+                          setSidebarCtxMenu({
+                            kind: "folder",
+                            folderId: folder.id,
+                            left,
+                            top,
+                          });
+                        }}
                         className={`group flex h-7 cursor-pointer items-center justify-between gap-1.5 rounded-md border px-2 text-xs transition-colors ${
                           isDropTarget
                             ? "border-primary/45 bg-primary/10 text-foreground"
@@ -2970,6 +3129,32 @@ export const MemosView: React.FC<MemosViewProps> = ({
                 )}
               </div>
             )}
+          </div>
+
+          {/* Sidebar Bottom: Recycle Bin Entry */}
+          <div className="shrink-0 border-t border-border/50 p-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmEmptyTrash(false);
+                setTrashOpen(true);
+              }}
+              className="flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
+            >
+              <span className="flex items-center gap-2">
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>回收站</span>
+              </span>
+              <span
+                className={`rounded px-1.5 py-0.5 font-mono text-[10.5px] leading-none ${
+                  trashedMemos.length > 0
+                    ? "bg-primary/12 text-primary font-medium"
+                    : "text-muted-foreground/75"
+                }`}
+              >
+                {trashedMemos.length}
+              </span>
+            </button>
           </div>
         </aside>
 
@@ -3143,10 +3328,7 @@ export const MemosView: React.FC<MemosViewProps> = ({
                 {!activeMemo.expiresAt && !editingExpiry ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      setEditingExpiry(true);
-                      setTimeout(() => expiryInputRef.current?.focus(), 20);
-                    }}
+                    onClick={() => setEditingExpiry(true)}
                     className="inline-flex h-6 items-center gap-1 rounded-md border border-dashed border-border/80 px-2 text-xs text-muted-foreground transition-colors hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground"
                   >
                     <CalendarClock className="h-3 w-3" />
@@ -3154,37 +3336,26 @@ export const MemosView: React.FC<MemosViewProps> = ({
                   </button>
                 ) : (
                   <div className="inline-flex flex-wrap items-center gap-1.5">
-                    <div className="inline-flex h-6 items-center gap-1 rounded-md border border-border/70 bg-background/80 px-2">
-                      <CalendarClock className="h-3 w-3 shrink-0 text-muted-foreground" />
-                      <input
-                        ref={expiryInputRef}
-                        type="date"
-                        value={activeMemo.expiresAt ?? ""}
-                        onChange={(e) => {
-                          const val = e.target.value || undefined;
-                          patchMemo(activeMemo.id, { expiresAt: val });
-                          if (!val) setEditingExpiry(false);
-                        }}
-                        onBlur={() => {
-                          if (!activeMemo.expiresAt) setEditingExpiry(false);
-                        }}
-                        className="h-5 bg-transparent font-mono text-xs text-foreground focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          patchMemo(activeMemo.id, {
-                            expiresAt: undefined,
-                            renewDays: undefined,
-                          });
+                    <DatePicker
+                      value={activeMemo.expiresAt ?? ""}
+                      onChange={(val) => {
+                        patchMemo(activeMemo.id, {
+                          expiresAt: val || undefined,
+                          ...(val ? {} : { renewDays: undefined }),
+                        });
+                        if (!val) setEditingExpiry(false);
+                      }}
+                      autoOpen={editingExpiry && !activeMemo.expiresAt}
+                      onOpenChange={(open) => {
+                        if (!open && !activeMemo.expiresAt) {
                           setEditingExpiry(false);
-                        }}
-                        aria-label="清除到期日"
-                        className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
+                        }
+                      }}
+                      placeholder="选择到期日"
+                      clearable
+                      ariaLabel="选择到期日"
+                      className="h-6 w-auto min-w-[128px] border-border/70 bg-background/80 px-2 text-xs"
+                    />
 
                     {activeDaysLeft !== null && (
                       <span
@@ -3585,13 +3756,15 @@ export const MemosView: React.FC<MemosViewProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setDeleteTarget(activeMemo);
+                            moveMemoToTrash(activeMemo);
                             setOpenMenu(null);
                           }}
-                          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-destructive hover:bg-destructive/12"
+                          className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-destructive hover:bg-destructive/12"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          <span>删除备忘</span>
+                          <span className="flex items-center gap-2">
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>移入回收站</span>
+                          </span>
                         </button>
                       </div>
                     )}
@@ -3996,38 +4169,367 @@ export const MemosView: React.FC<MemosViewProps> = ({
           document.body
         )}
 
-      {/* Delete Confirmation Dialog */}
+      {/* Sidebar Right-Click Context Menu (Notes & Folders) */}
+      {sidebarCtxMenu &&
+        typeof document !== "undefined" &&
+        (() => {
+          const ctxMemo =
+            sidebarCtxMenu.kind === "memo"
+              ? memos.find((m) => m.id === sidebarCtxMenu.memoId) ?? null
+              : null;
+          const ctxFolder =
+            sidebarCtxMenu.kind === "folder"
+              ? folders.find((f) => f.id === sidebarCtxMenu.folderId) ?? null
+              : null;
+          if (!ctxMemo && !ctxFolder) return null;
+
+          const itemCls =
+            "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent";
+
+          return createPortal(
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+              style={{ left: sidebarCtxMenu.left, top: sidebarCtxMenu.top }}
+              className="fixed z-[9999] max-h-[75vh] w-48 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-popover-soft"
+            >
+              {sidebarCtxMenu.kind === "memo" && ctxMemo && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextPinned = !ctxMemo.pinned;
+                      patchMemo(ctxMemo.id, { pinned: nextPinned });
+                      onNotify(nextPinned ? "已置顶笔记" : "已取消置顶");
+                      setSidebarCtxMenu(null);
+                    }}
+                    className={itemCls}
+                  >
+                    <Pin className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>{ctxMemo.pinned ? "取消置顶" : "置顶"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectMemo(ctxMemo.id);
+                      setSidebarCtxMenu(null);
+                      setTimeout(() => {
+                        titleInputRef.current?.focus();
+                        titleInputRef.current?.select();
+                      }, 25);
+                    }}
+                    className={itemCls}
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>重命名</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      duplicateMemo(ctxMemo);
+                      setSidebarCtxMenu(null);
+                    }}
+                    className={itemCls}
+                  >
+                    <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>创建副本</span>
+                  </button>
+                  {(folders.length > 0 || Boolean(ctxMemo.folderId)) && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSidebarCtxMenu((prev) =>
+                            prev && prev.kind === "memo"
+                              ? {
+                                  ...prev,
+                                  showFolderPicker: !prev.showFolderPicker,
+                                }
+                              : prev
+                          );
+                        }}
+                        className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-popover-foreground transition-colors hover:bg-accent"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Folder className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span>移动到文件夹</span>
+                        </span>
+                        <ChevronRight
+                          className={`h-3 w-3 text-muted-foreground transition-transform ${
+                            sidebarCtxMenu.showFolderPicker ? "rotate-90" : ""
+                          }`}
+                        />
+                      </button>
+                      {sidebarCtxMenu.showFolderPicker && (
+                        <div className="mt-0.5 max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-border/60 bg-background/60 p-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              moveMemoToFolder(ctxMemo.id, undefined);
+                              setSidebarCtxMenu(null);
+                            }}
+                            className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11.5px] text-popover-foreground hover:bg-accent"
+                          >
+                            <span>未分组</span>
+                            {(!ctxMemo.folderId ||
+                              !folderIdSet.has(ctxMemo.folderId)) && (
+                              <Check className="h-3 w-3 text-primary" />
+                            )}
+                          </button>
+                          {folders.map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => {
+                                moveMemoToFolder(ctxMemo.id, f.id);
+                                setSidebarCtxMenu(null);
+                              }}
+                              className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11.5px] text-popover-foreground hover:bg-accent"
+                            >
+                              <span className="truncate">{f.name}</span>
+                              {ctxMemo.folderId === f.id && (
+                                <Check className="h-3 w-3 shrink-0 text-primary" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="my-1 h-px bg-border/60" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCopyMemo(ctxMemo);
+                      setSidebarCtxMenu(null);
+                    }}
+                    className={itemCls}
+                  >
+                    <FileCode2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>复制 Markdown</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleExportMarkdown(ctxMemo);
+                      setSidebarCtxMenu(null);
+                    }}
+                    className={itemCls}
+                  >
+                    <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>导出为 .md</span>
+                  </button>
+
+                  <div className="my-1 h-px bg-border/60" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      moveMemoToTrash(ctxMemo);
+                      setSidebarCtxMenu(null);
+                    }}
+                    className="flex w-full items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-destructive/12"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>删除</span>
+                    </span>
+                    <span className="text-[10.5px] text-muted-foreground/80">
+                      回收站
+                    </span>
+                  </button>
+                </>
+              )}
+
+              {sidebarCtxMenu.kind === "folder" && ctxFolder && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      createMemo(undefined, undefined, ctxFolder.id);
+                      setSidebarCtxMenu(null);
+                    }}
+                    className={itemCls}
+                  >
+                    <Plus className="h-3.5 w-3.5 text-primary" />
+                    <span>在此文件夹新建笔记</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      startRenameFolder(ctxFolder);
+                      setSidebarCtxMenu(null);
+                    }}
+                    className={itemCls}
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span>重命名文件夹</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toggleFolderCollapsed(ctxFolder.id);
+                      setSidebarCtxMenu(null);
+                    }}
+                    className={itemCls}
+                  >
+                    {ctxFolder.collapsed ? (
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                    <span>
+                      {ctxFolder.collapsed ? "展开文件夹" : "折叠文件夹"}
+                    </span>
+                  </button>
+
+                  <div className="my-1 h-px bg-border/60" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDeleteFolder(ctxFolder.id);
+                      setSidebarCtxMenu(null);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-destructive/12"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>删除文件夹</span>
+                  </button>
+                </>
+              )}
+            </div>,
+            document.body
+          );
+        })()}
+
+      {/* Memo Recycle Bin Dialog */}
       <Dialog
-        open={Boolean(deleteTarget)}
+        open={trashOpen}
         onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
+          setTrashOpen(open);
+          if (!open) setConfirmEmptyTrash(false);
         }}
       >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>确认删除备忘</DialogTitle>
-          </DialogHeader>
-          <Separator className="my-2.5" />
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            确定要删除「{deleteTarget?.title.trim() || "未命名备忘"}」吗？
-          </p>
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => setDeleteTarget(null)}
-            >
-              取消
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={handleConfirmDelete}
-            >
-              删除
-            </Button>
+        <DialogContent className="flex max-h-[80vh] max-w-lg flex-col p-0 select-text">
+          <div className="flex items-center justify-between px-5 py-3.5">
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-muted-foreground" />
+              笔记回收站
+              <span className="text-xs font-normal text-muted-foreground">
+                ({trashedMemos.length})
+              </span>
+            </DialogTitle>
+
+            {trashedMemos.length > 0 && (
+              <div className="mr-6 flex items-center gap-1.5">
+                {confirmEmptyTrash ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmEmptyTrash(false)}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={emptyMemoTrash}
+                    >
+                      确认清空
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setConfirmEmptyTrash(true)}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    清空回收站
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="flex-1 space-y-2 overflow-y-auto p-4">
+            {trashedMemos.length === 0 ? (
+              <div className="py-10 text-center text-xs text-muted-foreground">
+                回收站为空，删除的笔记会暂存到这里
+              </div>
+            ) : (
+              trashedMemos.map((item) => {
+                const folderName =
+                  item.folderId && folderIdSet.has(item.folderId)
+                    ? folderNameMap.get(item.folderId)
+                    : undefined;
+                const previewText = stripMarkdownPreview(item.content);
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-start justify-between gap-3 rounded-xl border border-border/60 bg-background p-3 shadow-card-rest"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-xs font-medium text-foreground">
+                          {item.title.trim() || "未命名备忘"}
+                        </span>
+                        {item.tag.trim() && (
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {item.tag}
+                          </span>
+                        )}
+                        {folderName && (
+                          <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                            {folderName}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-[11.5px] text-muted-foreground">
+                        {previewText || "暂无正文..."}
+                      </p>
+                      <div className="mt-1.5 text-[10.5px] text-muted-foreground/75 tabular-nums">
+                        删除于 {formatUpdatedAt(item.deletedAt)}
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => restoreMemoFromTrash(item)}
+                        title="恢复笔记"
+                        aria-label="恢复笔记"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => permanentDeleteTrashedMemo(item.id)}
+                        className="hover:text-destructive"
+                        title="彻底删除"
+                        aria-label="彻底删除"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </DialogContent>
       </Dialog>

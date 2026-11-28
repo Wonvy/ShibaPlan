@@ -107,6 +107,27 @@ const SettingsDialog = lazy(() =>
 
 type TopView = "projects" | "kanban" | "calendar" | "memos" | "info";
 
+const ACTIVE_VIEW_STORAGE_KEY = "shibaplan_active_view";
+
+function loadInitialTopView(): TopView {
+  if (typeof window === "undefined") return "kanban";
+  try {
+    const saved = window.localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
+    if (
+      saved === "projects" ||
+      saved === "kanban" ||
+      saved === "calendar" ||
+      saved === "memos" ||
+      saved === "info"
+    ) {
+      return saved;
+    }
+  } catch {
+    // ignore
+  }
+  return "kanban";
+}
+
 const MAX_HISTORY = 30;
 const HISTORY_COALESCE_MS = 800;
 
@@ -330,7 +351,15 @@ const MainWorkspace: React.FC<MainWorkspaceProps> = ({
 }) => {
   const { t, locale } = useI18n();
 
-  const [view, setView] = useState<TopView>("kanban");
+  const [view, setView] = useState<TopView>(loadInitialTopView);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
+    } catch {
+      // ignore
+    }
+  }, [view]);
   const {
     runtimeMap: infoRuntimeMap,
     runWidget: runInfoWidget,

@@ -70,8 +70,60 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
   // Latest workspace snapshot for stable callbacks (avoids `workspace` in deps)
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
-  // Dock layout: collapsible + resizable height
-  const [collapsed, setCollapsed] = useState(false);
+  // Dock layout: collapsible + resizable height (persisted in localStorage)
+  const RIVER_UI_STATE_KEY = "shibaplan_river_ui_state";
+  const initialRiverUi = useMemo(() => {
+    const defaultHeight =
+      typeof window !== "undefined" && window.innerWidth < 640 ? 176 : 236;
+    const defaults: {
+      collapsed: boolean;
+      height: number;
+      viewMode: IdeaViewMode;
+      speed: RiverSpeed;
+      paused: boolean;
+    } = {
+      collapsed: false,
+      height: defaultHeight,
+      viewMode: "river",
+      speed: "slow",
+      paused: false,
+    };
+    if (typeof window === "undefined") return defaults;
+    try {
+      const raw = window.localStorage.getItem(RIVER_UI_STATE_KEY);
+      if (!raw) return defaults;
+      const parsed = JSON.parse(raw) as Partial<typeof defaults>;
+      return {
+        collapsed:
+          typeof parsed.collapsed === "boolean"
+            ? parsed.collapsed
+            : defaults.collapsed,
+        height:
+          typeof parsed.height === "number" &&
+          Number.isFinite(parsed.height) &&
+          parsed.height >= 120 &&
+          parsed.height <= 480
+            ? Math.round(parsed.height)
+            : defaults.height,
+        viewMode:
+          parsed.viewMode === "list" || parsed.viewMode === "river"
+            ? parsed.viewMode
+            : defaults.viewMode,
+        speed:
+          parsed.speed === "slow" ||
+          parsed.speed === "normal" ||
+          parsed.speed === "fast"
+            ? parsed.speed
+            : defaults.speed,
+        paused:
+          typeof parsed.paused === "boolean" ? parsed.paused : defaults.paused,
+      };
+    } catch {
+      return defaults;
+    }
+  }, []);
+
+  const [collapsed, setCollapsed] = useState<boolean>(initialRiverUi.collapsed);
   const [liveWeather, setLiveWeather] = useState<IdeaWeather | null>(() =>
     getCachedWeatherSync()
   );
@@ -166,20 +218,32 @@ export const IdeaRiver: React.FC<IdeaRiverProps> = ({
       },
     });
   };
-  const [height, setHeight] = useState(() =>
-    typeof window !== "undefined" && window.innerWidth < 640 ? 176 : 236
-  );
+  const [height, setHeight] = useState<number>(initialRiverUi.height);
   const [resizing, setResizing] = useState(false);
 
   // View mode: flowing river vs paginated list
-  const [viewMode, setViewMode] = useState<IdeaViewMode>("river");
+  const [viewMode, setViewMode] = useState<IdeaViewMode>(
+    initialRiverUi.viewMode
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const lastWheelRef = useRef(0);
 
   // River flow state
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState<boolean>(initialRiverUi.paused);
   const [hoveredRiver, setHoveredRiver] = useState(false);
-  const [speed, setSpeed] = useState<RiverSpeed>("slow");
+  const [speed, setSpeed] = useState<RiverSpeed>(initialRiverUi.speed);
+
+  useEffect(() => {
+    if (resizing) return;
+    try {
+      window.localStorage.setItem(
+        RIVER_UI_STATE_KEY,
+        JSON.stringify({ collapsed, height, viewMode, speed, paused })
+      );
+    } catch {
+      // ignore
+    }
+  }, [collapsed, height, viewMode, speed, paused, resizing]);
 
   // Hover full-content tooltip state
   const [hoveredCard, setHoveredCard] = useState<{

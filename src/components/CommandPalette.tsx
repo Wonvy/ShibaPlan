@@ -211,7 +211,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       });
     });
 
-    // 3. Trashed ideas (when searching)
+    // 3. Trashed ideas & memos (when searching)
     if (q) {
       workspace.trashedIdeas.forEach((item) => {
         const hay = `${item.content} ${item.tag ?? ""}`.toLowerCase();
@@ -233,6 +233,38 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             });
             onOpenChange(false);
             onNotify("已从回收站恢复灵感");
+          },
+        });
+      });
+
+      (workspace.trashedMemos ?? []).forEach((item) => {
+        const hay = `${item.title} ${item.tag} ${item.content}`.toLowerCase();
+        if (!hay.includes(q)) return;
+        list.push({
+          id: `trash-memo-${item.id}`,
+          group: "trash",
+          title: item.title.trim() || "未命名备忘",
+          subtitle: "笔记回收站 · 回车恢复并打开",
+          icon: <RotateCcw className="h-3.5 w-3.5 text-muted-foreground" />,
+          onSelect: () => {
+            const { deletedAt: _d, ...restored } = item;
+            const folderValid =
+              restored.folderId &&
+              (workspace.memoFolders ?? []).some((f) => f.id === restored.folderId);
+            const cleanMemo = folderValid
+              ? restored
+              : { ...restored, folderId: undefined };
+            onUpdate({
+              ...workspace,
+              memos: [cleanMemo, ...(workspace.memos ?? [])],
+              trashedMemos: (workspace.trashedMemos ?? []).filter(
+                (t) => t.id !== item.id
+              ),
+            });
+            onOpenChange(false);
+            onSwitchView("memos");
+            onOpenMemo?.(cleanMemo.id);
+            onNotify("已从回收站恢复笔记");
           },
         });
       });

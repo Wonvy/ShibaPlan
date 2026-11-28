@@ -20,6 +20,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 mod info_runner;
+mod window_state;
 
 pub(crate) fn resolve_data_dir(custom_dir: Option<String>) -> PathBuf {
     if let Some(dir) = custom_dir {
@@ -2951,7 +2952,13 @@ pub fn run() {
                     "open_docs" => {
                         let _ = open_docs_window_internal(app, None);
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        if let Some(mgr) = app.try_state::<window_state::WindowStateManager>() {
+                            let main_win = app.get_webview_window("main");
+                            mgr.flush_main_window(main_win.as_ref());
+                        }
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -2971,13 +2978,15 @@ pub fn run() {
             tray_builder.build(app)?;
             eprintln!("[ShibaPlan] tray built");
 
+            let win_state = window_state::WindowStateManager::new(app.handle());
+            app.manage(win_state);
+
             if let Some(win) = app.get_webview_window("main") {
-                eprintln!("[ShibaPlan] main window exists, showing...");
+                eprintln!("[ShibaPlan] main window exists, restoring state and showing...");
                 #[cfg(target_os = "windows")]
                 attach_webview2_drop_path_resolver(&win);
-                let _ = win.show();
-                let _ = win.unminimize();
-                let _ = win.set_focus();
+                app.state::<window_state::WindowStateManager>()
+                    .restore_and_show_main(&win);
                 eprintln!("[ShibaPlan] main window visible={:?}", win.is_visible());
             } else {
                 eprintln!("[ShibaPlan] ERROR: main window NOT FOUND!");
@@ -2986,7 +2995,24 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            WindowEvent::Resized(_)
+            | WindowEvent::Moved(_)
+            | WindowEvent::ScaleFactorChanged { .. } => {
+                if window.label() == "main" {
+                    if let Some(mgr) = window.try_state::<window_state::WindowStateManager>() {
+                        if let Some(web_win) = window.app_handle().get_webview_window("main") {
+                            mgr.record_main_window(&web_win);
+                        }
+                    }
+                }
+            }
             WindowEvent::CloseRequested { api, .. } => {
+                if window.label() == "main" {
+                    if let Some(mgr) = window.try_state::<window_state::WindowStateManager>() {
+                        let web_win = window.app_handle().get_webview_window("main");
+                        mgr.flush_main_window(web_win.as_ref());
+                    }
+                }
                 // In release builds, hide to system tray instead of exiting so global shortcut stays active.
                 // In debug builds, let the main window exit cleanly so it doesn't silently block the installed app via single-instance.
                 #[cfg(not(debug_assertions))]
@@ -2998,6 +3024,13 @@ pub fn run() {
                 if window.label() == "capture" {
                     let _ = window.hide();
                     api.prevent_close();
+                }
+            }
+            WindowEvent::Destroyed => {
+                if window.label() == "main" {
+                    if let Some(mgr) = window.try_state::<window_state::WindowStateManager>() {
+                        mgr.flush_main_window(None);
+                    }
                 }
             }
             WindowEvent::DragDrop(drag_event) => {

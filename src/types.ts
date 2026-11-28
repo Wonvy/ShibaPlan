@@ -120,6 +120,10 @@ export interface MemoItem {
   updatedAt: string;
 }
 
+export interface TrashedMemoItem extends MemoItem {
+  deletedAt: string;
+}
+
 export interface FocusLog {
   id: string;
   taskId: string;
@@ -318,6 +322,7 @@ export interface WorkspaceData {
   ideas: IdeaItem[];
   trashedIdeas: TrashedIdeaItem[];
   memos: MemoItem[];
+  trashedMemos?: TrashedMemoItem[];
   memoFolders: MemoFolder[];
   focusLogs: FocusLog[];
   infoBoards?: InfoBoard[];
